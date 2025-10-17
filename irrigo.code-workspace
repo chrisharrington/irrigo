@@ -1,0 +1,29 @@
+{
+    "folders": [
+        {
+            "path": "."
+        }
+    ],
+    "settings": {
+        "editor.defaultFormatter": "esbenp.prettier-vscode",
+        "github.copilot.enable": {
+            "*": true
+        },
+        "jest.jestCommandLine": "bunx jest",
+        "jest.rootPath": ".",
+        "jest.runMode": {
+            "type": "on-demand"
+        },
+        "prettier.useEditorConfig": false,
+        "prettier.singleQuote": true,
+        "prettier.jsxSingleQuote": true,
+        "prettier.tabWidth": 4,
+        "prettier.printWidth": 120,
+        "prettier.arrowParens": "avoid",
+        "prettier.experimentalTernaries": true,
+        "prettier.useTabs": false,
+    },
+    "extensions": {
+        "recommendations": ["github.copilot", "github.copilot-chat", "esbenp.prettier-vscode"]
+    }
+}
