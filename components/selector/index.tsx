@@ -1,10 +1,14 @@
 import { Colours } from '@/constants/colours';
-import { LabelValue } from '@/models';
 import { MaterialIcons } from '@expo/vector-icons';
 import { Animated, ScrollView, Text, TouchableOpacity, View } from 'react-native';
 import { Portal } from 'react-native-portalize';
 import { useSelector } from './hook';
 import { styles as style } from './style';
+
+export type LabelValue = {
+    value: string | null;
+    label: string;
+};
 
 type SelectorProps = {
     /** Required. Controls the visibility of the selector modal. */

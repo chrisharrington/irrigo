@@ -1,6 +1,5 @@
-import { Selector } from '@/components/selector';
+import { LabelValue, Selector } from '@/components/selector';
 import { Colours } from '@/constants/colours';
-import { LabelValue } from '@/models';
 import { MaterialIcons } from '@expo/vector-icons';
 import { Text, TouchableOpacity, View } from 'react-native';
 import { useSelectorButton } from './hook';

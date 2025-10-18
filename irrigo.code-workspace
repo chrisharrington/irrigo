@@ -22,8 +22,18 @@
         "prettier.arrowParens": "avoid",
         "prettier.experimentalTernaries": true,
         "prettier.useTabs": false,
+        "tailwindCSS.experimental.classRegex": [["className\\s*=\\s*['\"`]([^'\"`]*)['\"`]", "([^'\"`]*)"]],
+        "tailwindCSS.includeLanguages": {
+            "typescript": "javascript",
+            "typescriptreact": "javascript"
+        }
     },
     "extensions": {
-        "recommendations": ["github.copilot", "github.copilot-chat", "esbenp.prettier-vscode"]
+        "recommendations": [
+            "github.copilot",
+            "github.copilot-chat",
+            "esbenp.prettier-vscode",
+            "bradlc.vscode-tailwindcss"
+        ]
     }
 }

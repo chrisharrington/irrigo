@@ -5,6 +5,7 @@ import { Stack } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { useEffect } from 'react';
 import { Host } from 'react-native-portalize';
+import '../global.css';
 
 // Prevent the splash screen from auto-hiding before asset loading is complete.
 SplashScreen.preventAutoHideAsync();
@@ -39,6 +40,7 @@ export default function RootLayout() {
                             backgroundColor: Colours.background2,
                         },
                         headerTintColor: Colours.text,
+                        headerShadowVisible: false,
                     }}
                 >
                     <Stack.Screen name='index' />
