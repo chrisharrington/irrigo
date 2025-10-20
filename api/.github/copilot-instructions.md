@@ -120,6 +120,7 @@ describe('AppUpdatePrompt', () => {
     -   Use /\*\* \*/.
     -   Give a general summary.
     -   Provide documentation for parameters and return values.
+    -   When adding documentation for a method, don't generate an example.
 -   When updating code, ensure that all related comments and documentation are also updated.
 
 Here's an example of a well written hook comment:

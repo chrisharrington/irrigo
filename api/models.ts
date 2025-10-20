@@ -1,5 +1,19 @@
 import type dayjs from 'dayjs';
 
+export type DailyWeather = {
+    /** Required. The date of the weather record. */
+    date: dayjs.Dayjs;
+
+    /** Optional. The reference evapotranspiration. */
+    evapotranspirationMmPerDay?: number;
+
+    /** Optional. The total daily rainfall. */
+    rainfallMm?: number;
+
+    /** Optional. The local sunrise time as Dayjs object. */
+    sunrise?: dayjs.Dayjs;
+}
+
 export type GrassType = {
     /** Required. The name of the grass. */
     name: string;
@@ -58,20 +72,6 @@ export type Zone = {
 
     /** Optional. Geographic location of the zone. */
     location?: { lat: number; lon: number };
-}
-
-export type DailyWeather = {
-    /** Required. The date of the weather record. */
-    date: dayjs.Dayjs;
-
-    /** Optional. The reference evapotranspiration. */
-    evapotranspirationMmPerDay?: number;
-
-    /** Optional. The total daily rainfall. */
-    rainfallMm?: number;
-
-    /** Optional. The local sunrise time as Dayjs object. */
-    sunrise?: dayjs.Dayjs;
 }
 
 export type IrrigationCycle = {
