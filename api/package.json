@@ -1,0 +1,23 @@
+{
+  "name": "api",
+  "module": "index.ts",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "start": "bun --watch index.ts",
+    "test": "bun test",
+    "logs": "docker compose logs -f --tail 100 api",
+    "up": "docker compose --profile tools up -d",
+    "down": "docker compose --profile tools down"
+  },
+  "devDependencies": {
+    "@types/bun": "latest"
+  },
+  "peerDependencies": {
+    "typescript": "^5"
+  },
+  "dependencies": {
+    "dayjs": "^1.11.18",
+    "fastify": "^5.6.1"
+  }
+}

@@ -1,0 +1,182 @@
+[
+    {
+        "name": "sand",
+        "label": "Sand",
+        "description": "Coarse-textured soil with large particles. Drains quickly, low water retention.",
+        "texture": "coarse",
+        "availableWaterHoldingCapacityMmPerM": 80,
+        "infiltrationRateMmPerHr": 50,
+        "characteristics": {
+            "drainage": "excellent",
+            "waterRetention": "poor",
+            "workability": "easy",
+            "compaction": "low risk"
+        },
+        "irrigationNotes": "Requires frequent, light irrigation. Short cycle times with frequent applications."
+    },
+    {
+        "name": "loamy-sand",
+        "label": "Loamy Sand",
+        "description": "Sandy soil with some silt and clay. Better water retention than pure sand.",
+        "texture": "coarse",
+        "availableWaterHoldingCapacityMmPerM": 100,
+        "infiltrationRateMmPerHr": 40,
+        "characteristics": {
+            "drainage": "very good",
+            "waterRetention": "fair",
+            "workability": "easy",
+            "compaction": "low risk"
+        },
+        "irrigationNotes": "Moderate irrigation frequency. Can tolerate slightly longer cycle times than sand."
+    },
+    {
+        "name": "sandy-loam",
+        "label": "Sandy Loam",
+        "description": "Well-balanced soil with predominant sand. Good drainage and moderate retention.",
+        "texture": "moderately coarse",
+        "availableWaterHoldingCapacityMmPerM": 125,
+        "infiltrationRateMmPerHr": 30,
+        "characteristics": {
+            "drainage": "good",
+            "waterRetention": "moderate",
+            "workability": "easy",
+            "compaction": "low risk"
+        },
+        "irrigationNotes": "Ideal for turfgrass. Moderate irrigation frequency with good distribution."
+    },
+    {
+        "name": "loam",
+        "label": "Loam",
+        "description": "Ideal soil balance of sand, silt, and clay. Excellent for most plants.",
+        "texture": "medium",
+        "availableWaterHoldingCapacityMmPerM": 150,
+        "infiltrationRateMmPerHr": 25,
+        "characteristics": {
+            "drainage": "good",
+            "waterRetention": "good",
+            "workability": "easy",
+            "compaction": "moderate risk"
+        },
+        "irrigationNotes": "Best overall soil type. Allows longer irrigation cycles with good water storage."
+    },
+    {
+        "name": "silt-loam",
+        "label": "Silt Loam",
+        "description": "High silt content, smooth texture. Very good water and nutrient retention.",
+        "texture": "moderately fine",
+        "availableWaterHoldingCapacityMmPerM": 175,
+        "infiltrationRateMmPerHr": 20,
+        "characteristics": {
+            "drainage": "moderate",
+            "waterRetention": "very good",
+            "workability": "moderate",
+            "compaction": "moderate risk"
+        },
+        "irrigationNotes": "Excellent water storage. Requires cycle and soak to prevent runoff."
+    },
+    {
+        "name": "silt",
+        "label": "Silt",
+        "description": "Predominantly silt particles. High water retention, prone to crusting.",
+        "texture": "moderately fine",
+        "availableWaterHoldingCapacityMmPerM": 165,
+        "infiltrationRateMmPerHr": 15,
+        "characteristics": {
+            "drainage": "moderate to poor",
+            "waterRetention": "very good",
+            "workability": "moderate when dry, sticky when wet",
+            "compaction": "high risk"
+        },
+        "irrigationNotes": "Slower infiltration. Requires multiple short cycles with soak periods."
+    },
+    {
+        "name": "sandy-clay-loam",
+        "label": "Sandy Clay Loam",
+        "description": "Mix of sand and clay with some silt. Moderate drainage and retention.",
+        "texture": "moderately fine",
+        "availableWaterHoldingCapacityMmPerM": 140,
+        "infiltrationRateMmPerHr": 18,
+        "characteristics": {
+            "drainage": "moderate",
+            "waterRetention": "good",
+            "workability": "moderate",
+            "compaction": "moderate risk"
+        },
+        "irrigationNotes": "Balance of retention and drainage. Use cycle and soak on slopes."
+    },
+    {
+        "name": "clay-loam",
+        "label": "Clay Loam",
+        "description": "Higher clay content with sand and silt. Good water storage, slower drainage.",
+        "texture": "moderately fine",
+        "availableWaterHoldingCapacityMmPerM": 165,
+        "infiltrationRateMmPerHr": 13,
+        "characteristics": {
+            "drainage": "moderate to slow",
+            "waterRetention": "very good",
+            "workability": "difficult when wet or dry",
+            "compaction": "high risk"
+        },
+        "irrigationNotes": "Excellent water storage. Requires careful cycle and soak management."
+    },
+    {
+        "name": "silty-clay-loam",
+        "label": "Silty Clay Loam",
+        "description": "High silt and clay content. Excellent water retention, slow drainage.",
+        "texture": "fine",
+        "availableWaterHoldingCapacityMmPerM": 180,
+        "infiltrationRateMmPerHr": 10,
+        "characteristics": {
+            "drainage": "slow",
+            "waterRetention": "excellent",
+            "workability": "difficult",
+            "compaction": "very high risk"
+        },
+        "irrigationNotes": "Maximum water storage. Must use multiple short cycles with long soak periods."
+    },
+    {
+        "name": "sandy-clay",
+        "label": "Sandy Clay",
+        "description": "High clay with significant sand. Sticky when wet, hard when dry.",
+        "texture": "fine",
+        "availableWaterHoldingCapacityMmPerM": 135,
+        "infiltrationRateMmPerHr": 8,
+        "characteristics": {
+            "drainage": "slow",
+            "waterRetention": "good",
+            "workability": "very difficult",
+            "compaction": "very high risk"
+        },
+        "irrigationNotes": "Poor infiltration. Requires very short cycles with extended soak times."
+    },
+    {
+        "name": "silty-clay",
+        "label": "Silty Clay",
+        "description": "Predominantly silt and clay. Very fine texture, excellent water holding.",
+        "texture": "fine",
+        "availableWaterHoldingCapacityMmPerM": 175,
+        "infiltrationRateMmPerHr": 6,
+        "characteristics": {
+            "drainage": "very slow",
+            "waterRetention": "excellent",
+            "workability": "very difficult",
+            "compaction": "very high risk"
+        },
+        "irrigationNotes": "Highest water storage but very slow infiltration. Requires extensive cycle and soak."
+    },
+    {
+        "name": "clay",
+        "label": "Clay",
+        "description": "Heavy clay soil with very fine particles. Maximum water retention, minimal drainage.",
+        "texture": "very fine",
+        "availableWaterHoldingCapacityMmPerM": 170,
+        "infiltrationRateMmPerHr": 4,
+        "characteristics": {
+            "drainage": "very slow to none",
+            "waterRetention": "excellent",
+            "workability": "extremely difficult",
+            "compaction": "extreme risk"
+        },
+        "irrigationNotes": "Lowest infiltration rate. Requires many very short cycles with long soak periods between."
+    }
+]

@@ -1,0 +1,76 @@
+networks:
+    backend:
+        name: irrigo_backend
+        driver: bridge
+        internal: true
+    frontend:
+        name: irrigo_frontend
+        driver: bridge
+
+services:
+    db:
+        image: postgres:17
+        container_name: irrigo_db
+        restart: unless-stopped
+        environment:
+            POSTGRES_USER: ${POSTGRES_USER:-postgres}
+            POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+            POSTGRES_DB: ${POSTGRES_DB:-irrigation}
+        expose:
+            - "5432"
+        volumes:
+            - db-data:/var/lib/postgresql/data
+        healthcheck:
+            test:
+                [
+                    "CMD-SHELL",
+                    "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB -h 127.0.0.1",
+                ]
+            interval: 5s
+            timeout: 5s
+            retries: 20
+        networks:
+            - backend
+
+    api:
+        build:
+            context: .
+            dockerfile: Dockerfile
+        container_name: irrigo_api
+        restart: unless-stopped
+        depends_on:
+            db:
+                condition: service_healthy
+        volumes:
+            - .:/app
+            - /app/node_modules
+        environment:
+            NODE_ENV: ${NODE_ENV:-production}
+            PORT: ${PORT:-9753}
+            DATABASE_URL: ${DATABASE_URL:-postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@db:5432/${POSTGRES_DB:-irrigation}}
+        ports:
+            - "${PORT:-9753}:9753"
+        command: sh -c "bun run start"
+        networks:
+            - backend
+            - frontend
+
+    pgadmin:
+        image: dpage/pgadmin4:8
+        container_name: irrigo_pgadmin
+        profiles: ["tools"]
+        restart: unless-stopped
+        environment:
+            PGADMIN_DEFAULT_EMAIL: ${PGADMIN_EMAIL:-admin@example.com}
+            PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_PASSWORD:-admin}
+        ports:
+            - "${PGADMIN_PORT:-9754}:80"
+        depends_on:
+            db:
+                condition: service_healthy
+        networks:
+            - backend
+            - frontend
+
+volumes:
+    db-data:
