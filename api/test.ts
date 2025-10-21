@@ -1,7 +1,7 @@
 import dayjs from 'dayjs';
 import { getWeatherData } from './data/weather';
 import type { Zone } from './models';
-import { planZoneSchedule } from './poc';
+import { planZoneSchedule } from './schedules/dynamic';
 
 (async () => {
     // const weatherData = await getWeatherData({
