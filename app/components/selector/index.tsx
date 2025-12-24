@@ -1,4 +1,4 @@
-import { Colours } from '@/constants/colours';
+import { colours } from '@/constants/colours';
 import { LabelValue } from '@/models';
 import { MaterialIcons } from '@expo/vector-icons';
 import { Animated, ScrollView, Text, TouchableOpacity, View } from 'react-native';
@@ -45,7 +45,7 @@ export function Selector({ visible, onClose, title, icon, options, selectedValue
                         ]}
                     >
                         <View style={style.header}>
-                            {icon && <MaterialIcons style={style.icon} name={icon} size={24} color={Colours.text} />}
+                            {icon && <MaterialIcons style={style.icon} name={icon} size={24} color={colours.text.DEFAULT} />}
                             <Text style={style.title}>{title}</Text>
                             <TouchableOpacity
                                 onPress={onClose}
@@ -55,7 +55,7 @@ export function Selector({ visible, onClose, title, icon, options, selectedValue
                                 }}
                                 hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
                             >
-                                <MaterialIcons name='close' size={24} color={Colours.text} />
+                                <MaterialIcons name='close' size={24} color={colours.text.DEFAULT} />
                             </TouchableOpacity>
                         </View>
                         <ScrollView style={style.content}>
@@ -75,7 +75,7 @@ export function Selector({ visible, onClose, title, icon, options, selectedValue
                                         {option.label}
                                     </Text>
                                     {selectedValue === option.value && (
-                                        <MaterialIcons name='check' size={20} color={Colours.primary} />
+                                        <MaterialIcons name='check' size={20} color={colours.primary.DEFAULT} />
                                     )}
                                 </TouchableOpacity>
                             ))}

@@ -1,4 +1,4 @@
-import { Colours } from '@/constants/colours';
+import { colours } from '@/constants/colours';
 import { StyleSheet } from 'react-native';
 
 export default StyleSheet.create({
@@ -31,7 +31,7 @@ export default StyleSheet.create({
     },
 
     selectorText: {
-        color: Colours.text,
+        color: colours.text.DEFAULT,
         fontSize: 16,
         fontFamily: 'Lato-Regular',
         flex: 1,

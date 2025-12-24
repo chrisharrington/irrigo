@@ -1,4 +1,4 @@
-import { Colours } from '@/constants/colours';
+import { colours } from '@/constants/colours';
 import { StyleSheet } from 'react-native';
 
 export const styles = StyleSheet.create({
@@ -14,7 +14,7 @@ export const styles = StyleSheet.create({
     },
 
     slideUpContainer: {
-        backgroundColor: Colours.background2,
+        backgroundColor: colours.background[300],
         borderTopLeftRadius: 6,
         borderTopRightRadius: 6,
         maxHeight: '70%',
@@ -43,7 +43,7 @@ export const styles = StyleSheet.create({
     },
 
     title: {
-        color: Colours.text,
+        color: colours.text.DEFAULT,
         fontSize: 18,
         fontFamily: 'Lato-Bold',
         flex: 1,
@@ -69,14 +69,14 @@ export const styles = StyleSheet.create({
     },
 
     optionText: {
-        color: Colours.text,
+        color: colours.text.DEFAULT,
         fontSize: 16,
         fontFamily: 'Lato-Regular',
         flex: 1,
     },
 
     selectedOptionText: {
-        color: Colours.primary,
+        color: colours.primary.DEFAULT,
         fontFamily: 'Lato-Bold',
     },
 });

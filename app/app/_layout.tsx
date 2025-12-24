@@ -1,5 +1,5 @@
 import { ToastProvider } from '@/components/toast';
-import { Colours } from '@/constants/colours';
+import { colours } from '@/constants/colours';
 import { useFonts } from 'expo-font';
 import { Stack } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
@@ -37,9 +37,9 @@ export default function RootLayout() {
                     screenOptions={{
                         title: 'Irrigo',
                         headerStyle: {
-                            backgroundColor: Colours.background2,
+                            backgroundColor: colours.background[300],
                         },
-                        headerTintColor: Colours.text,
+                        headerTintColor: colours.text.DEFAULT,
                         headerShadowVisible: false,
                     }}
                 >

@@ -1,5 +1,5 @@
 import { Selector } from '@/components/selector';
-import { Colours } from '@/constants/colours';
+import { colours } from '@/constants/colours';
 import { LabelValue } from '@/models';
 import { MaterialIcons } from '@expo/vector-icons';
 import { Text, TouchableOpacity, View } from 'react-native';
@@ -50,12 +50,12 @@ export function SelectorButton({
                 >
                     <View style={styles.selectorButton}>
                         {iconName && (
-                            <MaterialIcons name={iconName} size={20} color={Colours.text} style={styles.selectorIcon} />
+                            <MaterialIcons name={iconName} size={20} color={colours.text.DEFAULT} style={styles.selectorIcon} />
                         )}
                         <Text style={styles.selectorText}>
                             {getSelectedLabel(options, selectedValue, defaultLabel)}
                         </Text>
-                        <MaterialIcons name='keyboard-arrow-down' size={20} color={Colours.text} />
+                        <MaterialIcons name='keyboard-arrow-down' size={20} color={colours.text.DEFAULT} />
                     </View>
                 </TouchableOpacity>
             </View>

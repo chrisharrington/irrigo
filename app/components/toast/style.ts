@@ -1,4 +1,4 @@
-import { Colours } from '@/constants/colours';
+import { colours } from '@/constants/colours';
 import { StyleSheet } from 'react-native';
 
 export default StyleSheet.create({
@@ -22,15 +22,15 @@ export default StyleSheet.create({
     },
 
     successToast: {
-        backgroundColor: Colours.primary, // Green background for success
+        backgroundColor: colours.primary.DEFAULT,
     },
 
     errorToast: {
-        backgroundColor: Colours.error, // Red background for error
+        backgroundColor: colours.error.DEFAULT,
     },
 
     toastText: {
-        color: Colours.text,
+        color: colours.text.DEFAULT,
         fontSize: 16,
         fontWeight: '500',
         textAlign: 'left',

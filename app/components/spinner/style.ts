@@ -1,4 +1,4 @@
-import { Colours } from '@/constants/colours';
+import { colours } from '@/constants/colours';
 import { StyleSheet } from 'react-native';
 
 export const spinnerSizes = {
@@ -16,10 +16,10 @@ const styles = StyleSheet.create({
     circle: {
         borderWidth: 3,
         borderRadius: 999,
-        borderTopColor: Colours.primary,
-        borderRightColor: Colours.background2,
-        borderLeftColor: Colours.background2,
-        borderBottomColor: Colours.background2,
+        borderTopColor: colours.primary.DEFAULT,
+        borderRightColor: colours.background[300],
+        borderLeftColor: colours.background[300],
+        borderBottomColor: colours.background[300],
     },
 });
 

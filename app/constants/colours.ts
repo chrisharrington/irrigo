@@ -1,9 +1,85 @@
-export const Colours = {
-    text: '#ffffff',
-    subtext: '#b0b0b0',
-    background: '#151718',
-    background2: '#202222ff',
-    background3: '#2c2e2fff',
-    primary: '#8fbf21',
-    error: '#f44336',
+type ColourScale = {
+    100: string;
+    200: string;
+    300: string;
+    400: string;
+    500: string;
+    600: string;
+    700: string;
+    800: string;
+    900: string;
+    DEFAULT: string;
 };
+
+type ColourPalette = {
+    text: ColourScale;
+    subtext: ColourScale;
+    background: ColourScale;
+    primary: ColourScale;
+    error: ColourScale;
+};
+
+export const colours: ColourPalette = {
+    text: {
+        100: '#ffffff',
+        200: '#e6e6e6',
+        300: '#cccccc',
+        400: '#b3b3b3',
+        500: '#999999',
+        600: '#808080',
+        700: '#666666',
+        800: '#4d4d4d',
+        900: '#333333',
+        DEFAULT: '#ffffff',
+    },
+    subtext: {
+        100: '#e8e8e8',
+        200: '#d1d1d1',
+        300: '#b9b9b9',
+        400: '#b0b0b0',
+        500: '#989898',
+        600: '#808080',
+        700: '#686868',
+        800: '#505050',
+        900: '#383838',
+        DEFAULT: '#b0b0b0',
+    },
+    background: {
+        100: '#3d4042',
+        200: '#2f3133',
+        300: '#22252a',
+        400: '#151718',
+        500: '#121415',
+        600: '#0f1112',
+        700: '#0c0d0e',
+        800: '#090a0b',
+        900: '#060708',
+        DEFAULT: '#151718',
+    },
+    primary: {
+        100: '#f0f7dc',
+        200: '#e1efb9',
+        300: '#d2e796',
+        400: '#c3df73',
+        500: '#b4d750',
+        600: '#8fbf21',
+        700: '#6d9419',
+        800: '#4b6811',
+        900: '#293c09',
+        DEFAULT: '#8fbf21',
+    },
+    error: {
+        100: '#fdecea',
+        200: '#fbd9d5',
+        300: '#f9c6c0',
+        400: '#f7b3ab',
+        500: '#f5a096',
+        600: '#f44336',
+        700: '#e53935',
+        800: '#d32f2f',
+        900: '#c62828',
+        DEFAULT: '#f44336',
+    },
+};
+
+export default colours;
