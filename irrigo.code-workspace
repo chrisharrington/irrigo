@@ -1,23 +1,33 @@
 {
     "folders": [
         {
-            "path": "./api"
+            "path": "api"
         },
-	{
-	    "path": "./app"
-	}
+        {
+            "path": "app"
+        },
+        {
+            "path": "shared"
+        }
     ],
     "settings": {
+        "files.autoSave": "off",
         "editor.defaultFormatter": "esbenp.prettier-vscode",
-        "github.copilot.enable": {
-            "*": true
-        },
-        "jest.jestCommandLine": "bunx jest",
-        "jest.rootPath": ".",
-        "jest.runMode": {
-            "type": "on-demand"
-        },
+        "javascript.preferences.quoteStyle": "single",
+        "typescript.preferences.quoteStyle": "single",
         "prettier.useEditorConfig": false,
+        "javascript.updateImportsOnFileMove.enabled": "always",
+        "typescript.updateImportsOnFileMove.enabled": "always",
+        "workbench.editor.labelFormat": "short",
+        "typescript.referencesCodeLens.enabled": true,
+        "typescript.referencesCodeLens.showOnAllFunctions": true,
+        "typescript.implementationsCodeLens.enabled": true,
+        "typescript.implementationsCodeLens.showOnInterfaceMethods": true,
+        "editor.formatOnSave": true,
+        "editor.codeActionsOnSave": {
+            "source.addMissingImports.ts": "always",
+            "source.organizeImports": "always"
+        },
         "prettier.singleQuote": true,
         "prettier.jsxSingleQuote": true,
         "prettier.tabWidth": 4,
@@ -25,18 +35,17 @@
         "prettier.arrowParens": "avoid",
         "prettier.experimentalTernaries": true,
         "prettier.useTabs": false,
-        "tailwindCSS.experimental.classRegex": [["className\\s*=\\s*['\"`]([^'\"`]*)['\"`]", "([^'\"`]*)"]],
-        "tailwindCSS.includeLanguages": {
-            "typescript": "javascript",
-            "typescriptreact": "javascript"
+        "editor.tabSize": 4,
+        "window.autoDetectColorScheme": true,
+        "tailwindCSS.experimental.classRegex": ["clsx\\(([^)]*\\{[^)]*\\}[^)]*)\\)", "tv\\(([^)]*\\{[^)]*\\}[^)]*)\\)"],
+        "[typescriptreact]": {
+            "editor.defaultFormatter": "esbenp.prettier-vscode"
+        },
+        "[typescript]": {
+            "editor.defaultFormatter": "esbenp.prettier-vscode"
         }
     },
     "extensions": {
-        "recommendations": [
-            "github.copilot",
-            "github.copilot-chat",
-            "esbenp.prettier-vscode",
-            "bradlc.vscode-tailwindcss"
-        ]
+        "recommendations": ["esbenp.prettier-vscode", "bradlc.vscode-tailwindcss", "Anthropic.claude-code"]
     }
 }

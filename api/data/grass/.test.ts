@@ -1,10 +1,9 @@
-import { describe, it, expect } from 'bun:test';
-import { findGrassByName } from '.';
-import grassData from './lookup.json';
+import { describe, expect, it } from 'bun:test';
+import { findGrassByName, grassData } from '.';
 
 describe('grass', () => {
     it('should have at least one growth stage for each entry', () => {
-        grassData.forEach((grass) => {
+        grassData.forEach(grass => {
             expect(grass.growthStages).toBeDefined();
             expect(Array.isArray(grass.growthStages)).toBe(true);
             expect(grass.growthStages.length).toBeGreaterThan(0);
@@ -12,8 +11,8 @@ describe('grass', () => {
     });
 
     it('should have monthRanges for every growth stage', () => {
-        grassData.forEach((grass) => {
-            grass.growthStages.forEach((stage) => {
+        grassData.forEach(grass => {
+            grass.growthStages.forEach(stage => {
                 expect(stage.monthRanges).toBeDefined();
                 expect(Array.isArray(stage.monthRanges)).toBe(true);
                 expect(stage.monthRanges.length).toBeGreaterThan(0);
@@ -22,8 +21,8 @@ describe('grass', () => {
     });
 
     it('should have cropCoefficient for every growth stage', () => {
-        grassData.forEach((grass) => {
-            grass.growthStages.forEach((stage) => {
+        grassData.forEach(grass => {
+            grass.growthStages.forEach(stage => {
                 expect(stage.cropCoefficient).toBeDefined();
                 expect(typeof stage.cropCoefficient).toBe('number');
                 expect(stage.cropCoefficient).toBeGreaterThan(0);

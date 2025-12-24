@@ -33,6 +33,26 @@ export type SoilType = {
     infiltrationRateMmPerHr: number;
 }
 
+export type Site = {
+    /** Required. The name of the site. */
+    name: string;
+
+    /** Required. The list of irrigation zones at this site. */
+    zones: Zone[];
+
+    /** Required. The site's local timezone (IANA format). */
+    timezone: string;
+
+    /** Required. The site's geographic coordinates. */
+    latitude: number;
+
+    /** Required. The site's longitude coordinate. */
+    longitude: number;
+
+    /** Optional. The physical address of the site. */
+    address?: string;
+}
+
 export type Zone = {
     /** Required. The ID of the zone. */
     id: string;

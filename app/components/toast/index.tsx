@@ -39,7 +39,7 @@ export function ToastProvider({ children }: ToastProviderProps) {
     const [currentToast, setCurrentToast] = useState<ToastMessage | null>(null),
         translateY = useRef(new Animated.Value(50)).current,
         opacity = useRef(new Animated.Value(0)).current,
-        dismissTimeoutRef = useRef<NodeJS.Timeout | null>(null),
+        dismissTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null),
         isToastVisibleRef = useRef<boolean>(false);
 
     // Cleanup timers when component unmounts.

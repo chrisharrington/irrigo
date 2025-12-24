@@ -51,7 +51,7 @@ describe('planZoneSchedule', () => {
             expect(schedule.length).toBeGreaterThan(1);
         });
 
-        it('should schedule daily irrigation during heat wave', () => {
+        it('should schedule many irrigation sessions during heat wave', () => {
             const zone = createTestZone({
                 currentDepletionMm: 0,
                 allowableDepletionFraction: 0.5,

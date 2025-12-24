@@ -6,27 +6,27 @@ import { SelectorButton } from '.';
 jest.mock('@/components/selector', () => ({
     Selector: ({ visible, onClose, title, icon, options, selectedValue, onSelectValue }: any) => {
         const { View, Text, TouchableOpacity } = require('react-native');
-        return visible ? (
-            <View testID='selector-modal'>
-                <Text testID='selector-title'>{title}</Text>
-                <Text testID='selector-icon'>{icon || 'no-icon'}</Text>
-                {options.map((option: any) => (
-                    <TouchableOpacity
-                        key={option.value}
-                        testID={`selector-option-${option.value}`}
-                        onPress={() => {
-                            onSelectValue(option.value);
-                            onClose();
-                        }}
-                    >
-                        <Text>{option.label}</Text>
+        return visible ?
+                <View testID='selector-modal'>
+                    <Text testID='selector-title'>{title}</Text>
+                    <Text testID='selector-icon'>{icon || 'no-icon'}</Text>
+                    {options.map((option: any) => (
+                        <TouchableOpacity
+                            key={option.value}
+                            testID={`selector-option-${option.value}`}
+                            onPress={() => {
+                                onSelectValue(option.value);
+                                onClose();
+                            }}
+                        >
+                            <Text>{option.label}</Text>
+                        </TouchableOpacity>
+                    ))}
+                    <TouchableOpacity testID='selector-close' onPress={onClose}>
+                        <Text>Close</Text>
                     </TouchableOpacity>
-                ))}
-                <TouchableOpacity testID='selector-close' onPress={onClose}>
-                    <Text>Close</Text>
-                </TouchableOpacity>
-            </View>
-        ) : null;
+                </View>
+            :   null;
     },
 }));
 
