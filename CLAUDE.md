@@ -6,6 +6,25 @@ Irrigation control system. The repo contains:
 - **`app/`** — Expo / React Native client (NativeWind, Jest).
 - **`shared/`** — Code shared between `api` and `app`. See `shared/CLAUDE.md` for code style conventions.
 
+## General Code Guidelines
+
+- Strict typing throughout. Prefer `unknown` over `any`. Treat state as readonly/immutable where possible.
+- Single quotes for string literals. If a string contains an apostrophe, use backticks (`) instead of double quotes to avoid escaping.
+- Dates as ISO-8601 UTC; align DTOs with server contracts. This codebase uses `dayjs` for date handling.
+- Type-check after making changes — run the project's type-check script before declaring work complete.
+
+Detailed frontend conventions (component structure, hooks, Tailwind/NativeWind) live in `shared/CLAUDE.md`.
+
+## Testing
+
+- Tests are behavior-driven acceptance tests. Verify via observable behavior (return values, rendered output), not by inspecting internal state.
+- For UI tests, query elements by visible text, placeholder, or label — never by test IDs.
+- Don't mock first-party components when rendering them in tests. Mock at external boundaries (network, time, third-party SDKs).
+- Place test files alongside the source they test, named `test.ts` or `test.tsx`.
+- Run the project's test command after making changes.
+
+Detailed React Native testing patterns (libraries, render helpers) live in `shared/CLAUDE.md`.
+
 ## Tickets
 
 Tickets are tracked in **Plane**, in the `api` project (`API-XXX` keys). Categorization is via labels, not work-item types — every ticket gets exactly one of Epic / Feature / Bug.
