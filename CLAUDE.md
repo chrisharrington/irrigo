@@ -12,11 +12,14 @@ Irrigation control system. The repo contains:
 - Single quotes for string literals. If a string contains an apostrophe, use backticks (`) instead of double quotes to avoid escaping.
 - Dates as ISO-8601 UTC; align DTOs with server contracts. This codebase uses `dayjs` for date handling.
 - Type-check after making changes — run the project's type-check script before declaring work complete.
+- Log liberally via `console.log` / `console.warn` / `console.error` — external calls, state transitions, errors, scheduling decisions. The daemon runs unattended; logs are the only window into what it's doing.
+- Every database table includes `created_at` and `updated_at` `timestamptz` columns (both default `now()`). Use Drizzle's `defaultNow()` for `created_at` and `$onUpdate(() => new Date())` for `updated_at` so the timestamps maintain themselves on insert and update. Applies to all schema migrations going forward.
 
 Detailed frontend conventions (component structure, hooks, Tailwind/NativeWind) live in `shared/CLAUDE.md`.
 
 ## Testing
 
+- **Every change to a code file requires matching test coverage** — new behavior gets new tests, modified behavior gets updated tests. A change isn't complete until the tests cover it.
 - Tests are behavior-driven acceptance tests. Verify via observable behavior (return values, rendered output), not by inspecting internal state.
 - For UI tests, query elements by visible text, placeholder, or label — never by test IDs.
 - Don't mock first-party components when rendering them in tests. Mock at external boundaries (network, time, third-party SDKs).
