@@ -28,6 +28,23 @@ Detailed frontend conventions (component structure, hooks, Tailwind/NativeWind) 
 
 Detailed React Native testing patterns (libraries, render helpers) live in `shared/CLAUDE.md`.
 
+## Database
+
+Postgres (container `irrigo_db`) is the data store; **Drizzle ORM** wraps it, **drizzle-kit** manages schema and migrations.
+
+- Schema lives in `api/db/schema.ts` (definitions land in API-5).
+- Migrations are written to `api/drizzle/` by `bun run db:generate` after schema changes — commit these.
+- The runtime client is the typed `db` exported from `api/db/index.ts`. It reads `DATABASE_URL` from the environment; `api/docker-compose.yml` plumbs a default into the api container.
+- A fresh environment runs `bun run db:migrate` (schema-only) and then `bun run seed` (API-6, JSON-driven).
+- Inside Docker, run migrations with `docker compose run --rm api bun run db:migrate`. Migrations are applied via this explicit step — not on app startup — to keep startup deterministic for the single-instance deploy.
+
+Available scripts (run from `api/`):
+
+- `bun run db:generate` — generate a migration from the current schema diff
+- `bun run db:migrate` — apply pending migrations
+- `bun run db:push` — push the schema directly to the database (dev only; bypasses migrations)
+- `bun run db:studio` — launch Drizzle Studio against `DATABASE_URL`
+
 ## Tickets
 
 Tickets are tracked in **Plane**, in the `api` project (`API-XXX` keys). Categorization is via labels, not work-item types — every ticket gets exactly one of Epic / Feature / Bug.
