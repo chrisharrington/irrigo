@@ -9,6 +9,7 @@ Irrigation control system. The repo contains:
 ## General Code Guidelines
 
 - Strict typing throughout. Prefer `unknown` over `any`. Treat state as readonly/immutable where possible.
+- Object property names are **lowerCamelCase** in TS, JSON, and config files alike — matches the existing Drizzle TS layer and `api/models.ts`. The only place snake_case is allowed is when a contract is owned by an external system (DB column names at the SQL level, third-party API request/response bodies, etc.).
 - Single quotes for string literals. If a string contains an apostrophe, use backticks (`) instead of double quotes to avoid escaping.
 - Dates as ISO-8601 UTC; align DTOs with server contracts. This codebase uses `dayjs` for date handling.
 - Type-check after making changes — run the project's type-check script before declaring work complete.

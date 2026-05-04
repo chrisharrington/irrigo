@@ -7,6 +7,7 @@
     "start": "bun --watch index.ts",
     "test": "bun test",
     "type-check": "tsc --noEmit",
+    "seed": "bun scripts/seed.ts",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
     "db:push": "drizzle-kit push",
@@ -26,6 +27,7 @@
     "dayjs": "^1.11.18",
     "drizzle-orm": "^0.44.6",
     "fastify": "^5.6.1",
-    "postgres": "^3.4.7"
+    "postgres": "^3.4.7",
+    "zod": "^4.4.3"
   }
 }
