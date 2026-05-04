@@ -1,6 +1,7 @@
-import { describe, it, expect, beforeEach, afterEach, mock } from 'bun:test';
+import { describe, it, expect, beforeEach, afterEach, mock, spyOn } from 'bun:test';
 import { createTestZone } from '@/mock/zone';
 import { closeZone, openZone } from '.';
+import { HttpResponseError, computeBackoffMs, retry } from './retry';
 
 const mockFetch = mock(() => Promise.resolve({} as Response));
 (global as any).fetch = mockFetch;
@@ -138,5 +139,108 @@ describe('Home Assistant client', () => {
             await expect(closeZone(zone)).rejects.toThrow(/HA_TOKEN environment variable is required/);
             expect(mockFetch).not.toHaveBeenCalled();
         });
+    });
+});
+
+describe('computeBackoffMs', () => {
+    it('returns baseMs * 2^attempt for a non-zero base', () => {
+        expect(computeBackoffMs(0, 1000)).toBe(1000);
+        expect(computeBackoffMs(1, 1000)).toBe(2000);
+        expect(computeBackoffMs(2, 1000)).toBe(4000);
+        expect(computeBackoffMs(3, 1000)).toBe(8000);
+    });
+
+    it('returns 0 when baseMs is 0 regardless of attempt', () => {
+        expect(computeBackoffMs(0, 0)).toBe(0);
+        expect(computeBackoffMs(5, 0)).toBe(0);
+    });
+});
+
+describe('retry', () => {
+    let warnSpy: ReturnType<typeof spyOn>;
+    let errorSpy: ReturnType<typeof spyOn>;
+
+    beforeEach(() => {
+        warnSpy = spyOn(console, 'warn').mockImplementation(() => {});
+        errorSpy = spyOn(console, 'error').mockImplementation(() => {});
+    });
+
+    afterEach(() => {
+        warnSpy.mockRestore();
+        errorSpy.mockRestore();
+    });
+
+    const baseOpts = { baseMs: 0, operation: 'turn_on', entityId: ENTITY_ID };
+
+    it('returns the resolved value on first success without logging a retry', async () => {
+        const fn = mock(() => Promise.resolve('done'));
+
+        const result = await retry(fn, { ...baseOpts, maxAttempts: 3 });
+
+        expect(result).toBe('done');
+        expect(fn).toHaveBeenCalledTimes(1);
+        expect(warnSpy).not.toHaveBeenCalled();
+    });
+
+    it('retries a 5xx HttpResponseError and succeeds on the second attempt', async () => {
+        let calls = 0;
+        const fn = mock(() => {
+            calls += 1;
+            if (calls === 1) return Promise.reject(new HttpResponseError(503, 'Service Unavailable', 'down'));
+            return Promise.resolve('ok');
+        });
+
+        const result = await retry(fn, { ...baseOpts, maxAttempts: 3 });
+
+        expect(result).toBe('ok');
+        expect(fn).toHaveBeenCalledTimes(2);
+    });
+
+    it('retries a network error (plain Error) and succeeds on the second attempt', async () => {
+        let calls = 0;
+        const fn = mock(() => {
+            calls += 1;
+            if (calls === 1) return Promise.reject(new Error('connect ECONNREFUSED'));
+            return Promise.resolve('ok');
+        });
+
+        const result = await retry(fn, { ...baseOpts, maxAttempts: 3 });
+
+        expect(result).toBe('ok');
+        expect(fn).toHaveBeenCalledTimes(2);
+    });
+
+    it('does not retry a 4xx HttpResponseError', async () => {
+        const err = new HttpResponseError(401, 'Unauthorized', 'bad token');
+        const fn = mock(() => Promise.reject(err));
+
+        await expect(retry(fn, { ...baseOpts, maxAttempts: 3 })).rejects.toBe(err);
+        expect(fn).toHaveBeenCalledTimes(1);
+    });
+
+    it('exhausts after maxAttempts and throws the last underlying error', async () => {
+        const errors = [
+            new HttpResponseError(500, 'Internal Server Error', 'oops 1'),
+            new HttpResponseError(500, 'Internal Server Error', 'oops 2'),
+            new HttpResponseError(502, 'Bad Gateway', 'oops 3'),
+        ];
+        let calls = 0;
+        const fn = mock(() => {
+            const err = errors[calls];
+            calls += 1;
+            return Promise.reject(err);
+        });
+
+        await expect(retry(fn, { ...baseOpts, maxAttempts: 3 })).rejects.toBe(errors[2]!);
+        expect(fn).toHaveBeenCalledTimes(3);
+    });
+
+    it('logs a warning for every retry attempt and an error on final exhaustion', async () => {
+        const fn = mock(() => Promise.reject(new HttpResponseError(500, 'Internal Server Error', 'down')));
+
+        await expect(retry(fn, { ...baseOpts, maxAttempts: 3 })).rejects.toBeInstanceOf(HttpResponseError);
+
+        expect(warnSpy).toHaveBeenCalledTimes(2);
+        expect(errorSpy).toHaveBeenCalledTimes(1);
     });
 });
