@@ -1,1 +1,9 @@
-[]
+[
+    {
+        "slug": "home",
+        "name": "Home",
+        "timezone": "America/Edmonton",
+        "latitude": 51.17472962357743,
+        "longitude": -114.1290803717915
+    }
+]

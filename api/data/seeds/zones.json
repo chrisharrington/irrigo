@@ -1,1 +1,41 @@
-[]
+[
+    {
+        "slug": "front-lawn",
+        "name": "Front Lawn",
+        "site": "home",
+        "grassType": "kentucky-bluegrass",
+        "soilType": "clay-loam",
+        "rootDepthM": 0.3,
+        "allowableDepletionFraction": 0.5,
+        "irrigationEfficiency": 0.8,
+        "flowRateLPerMin": 15,
+        "areaM2": 80,
+        "homeAssistantEntityId": "switch.sonoff_4chpro_relay_1"
+    },
+    {
+        "slug": "back-lawn",
+        "name": "Back Lawn",
+        "site": "home",
+        "grassType": "kentucky-bluegrass",
+        "soilType": "clay-loam",
+        "rootDepthM": 0.3,
+        "allowableDepletionFraction": 0.5,
+        "irrigationEfficiency": 0.8,
+        "flowRateLPerMin": 15,
+        "areaM2": 120,
+        "homeAssistantEntityId": "switch.sonoff_4chpro_relay_2"
+    },
+    {
+        "slug": "side-yard",
+        "name": "Side Yard",
+        "site": "home",
+        "grassType": "kentucky-bluegrass",
+        "soilType": "clay-loam",
+        "rootDepthM": 0.3,
+        "allowableDepletionFraction": 0.5,
+        "irrigationEfficiency": 0.8,
+        "flowRateLPerMin": 15,
+        "areaM2": 60,
+        "homeAssistantEntityId": "switch.sonoff_4chpro_relay_3"
+    }
+]
