@@ -12,7 +12,7 @@ test('drizzle config exposes the postgres dialect, schema path, and out folder',
     const config = buildDrizzleConfig('postgresql://user:pass@host:5432/db');
 
     expect(config.dialect).toBe('postgresql');
-    expect(config.schema).toBe('./db/schema.ts');
+    expect(config.schema).toBe('./db/schema');
     expect(config.out).toBe('./drizzle');
 });
 

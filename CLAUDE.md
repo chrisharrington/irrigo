@@ -32,7 +32,7 @@ Detailed React Native testing patterns (libraries, render helpers) live in `shar
 
 Postgres (container `irrigo_db`) is the data store; **Drizzle ORM** wraps it, **drizzle-kit** manages schema and migrations.
 
-- Schema lives in `api/db/schema.ts` (definitions land in API-5).
+- Schema lives in `api/db/schema/` — one file per table plus a barrel `index.ts`.
 - Migrations are written to `api/drizzle/` by `bun run db:generate` after schema changes — commit these.
 - The runtime client is the typed `db` exported from `api/db/index.ts`. It reads `DATABASE_URL` from the environment; `api/docker-compose.yml` plumbs a default into the api container.
 - A fresh environment runs `bun run db:migrate` (schema-only) and then `bun run seed` (API-6, JSON-driven).
