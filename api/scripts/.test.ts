@@ -277,3 +277,26 @@ describe('seed orchestrator', () => {
         await expect(seed({ db, dataDir })).rejects.toThrow(/missing seed file .+zones\.json/);
     });
 });
+
+describe('seed orchestrator against real api/data/seeds fixtures', () => {
+    const realDataDir = path.resolve(import.meta.dir, '../data/seeds');
+
+    it('runs end-to-end without parse or unknown-slug errors and inserts the expected zones', async () => {
+        const { db, calls } = createStubDb();
+
+        const summary = await seed({ db, dataDir: realDataDir });
+
+        expect(summary.grassTypes).toBeGreaterThanOrEqual(8);
+        expect(summary.soilTypes).toBeGreaterThanOrEqual(5);
+        expect(summary.sites).toBeGreaterThanOrEqual(1);
+        expect(summary.zones).toBe(3);
+
+        const zoneCall = calls.find(c => c.table === zones);
+        expect(zoneCall).toBeDefined();
+        for (const row of zoneCall!.rows) {
+            expect(row['siteId']).toMatch(/^id-/);
+            expect(row['grassTypeId']).toMatch(/^id-/);
+            expect(row['soilTypeId']).toMatch(/^id-/);
+        }
+    });
+});

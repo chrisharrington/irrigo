@@ -172,3 +172,29 @@ describe('sites.json fixture', () => {
         expect(home?.timezone).toMatch(/\//);
     });
 });
+
+describe('zones.json fixture', () => {
+    it('parses against the schema and resolves all cross-file slug references', async () => {
+        const [zoneRows, grassRows, soilRows, siteRows] = await Promise.all([
+            readSeedJson('zones.json').then(parseZones),
+            readSeedJson('grass-types.json').then(parseGrassTypes),
+            readSeedJson('soil-types.json').then(parseSoilTypes),
+            readSeedJson('sites.json').then(parseSites),
+        ]);
+
+        expect(zoneRows).toHaveLength(3);
+
+        const grassSlugs = new Set(grassRows.map(row => row.slug));
+        const soilSlugs = new Set(soilRows.map(row => row.slug));
+        const siteSlugs = new Set(siteRows.map(row => row.slug));
+
+        for (const zone of zoneRows) {
+            expect(siteSlugs.has(zone.site)).toBe(true);
+            expect(grassSlugs.has(zone.grassType)).toBe(true);
+            expect(soilSlugs.has(zone.soilType)).toBe(true);
+        }
+
+        const zoneSlugs = zoneRows.map(row => row.slug);
+        expect(zoneSlugs).toEqual(['front-lawn', 'back-lawn', 'side-yard']);
+    });
+});
