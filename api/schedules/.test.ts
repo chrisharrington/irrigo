@@ -27,16 +27,18 @@ const stubWeatherResponse = {
     },
 };
 
+const stubSuccess = () => mockFetch.mockResolvedValueOnce({
+    ok: true,
+    json: async () => stubWeatherResponse,
+} as Response);
+
 describe('runScheduleForZone', () => {
     beforeEach(() => {
         mockFetch.mockClear();
-        mockFetch.mockResolvedValueOnce({
-            ok: true,
-            json: async () => stubWeatherResponse,
-        } as Response);
     });
 
     it(`passes the zone's location coordinates and default 7-day forecast to the weather API`, async () => {
+        stubSuccess();
         const zone = createTestZone({ location: { lat: 51.0447, lon: -114.0719 } });
 
         await runScheduleForZone(zone);
@@ -49,6 +51,7 @@ describe('runScheduleForZone', () => {
     });
 
     it('passes a custom forecastDays option through to the weather API', async () => {
+        stubSuccess();
         const zone = createTestZone({ location: { lat: 51.0447, lon: -114.0719 } });
 
         await runScheduleForZone(zone, { forecastDays: 14 });
@@ -58,6 +61,7 @@ describe('runScheduleForZone', () => {
     });
 
     it('returns a schedule produced from the fetched weather', async () => {
+        stubSuccess();
         const zone = createTestZone({
             currentDepletionMm: 25,
             allowableDepletionFraction: 0.5,
@@ -72,10 +76,46 @@ describe('runScheduleForZone', () => {
     });
 
     it('throws when the zone has no location and does not call the weather API', async () => {
-        mockFetch.mockClear();
         const zone = createTestZone({ location: undefined });
 
         await expect(runScheduleForZone(zone)).rejects.toThrow(/no location/);
         expect(mockFetch).not.toHaveBeenCalled();
+    });
+
+    it('propagates errors from the weather API to the caller', async () => {
+        mockFetch.mockResolvedValueOnce({
+            ok: false,
+            status: 503,
+            statusText: 'Service Unavailable',
+        } as Response);
+
+        const zone = createTestZone({ location: { lat: 51.0447, lon: -114.0719 } });
+
+        await expect(runScheduleForZone(zone)).rejects.toThrow(/503/);
+    });
+
+    it('returns an empty schedule when the weather API returns no days', async () => {
+        mockFetch.mockResolvedValueOnce({
+            ok: true,
+            json: async () => ({
+                ...stubWeatherResponse,
+                daily: {
+                    time: [],
+                    sunrise: [],
+                    rain_sum: [],
+                    et0_fao_evapotranspiration: [],
+                },
+            }),
+        } as Response);
+
+        const zone = createTestZone({
+            currentDepletionMm: 25,
+            allowableDepletionFraction: 0.5,
+            location: { lat: 51.0447, lon: -114.0719 },
+        });
+
+        const schedule = await runScheduleForZone(zone);
+
+        expect(schedule).toHaveLength(0);
     });
 });
