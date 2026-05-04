@@ -92,6 +92,9 @@ export type Zone = {
 
     /** Optional. Geographic location of the zone. */
     location?: { lat: number; lon: number };
+
+    /** Optional. The Home Assistant entity ID controlling the zone's relay (e.g. `switch.sonoff_4chpro_relay_1`). */
+    homeAssistantEntityId?: string;
 }
 
 export type IrrigationCycle = {
