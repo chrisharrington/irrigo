@@ -1,1 +1,42 @@
-[]
+[
+    {
+        "slug": "kentucky-bluegrass",
+        "name": "Kentucky Bluegrass",
+        "cropCoefficient": 0.95
+    },
+    {
+        "slug": "perennial-ryegrass",
+        "name": "Perennial Ryegrass",
+        "cropCoefficient": 0.95
+    },
+    {
+        "slug": "tall-fescue",
+        "name": "Tall Fescue",
+        "cropCoefficient": 0.9
+    },
+    {
+        "slug": "bermudagrass",
+        "name": "Bermudagrass",
+        "cropCoefficient": 1.0
+    },
+    {
+        "slug": "st-augustine",
+        "name": "St. Augustine",
+        "cropCoefficient": 0.9
+    },
+    {
+        "slug": "zoysiagrass",
+        "name": "Zoysiagrass",
+        "cropCoefficient": 0.85
+    },
+    {
+        "slug": "buffalo-grass",
+        "name": "Buffalo Grass",
+        "cropCoefficient": 0.75
+    },
+    {
+        "slug": "fine-fescue-mix",
+        "name": "Fine Fescue Mix",
+        "cropCoefficient": 0.9
+    }
+]

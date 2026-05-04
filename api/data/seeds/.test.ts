@@ -1,3 +1,4 @@
+import path from 'node:path';
 import { describe, it, expect } from 'bun:test';
 import {
     parseGrassTypes,
@@ -5,6 +6,12 @@ import {
     parseSites,
     parseZones,
 } from '.';
+
+const SEEDS_DIR = import.meta.dir;
+
+async function readSeedJson(file: string): Promise<unknown> {
+    return Bun.file(path.join(SEEDS_DIR, file)).json();
+}
 
 describe('parseGrassTypes', () => {
     it('parses a valid grass type entry', () => {
@@ -126,5 +133,17 @@ describe('parseZones', () => {
 
     it('rejects entries where a numeric field has the wrong type', () => {
         expect(() => parseZones([{ ...validZone, areaM2: 'big' }])).toThrow(/areaM2/);
+    });
+});
+
+describe('grass-types.json fixture', () => {
+    it('parses against the schema and includes the standard cool/warm-season set', async () => {
+        const rows = parseGrassTypes(await readSeedJson('grass-types.json'));
+
+        expect(rows.length).toBeGreaterThanOrEqual(8);
+
+        const slugs = new Set(rows.map(row => row.slug));
+        expect(slugs.has('kentucky-bluegrass')).toBe(true);
+        expect(slugs.has('bermudagrass')).toBe(true);
     });
 });
