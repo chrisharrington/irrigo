@@ -10,7 +10,7 @@ export function buildDrizzleConfig(databaseUrl: string | undefined) {
 
     return defineConfig({
         dialect: 'postgresql',
-        schema: './db/schema.ts',
+        schema: './db/schema/index.ts',
         out: './drizzle',
         dbCredentials: {
             url: databaseUrl,
