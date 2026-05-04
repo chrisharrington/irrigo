@@ -7,6 +7,7 @@
     "start": "bun --watch index.ts",
     "test": "bun test",
     "type-check": "tsc --noEmit",
+    "seed": "bun scripts/seed.ts",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
     "db:push": "drizzle-kit push",
