@@ -160,3 +160,15 @@ describe('soil-types.json fixture', () => {
         expect(slugs.has('clay')).toBe(true);
     });
 });
+
+describe('sites.json fixture', () => {
+    it('parses against the schema and includes the home site', async () => {
+        const rows = parseSites(await readSeedJson('sites.json'));
+
+        expect(rows.length).toBeGreaterThanOrEqual(1);
+
+        const home = rows.find(row => row.slug === 'home');
+        expect(home).toBeDefined();
+        expect(home?.timezone).toMatch(/\//);
+    });
+});
