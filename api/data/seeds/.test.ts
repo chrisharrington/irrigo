@@ -147,3 +147,16 @@ describe('grass-types.json fixture', () => {
         expect(slugs.has('bermudagrass')).toBe(true);
     });
 });
+
+describe('soil-types.json fixture', () => {
+    it('parses against the schema and includes the standard USDA texture classes', async () => {
+        const rows = parseSoilTypes(await readSeedJson('soil-types.json'));
+
+        expect(rows.length).toBeGreaterThanOrEqual(5);
+
+        const slugs = new Set(rows.map(row => row.slug));
+        expect(slugs.has('sand')).toBe(true);
+        expect(slugs.has('loam')).toBe(true);
+        expect(slugs.has('clay')).toBe(true);
+    });
+});

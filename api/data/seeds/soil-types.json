@@ -1,1 +1,74 @@
-[]
+[
+    {
+        "slug": "sand",
+        "name": "Sand",
+        "availableWaterHoldingCapacityMmPerM": 80,
+        "infiltrationRateMmPerHr": 50
+    },
+    {
+        "slug": "loamy-sand",
+        "name": "Loamy Sand",
+        "availableWaterHoldingCapacityMmPerM": 100,
+        "infiltrationRateMmPerHr": 40
+    },
+    {
+        "slug": "sandy-loam",
+        "name": "Sandy Loam",
+        "availableWaterHoldingCapacityMmPerM": 125,
+        "infiltrationRateMmPerHr": 30
+    },
+    {
+        "slug": "loam",
+        "name": "Loam",
+        "availableWaterHoldingCapacityMmPerM": 150,
+        "infiltrationRateMmPerHr": 25
+    },
+    {
+        "slug": "silt-loam",
+        "name": "Silt Loam",
+        "availableWaterHoldingCapacityMmPerM": 175,
+        "infiltrationRateMmPerHr": 20
+    },
+    {
+        "slug": "silt",
+        "name": "Silt",
+        "availableWaterHoldingCapacityMmPerM": 165,
+        "infiltrationRateMmPerHr": 15
+    },
+    {
+        "slug": "sandy-clay-loam",
+        "name": "Sandy Clay Loam",
+        "availableWaterHoldingCapacityMmPerM": 140,
+        "infiltrationRateMmPerHr": 18
+    },
+    {
+        "slug": "clay-loam",
+        "name": "Clay Loam",
+        "availableWaterHoldingCapacityMmPerM": 165,
+        "infiltrationRateMmPerHr": 13
+    },
+    {
+        "slug": "silty-clay-loam",
+        "name": "Silty Clay Loam",
+        "availableWaterHoldingCapacityMmPerM": 180,
+        "infiltrationRateMmPerHr": 10
+    },
+    {
+        "slug": "sandy-clay",
+        "name": "Sandy Clay",
+        "availableWaterHoldingCapacityMmPerM": 135,
+        "infiltrationRateMmPerHr": 8
+    },
+    {
+        "slug": "silty-clay",
+        "name": "Silty Clay",
+        "availableWaterHoldingCapacityMmPerM": 175,
+        "infiltrationRateMmPerHr": 6
+    },
+    {
+        "slug": "clay",
+        "name": "Clay",
+        "availableWaterHoldingCapacityMmPerM": 170,
+        "infiltrationRateMmPerHr": 4
+    }
+]
