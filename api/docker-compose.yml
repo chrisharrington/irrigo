@@ -48,6 +48,10 @@ services:
             NODE_ENV: ${NODE_ENV:-production}
             PORT: ${PORT:-9753}
             DATABASE_URL: ${DATABASE_URL:-postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@db:5432/${POSTGRES_DB:-irrigation}}
+            HA_URL: ${HA_URL}
+            HA_TOKEN: ${HA_TOKEN}
+            HA_RETRY_MAX: ${HA_RETRY_MAX:-3}
+            HA_RETRY_BASE_MS: ${HA_RETRY_BASE_MS:-1000}
         ports:
             - "${PORT:-9753}:9753"
         command: sh -c "bun run start"

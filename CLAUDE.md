@@ -6,6 +6,16 @@ Irrigation control system. The repo contains:
 - **`app/`** — Expo / React Native client (NativeWind, Jest).
 - **`shared/`** — Code shared between `api` and `app`. See `shared/CLAUDE.md` for code style conventions.
 
+## Local development
+
+First-time setup for the `api/` stack:
+
+1. `cp api/.env.example api/.env` — Docker Compose loads `.env` from the directory containing the compose file, so the file must live at `api/.env`.
+2. Edit `api/.env` and fill in the required values: `HA_URL` (your Home Assistant base URL) and `HA_TOKEN` (a long-lived access token from HA → Profile → Security → Long-Lived Access Tokens). Postgres / pgAdmin / port values have working defaults and only need to be set if you're overriding them.
+3. From `api/`, bring the stack up: `docker compose up` (or `bun run up` for the variant that includes pgAdmin via the `tools` profile).
+
+`api/.env` is gitignored — never commit credentials.
+
 ## General Code Guidelines
 
 - Strict typing throughout. Prefer `unknown` over `any`. Treat state as readonly/immutable where possible.
