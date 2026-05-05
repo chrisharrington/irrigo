@@ -70,10 +70,18 @@ export async function loadEnabledZones(db: ZoneLoaderDb): Promise<Zone[]> {
  * @returns Mapped, enabled-only zones in the same order as the input.
  */
 export function mapJoinedRowsToZones(rows: ReadonlyArray<ZoneJoinedRow>): Zone[] {
-    return rows.filter(row => row.zone.isEnabled !== false).map(mapJoinedRowToZone);
+    return rows.filter(row => row.zone.isEnabled !== false).map(joinedRowToZone);
 }
 
-function mapJoinedRowToZone(row: ZoneJoinedRow): Zone {
+/**
+ * Maps a single joined row into a `Zone` model. Exported so other daemon
+ * helpers (e.g. the future-cycles loader) can reuse the same shaping without
+ * duplicating the field-by-field mapping.
+ *
+ * @param row - Joined row.
+ * @returns A fully-formed Zone.
+ */
+export function joinedRowToZone(row: ZoneJoinedRow): Zone {
     const lat = row.zone.latitude ?? row.site.latitude,
         lon = row.zone.longitude ?? row.site.longitude;
 
