@@ -13,12 +13,18 @@ const HA_TOKEN = 'test-token-123';
 describe('Home Assistant client', () => {
     let originalUrl: string | undefined;
     let originalToken: string | undefined;
+    let originalRetryMax: string | undefined;
+    let originalRetryBaseMs: string | undefined;
 
     beforeEach(() => {
         originalUrl = process.env.HA_URL;
         originalToken = process.env.HA_TOKEN;
+        originalRetryMax = process.env.HA_RETRY_MAX;
+        originalRetryBaseMs = process.env.HA_RETRY_BASE_MS;
         process.env.HA_URL = HA_URL;
         process.env.HA_TOKEN = HA_TOKEN;
+        process.env.HA_RETRY_MAX = '1';
+        process.env.HA_RETRY_BASE_MS = '0';
         mockFetch.mockClear();
         mockFetch.mockResolvedValue({ ok: true, status: 200, statusText: 'OK' } as Response);
     });
@@ -29,6 +35,12 @@ describe('Home Assistant client', () => {
 
         if (originalToken === undefined) delete process.env.HA_TOKEN;
         else process.env.HA_TOKEN = originalToken;
+
+        if (originalRetryMax === undefined) delete process.env.HA_RETRY_MAX;
+        else process.env.HA_RETRY_MAX = originalRetryMax;
+
+        if (originalRetryBaseMs === undefined) delete process.env.HA_RETRY_BASE_MS;
+        else process.env.HA_RETRY_BASE_MS = originalRetryBaseMs;
     });
 
     describe('openZone', () => {
@@ -87,8 +99,8 @@ describe('Home Assistant client', () => {
             expect(JSON.parse(init.body as string)).toEqual({ entity_id: ENTITY_ID });
         });
 
-        it('throws when Home Assistant returns a non-2xx response', async () => {
-            mockFetch.mockResolvedValueOnce({
+        it('throws when Home Assistant returns a non-2xx response after exhausting retries', async () => {
+            mockFetch.mockResolvedValue({
                 ok: false,
                 status: 500,
                 statusText: 'Internal Server Error',
@@ -96,13 +108,15 @@ describe('Home Assistant client', () => {
             const zone = createTestZone({ homeAssistantEntityId: ENTITY_ID });
 
             await expect(closeZone(zone)).rejects.toThrow(/turn_off on switch\.sonoff_4chpro_relay_1 failed: 500 Internal Server Error/);
+            expect(mockFetch).toHaveBeenCalledTimes(2);
         });
 
-        it('throws when fetch rejects with a network error', async () => {
-            mockFetch.mockRejectedValueOnce(new Error('socket hang up'));
+        it('throws when fetch rejects with a network error after exhausting retries', async () => {
+            mockFetch.mockRejectedValue(new Error('socket hang up'));
             const zone = createTestZone({ homeAssistantEntityId: ENTITY_ID });
 
             await expect(closeZone(zone)).rejects.toThrow('socket hang up');
+            expect(mockFetch).toHaveBeenCalledTimes(2);
         });
 
         it('throws when the zone has no homeAssistantEntityId', async () => {
@@ -138,6 +152,91 @@ describe('Home Assistant client', () => {
 
             await expect(closeZone(zone)).rejects.toThrow(/HA_TOKEN environment variable is required/);
             expect(mockFetch).not.toHaveBeenCalled();
+        });
+    });
+
+    describe('retry behaviour', () => {
+        it('openZone retries a 503 then succeeds when HA returns OK on the second attempt', async () => {
+            process.env.HA_RETRY_MAX = '3';
+            mockFetch.mockResolvedValueOnce({ ok: false, status: 503, statusText: 'Service Unavailable' } as Response);
+            const zone = createTestZone({ homeAssistantEntityId: ENTITY_ID });
+
+            await openZone(zone);
+
+            expect(mockFetch).toHaveBeenCalledTimes(2);
+        });
+
+        it('openZone retries a network error then succeeds when fetch resolves on the second attempt', async () => {
+            process.env.HA_RETRY_MAX = '3';
+            mockFetch.mockRejectedValueOnce(new Error('connect ECONNREFUSED'));
+            const zone = createTestZone({ homeAssistantEntityId: ENTITY_ID });
+
+            await openZone(zone);
+
+            expect(mockFetch).toHaveBeenCalledTimes(2);
+        });
+
+        it('openZone exhausts after HA_RETRY_MAX attempts on sustained 5xx and throws', async () => {
+            process.env.HA_RETRY_MAX = '2';
+            mockFetch.mockResolvedValue({ ok: false, status: 500, statusText: 'Internal Server Error' } as Response);
+            const zone = createTestZone({ homeAssistantEntityId: ENTITY_ID });
+
+            await expect(openZone(zone)).rejects.toThrow(/turn_on on switch\.sonoff_4chpro_relay_1 failed: 500 Internal Server Error/);
+            expect(mockFetch).toHaveBeenCalledTimes(2);
+        });
+
+        it('openZone does not retry a 401 response', async () => {
+            process.env.HA_RETRY_MAX = '5';
+            mockFetch.mockResolvedValue({ ok: false, status: 401, statusText: 'Unauthorized' } as Response);
+            const zone = createTestZone({ homeAssistantEntityId: ENTITY_ID });
+
+            await expect(openZone(zone)).rejects.toThrow(/turn_on on switch\.sonoff_4chpro_relay_1 failed: 401 Unauthorized/);
+            expect(mockFetch).toHaveBeenCalledTimes(1);
+        });
+
+        it('openZone does not retry a 404 response', async () => {
+            process.env.HA_RETRY_MAX = '5';
+            mockFetch.mockResolvedValue({ ok: false, status: 404, statusText: 'Not Found' } as Response);
+            const zone = createTestZone({ homeAssistantEntityId: ENTITY_ID });
+
+            await expect(openZone(zone)).rejects.toThrow(/turn_on on switch\.sonoff_4chpro_relay_1 failed: 404 Not Found/);
+            expect(mockFetch).toHaveBeenCalledTimes(1);
+        });
+
+        it('closeZone uses double the open-zone retry budget', async () => {
+            process.env.HA_RETRY_MAX = '3';
+            mockFetch.mockResolvedValue({ ok: false, status: 500, statusText: 'Internal Server Error' } as Response);
+            const zone = createTestZone({ homeAssistantEntityId: ENTITY_ID });
+
+            await expect(closeZone(zone)).rejects.toThrow(/turn_off on switch\.sonoff_4chpro_relay_1 failed: 500 Internal Server Error/);
+            expect(mockFetch).toHaveBeenCalledTimes(6);
+        });
+
+        it('falls back to default of 3 attempts when HA_RETRY_MAX is unset', async () => {
+            delete process.env.HA_RETRY_MAX;
+            mockFetch.mockResolvedValue({ ok: false, status: 502, statusText: 'Bad Gateway' } as Response);
+            const zone = createTestZone({ homeAssistantEntityId: ENTITY_ID });
+
+            await expect(openZone(zone)).rejects.toThrow(/turn_on on switch\.sonoff_4chpro_relay_1 failed: 502 Bad Gateway/);
+            expect(mockFetch).toHaveBeenCalledTimes(3);
+        });
+
+        it('falls back to default of 3 attempts when HA_RETRY_MAX is non-numeric', async () => {
+            process.env.HA_RETRY_MAX = 'not-a-number';
+            mockFetch.mockResolvedValue({ ok: false, status: 502, statusText: 'Bad Gateway' } as Response);
+            const zone = createTestZone({ homeAssistantEntityId: ENTITY_ID });
+
+            await expect(openZone(zone)).rejects.toThrow(/turn_on on switch\.sonoff_4chpro_relay_1 failed: 502 Bad Gateway/);
+            expect(mockFetch).toHaveBeenCalledTimes(3);
+        });
+
+        it('falls back to default of 3 attempts when HA_RETRY_MAX is below 1', async () => {
+            process.env.HA_RETRY_MAX = '0';
+            mockFetch.mockResolvedValue({ ok: false, status: 502, statusText: 'Bad Gateway' } as Response);
+            const zone = createTestZone({ homeAssistantEntityId: ENTITY_ID });
+
+            await expect(openZone(zone)).rejects.toThrow(/turn_on on switch\.sonoff_4chpro_relay_1 failed: 502 Bad Gateway/);
+            expect(mockFetch).toHaveBeenCalledTimes(3);
         });
     });
 });
