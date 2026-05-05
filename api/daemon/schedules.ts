@@ -8,7 +8,7 @@ import {
     zones,
 } from '@/db/schema';
 import type { IrrigationScheduleEntry, Zone } from '@/models';
-import { joinedRowToZone, type ZoneJoinedRow } from './zones';
+import { joinedRowToZone, type SelectJoinChain, type ZoneJoinedRow } from './zones';
 
 /**
  * Compact representation of an inserted irrigation cycle, scoped to what the
@@ -138,8 +138,8 @@ export type FutureCyclePair = {
 };
 
 /**
- * Minimal db interface for `loadFutureCycles`. Mirrors the chained
- * `select().from().innerJoin()*5.where()` call.
+ * Minimal db interface for `loadFutureCycles`. Mirrors the chained Drizzle
+ * select-with-joins query.
  */
 export type FutureCyclesDb = {
     select: (columns: {
@@ -150,19 +150,7 @@ export type FutureCyclesDb = {
         soilType: typeof soilTypes;
         site: typeof sites;
     }) => {
-        from: (table: typeof irrigationCycles) => {
-            innerJoin: (table: unknown, on: unknown) => {
-                innerJoin: (table: unknown, on: unknown) => {
-                    innerJoin: (table: unknown, on: unknown) => {
-                        innerJoin: (table: unknown, on: unknown) => {
-                            innerJoin: (table: unknown, on: unknown) => {
-                                where: (cond: unknown) => Promise<FutureCycleJoinedRow[]>;
-                            };
-                        };
-                    };
-                };
-            };
-        };
+        from: (table: typeof irrigationCycles) => SelectJoinChain<FutureCycleJoinedRow>;
     };
 };
 

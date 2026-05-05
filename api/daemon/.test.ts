@@ -8,10 +8,12 @@ import {
     soilTypes,
     zones,
 } from '@/db/schema';
-import type { IrrigationScheduleEntry } from '@/models';
+import type { IrrigationScheduleEntry, Zone } from '@/models';
+import { computeNextRePlanAt, start, type DaemonDb } from '.';
 import {
     loadEnabledZones,
     mapJoinedRowsToZones,
+    type SelectJoinChain,
     type ZoneJoinedRow,
     type ZoneLoaderDb,
 } from './zones';
@@ -20,8 +22,17 @@ import {
     replaceZoneSchedule,
     type FutureCycleJoinedRow,
     type FutureCyclesDb,
+    type PersistedCycle,
     type ScheduleWriterDb,
 } from './schedules';
+import {
+    armCycle,
+    closeAllInFlight,
+    TimerRegistry,
+    type Clock,
+    type RuntimeDb,
+    type TimerHandle,
+} from './runtime';
 
 const NOW = new Date('2026-05-04T12:00:00.000Z');
 
@@ -90,6 +101,17 @@ function buildJoinedRow(overrides?: Partial<{
 
 type WhereCall = { conditions: unknown };
 
+function buildJoinChainStub<TRow>(whereCalls: WhereCall[], rows: TRow[]): SelectJoinChain<TRow> {
+    const chain: SelectJoinChain<TRow> = {
+        innerJoin: () => chain,
+        where: (conditions) => {
+            whereCalls.push({ conditions });
+            return Promise.resolve(rows);
+        },
+    };
+    return chain;
+}
+
 function createZoneLoaderStub(rows: ZoneJoinedRow[]) {
     const whereCalls: WhereCall[] = [];
     let selectColumns: unknown;
@@ -97,28 +119,7 @@ function createZoneLoaderStub(rows: ZoneJoinedRow[]) {
     const db: ZoneLoaderDb = {
         select(columns) {
             selectColumns = columns;
-            return {
-                from() {
-                    return {
-                        innerJoin() {
-                            return {
-                                innerJoin() {
-                                    return {
-                                        innerJoin() {
-                                            return {
-                                                where(conditions) {
-                                                    whereCalls.push({ conditions });
-                                                    return Promise.resolve(rows);
-                                                },
-                                            };
-                                        },
-                                    };
-                                },
-                            };
-                        },
-                    };
-                },
-            };
+            return { from: () => buildJoinChainStub(whereCalls, rows) };
         },
     };
 
@@ -446,36 +447,7 @@ function createFutureCyclesStub(rows: FutureCycleJoinedRow[]) {
     const db: FutureCyclesDb = {
         select(columns) {
             selectColumns = columns;
-            return {
-                from() {
-                    return {
-                        innerJoin() {
-                            return {
-                                innerJoin() {
-                                    return {
-                                        innerJoin() {
-                                            return {
-                                                innerJoin() {
-                                                    return {
-                                                        innerJoin() {
-                                                            return {
-                                                                where(conditions) {
-                                                                    whereCalls.push({ conditions });
-                                                                    return Promise.resolve(rows);
-                                                                },
-                                                            };
-                                                        },
-                                                    };
-                                                },
-                                            };
-                                        },
-                                    };
-                                },
-                            };
-                        },
-                    };
-                },
-            };
+            return { from: () => buildJoinChainStub(whereCalls, rows) };
         },
     };
 
@@ -540,5 +512,608 @@ describe('loadFutureCycles', () => {
         const result = await loadFutureCycles(db, NOW_DAEMON);
 
         expect(result).toEqual([]);
+    });
+});
+
+describe('computeNextRePlanAt', () => {
+    it('returns todays hour when the current time is before that hour', () => {
+        const now = new Date('2026-05-04T01:30:00.000Z');
+        const next = computeNextRePlanAt(now, 4);
+
+        expect(dayjs(next).format('YYYY-MM-DDTHH:mm')).toBe(dayjs(now).hour(4).minute(0).format('YYYY-MM-DDTHH:mm'));
+    });
+
+    it('returns tomorrows hour when the current time is past todays hour', () => {
+        const now = new Date('2026-05-04T18:30:00.000Z');
+        const next = computeNextRePlanAt(now, 4);
+
+        const expected = dayjs(now).add(1, 'day').hour(4).minute(0).second(0).millisecond(0);
+        expect(dayjs(next).format('YYYY-MM-DDTHH:mm:ss')).toBe(expected.format('YYYY-MM-DDTHH:mm:ss'));
+    });
+
+    it('returns tomorrows hour when the current time exactly matches todays hour', () => {
+        const now = dayjs(NOW_DAEMON).hour(4).minute(0).second(0).millisecond(0).toDate();
+        const next = computeNextRePlanAt(now, 4);
+
+        expect(dayjs(next).diff(dayjs(now), 'hour')).toBe(24);
+    });
+});
+
+type ScheduledTimer = { handle: number; fireAt: number; cb: () => void };
+
+function createFakeClock(initial: Date) {
+    let currentMs = initial.getTime();
+    let nextHandle = 1;
+    const timers = new Map<number, ScheduledTimer>();
+
+    const clock: Clock = {
+        now: () => new Date(currentMs),
+        setTimeout(cb, ms) {
+            const handle = nextHandle++;
+            const fireAt = currentMs + ms;
+            timers.set(handle, { handle, fireAt, cb });
+            return handle as TimerHandle;
+        },
+        clearTimeout(h) {
+            timers.delete(h as number);
+        },
+    };
+
+    async function flushMicrotasks(): Promise<void> {
+        for (let i = 0; i < 50; i += 1) await new Promise<void>(resolve => setImmediate(resolve));
+    }
+
+    async function advanceTo(target: Date): Promise<void> {
+        const targetMs = target.getTime();
+        // Repeatedly fire whichever timer is earliest among those due, until none remain.
+        while (true) {
+            let earliest: ScheduledTimer | undefined;
+            for (const t of timers.values()) {
+                if (t.fireAt > targetMs) continue;
+                if (!earliest || t.fireAt < earliest.fireAt) earliest = t;
+            }
+            if (!earliest) break;
+            timers.delete(earliest.handle);
+            currentMs = earliest.fireAt;
+            earliest.cb();
+            await flushMicrotasks();
+        }
+        currentMs = targetMs;
+    }
+
+    return {
+        clock,
+        advanceTo,
+        flushMicrotasks,
+        getPendingCount: () => timers.size,
+        getPendingDelays: () => [...timers.values()].map(t => t.fireAt - initial.getTime()),
+    };
+}
+
+type CycleUpdate = { cycleId: string; firedAt?: Date; closedAt?: Date };
+
+function createRuntimeDbStub() {
+    const updates: CycleUpdate[] = [];
+    const db: RuntimeDb = {
+        update(table) {
+            expect(table).toBe(irrigationCycles);
+            return {
+                set(values) {
+                    return {
+                        async where(cond) {
+                            // Inspect the cond to extract cycle id — for the fake we just
+                            // record the values + a free-form id placeholder. Real Drizzle
+                            // would compile this to a parameterized statement.
+                            const update: CycleUpdate = { cycleId: extractCycleId(cond) };
+                            if (values['firedAt'] instanceof Date) update.firedAt = values['firedAt'];
+                            if (values['closedAt'] instanceof Date) update.closedAt = values['closedAt'];
+                            updates.push(update);
+                            return Promise.resolve(undefined);
+                        },
+                    };
+                },
+            };
+        },
+    };
+    return { db, updates };
+}
+
+// Extracts the comparison value from an `eq(irrigationCycles.id, X)` condition. Drizzle's
+// SQL object can contain cyclic references, so we walk it manually with a WeakSet rather
+// than reaching for JSON.stringify.
+function extractCycleId(cond: unknown): string {
+    const seen = new WeakSet<object>();
+    function walk(node: unknown): string | undefined {
+        if (typeof node === 'string') return /^cycle-/.test(node) ? node : undefined;
+        if (typeof node !== 'object' || node === null) return undefined;
+        if (seen.has(node)) return undefined;
+        seen.add(node);
+        if (Array.isArray(node)) {
+            for (const item of node) {
+                const found = walk(item);
+                if (found) return found;
+            }
+            return undefined;
+        }
+        for (const value of Object.values(node)) {
+            const found = walk(value);
+            if (found) return found;
+        }
+        return undefined;
+    }
+    return walk(cond) ?? '';
+}
+
+function buildPersistedCycle(overrides?: Partial<PersistedCycle>): PersistedCycle {
+    return {
+        id: 'cycle-001',
+        startTime: new Date('2026-05-04T13:00:00.000Z'),
+        durationMin: 20,
+        ...overrides,
+    };
+}
+
+function buildZoneModel(overrides?: Partial<Zone>): Zone {
+    return {
+        id: 'zone-001',
+        name: 'Front Lawn',
+        grassType: { name: 'Kentucky Bluegrass', cropCoefficient: 0.85 },
+        soil: { name: 'Loam', availableWaterHoldingCapacityMmPerM: 150, infiltrationRateMmPerHr: 25 },
+        rootDepthM: 0.3,
+        allowableDepletionFraction: 0.5,
+        irrigationEfficiency: 0.8,
+        flowRateLPerMin: 15,
+        areaM2: 100,
+        precipitationRateMmPerHr: 9,
+        currentDepletionMm: 0,
+        isEnabled: true,
+        location: { lat: 51.0447, lon: -114.0719 },
+        homeAssistantEntityId: 'switch.zone_1',
+        ...overrides,
+    };
+}
+
+describe('armCycle', () => {
+    const NOW = new Date('2026-05-04T12:00:00.000Z');
+
+    it('opens the zone at start_time, records firedAt, then closes after durationMin and records closedAt', async () => {
+        const { clock, advanceTo } = createFakeClock(NOW);
+        const { db, updates } = createRuntimeDbStub();
+        const registry = new TimerRegistry();
+        const zone = buildZoneModel({ id: 'zone-001' });
+        const cycle = buildPersistedCycle({
+            id: 'cycle-A',
+            startTime: new Date('2026-05-04T13:00:00.000Z'),
+            durationMin: 30,
+        });
+        const opens: Zone[] = [];
+        const closes: Zone[] = [];
+        const openZone = async (z: Zone) => { opens.push(z); };
+        const closeZone = async (z: Zone) => { closes.push(z); };
+
+        armCycle({ db, clock, registry, zone, cycle, openZone, closeZone });
+
+        await advanceTo(new Date('2026-05-04T13:30:01.000Z'));
+
+        expect(opens).toHaveLength(1);
+        expect(opens[0]?.id).toBe('zone-001');
+        expect(closes).toHaveLength(1);
+        expect(updates.map(u => ({ id: u.cycleId, fired: !!u.firedAt, closed: !!u.closedAt }))).toEqual([
+            { id: 'cycle-A', fired: true, closed: false },
+            { id: 'cycle-A', fired: false, closed: true },
+        ]);
+    });
+
+    it('skips chaining the close when openZone fails and leaves firedAt unset', async () => {
+        const { clock, advanceTo } = createFakeClock(NOW);
+        const { db, updates } = createRuntimeDbStub();
+        const registry = new TimerRegistry();
+        const zone = buildZoneModel();
+        const cycle = buildPersistedCycle({
+            id: 'cycle-B',
+            startTime: new Date('2026-05-04T13:00:00.000Z'),
+            durationMin: 20,
+        });
+        const closes: Zone[] = [];
+        const openZone = async () => { throw new Error('HA down'); };
+        const closeZone = async (z: Zone) => { closes.push(z); };
+
+        armCycle({ db, clock, registry, zone, cycle, openZone, closeZone });
+        await advanceTo(new Date('2026-05-04T13:30:00.000Z'));
+
+        expect(closes).toEqual([]);
+        expect(updates).toEqual([]);
+        expect(registry.snapshotInFlight()).toEqual([]);
+    });
+
+    it('records firedAt but not closedAt when closeZone fails after a successful open', async () => {
+        const { clock, advanceTo } = createFakeClock(NOW);
+        const { db, updates } = createRuntimeDbStub();
+        const registry = new TimerRegistry();
+        const zone = buildZoneModel();
+        const cycle = buildPersistedCycle({
+            id: 'cycle-C',
+            startTime: new Date('2026-05-04T13:00:00.000Z'),
+            durationMin: 15,
+        });
+        const openZone = async () => { /* success */ };
+        const closeZone = async () => { throw new Error('close failed'); };
+
+        armCycle({ db, clock, registry, zone, cycle, openZone, closeZone });
+        await advanceTo(new Date('2026-05-04T13:30:00.000Z'));
+
+        expect(updates).toHaveLength(1);
+        expect(updates[0]?.firedAt).toBeInstanceOf(Date);
+        expect(updates[0]?.closedAt).toBeUndefined();
+        expect(registry.snapshotInFlight()).toEqual([]);
+    });
+
+    it('fires immediately if start_time is in the past relative to now', async () => {
+        const { clock, advanceTo } = createFakeClock(NOW);
+        const { db, updates } = createRuntimeDbStub();
+        const registry = new TimerRegistry();
+        const zone = buildZoneModel();
+        const cycle = buildPersistedCycle({
+            id: 'cycle-D',
+            startTime: new Date('2026-05-04T11:00:00.000Z'),
+            durationMin: 5,
+        });
+        const opens: Zone[] = [];
+        const openZone = async (z: Zone) => { opens.push(z); };
+        const closeZone = async () => { /* success */ };
+
+        armCycle({ db, clock, registry, zone, cycle, openZone, closeZone });
+        await advanceTo(new Date('2026-05-04T12:05:01.000Z'));
+
+        expect(opens).toHaveLength(1);
+        expect(updates.length).toBeGreaterThanOrEqual(1);
+    });
+});
+
+describe('closeAllInFlight', () => {
+    const NOW = new Date('2026-05-04T12:00:00.000Z');
+
+    it('closes every in-flight relay and records closedAt for each', async () => {
+        const { clock } = createFakeClock(NOW);
+        const { db, updates } = createRuntimeDbStub();
+        const registry = new TimerRegistry();
+        const zoneA = buildZoneModel({ id: 'zone-A' });
+        const zoneB = buildZoneModel({ id: 'zone-B' });
+        registry.addInFlight('cycle-X', zoneA, 999);
+        registry.addInFlight('cycle-Y', zoneB, 998);
+        const closes: Zone[] = [];
+        const closeZone = async (z: Zone) => { closes.push(z); };
+
+        await closeAllInFlight({ db, clock, registry, closeZone });
+
+        expect(closes.map(z => z.id)).toEqual(['zone-A', 'zone-B']);
+        expect(updates.filter(u => u.closedAt instanceof Date)).toHaveLength(2);
+        expect(registry.snapshotInFlight()).toEqual([]);
+    });
+
+    it('tolerates a closeZone failure on shutdown and continues with the remaining relays', async () => {
+        const { clock } = createFakeClock(NOW);
+        const { db, updates } = createRuntimeDbStub();
+        const registry = new TimerRegistry();
+        registry.addInFlight('cycle-X', buildZoneModel({ id: 'zone-A' }), 999);
+        registry.addInFlight('cycle-Y', buildZoneModel({ id: 'zone-B' }), 998);
+        let calls = 0;
+        const closeZone = async () => {
+            calls += 1;
+            if (calls === 1) throw new Error('HA flaky');
+        };
+
+        await closeAllInFlight({ db, clock, registry, closeZone });
+
+        expect(calls).toBe(2);
+        expect(updates).toHaveLength(1); // only the second one updated closedAt
+        expect(registry.snapshotInFlight()).toEqual([]);
+    });
+
+    it('returns immediately when there is nothing in-flight', async () => {
+        const { clock } = createFakeClock(NOW);
+        const { db, updates } = createRuntimeDbStub();
+        const registry = new TimerRegistry();
+        const closes: Zone[] = [];
+
+        await closeAllInFlight({ db, clock, registry, closeZone: async (z) => { closes.push(z); } });
+
+        expect(closes).toEqual([]);
+        expect(updates).toEqual([]);
+    });
+});
+
+type DaemonStubInputs = {
+    futureCycles?: FutureCycleJoinedRow[];
+    enabledZones?: ZoneJoinedRow[];
+};
+
+function createDaemonDbStub(inputs?: DaemonStubInputs) {
+    const updates: CycleUpdate[] = [];
+    const inserts: InsertCall[] = [];
+    const deletes: DeleteCall[] = [];
+    const whereCallsZone: WhereCall[] = [];
+    const whereCallsCycles: WhereCall[] = [];
+
+    const db: DaemonDb = {
+        select(columns) {
+            const cols = columns as Record<string, unknown>;
+            const isFutureCyclesQuery = 'cycle' in cols;
+            const rows = (isFutureCyclesQuery ? inputs?.futureCycles : inputs?.enabledZones) ?? [];
+            const whereSink = isFutureCyclesQuery ? whereCallsCycles : whereCallsZone;
+            return { from: () => buildJoinChainStub(whereSink, rows) };
+        },
+        delete(table) {
+            return {
+                where(conditions) {
+                    deletes.push({ table, conditions });
+                    return Promise.resolve(undefined);
+                },
+            };
+        },
+        insert(table) {
+            return {
+                values(rows) {
+                    return {
+                        returning() {
+                            inserts.push({ table, rows });
+                            if (table === scheduleEntries) {
+                                return Promise.resolve(rows.map((_, i) => ({ id: `entry-${inserts.length}-${i}` })));
+                            }
+                            if (table === irrigationCycles) {
+                                return Promise.resolve(rows.map((row, i) => ({
+                                    id: `cycle-${inserts.length}-${i}`,
+                                    startTime: row['startTime'],
+                                    durationMin: row['durationMin'],
+                                })));
+                            }
+                            return Promise.resolve([]);
+                        },
+                    };
+                },
+            };
+        },
+        update(table) {
+            expect(table).toBe(irrigationCycles);
+            return {
+                set(values) {
+                    return {
+                        async where(cond) {
+                            const update: CycleUpdate = { cycleId: extractCycleId(cond) };
+                            if (values['firedAt'] instanceof Date) update.firedAt = values['firedAt'];
+                            if (values['closedAt'] instanceof Date) update.closedAt = values['closedAt'];
+                            updates.push(update);
+                            return Promise.resolve(undefined);
+                        },
+                    };
+                },
+            };
+        },
+    };
+
+    return { db, updates, inserts, deletes };
+}
+
+describe('start', () => {
+    const NOW = new Date('2026-05-04T12:00:00.000Z');
+
+    it('arms each future cycle returned by the DB so it fires at its start_time', async () => {
+        const futureRow = buildFutureCycleRow({
+            cycle: {
+                id: 'cycle-existing',
+                startTime: new Date('2026-05-04T13:00:00.000Z'),
+                durationMin: 10,
+            },
+        });
+        const { db } = createDaemonDbStub({ futureCycles: [futureRow] });
+        const { clock, advanceTo } = createFakeClock(NOW);
+        const opens: string[] = [];
+        const closes: string[] = [];
+
+        await start(db, {
+            clock,
+            rePlanHourLocal: 4,
+            runPlan: async () => [],
+            openZone: async (z) => { opens.push(z.id); },
+            closeZone: async (z) => { closes.push(z.id); },
+        });
+
+        await advanceTo(new Date('2026-05-04T13:10:01.000Z'));
+
+        expect(opens).toEqual([futureRow.zone.id]);
+        expect(closes).toEqual([futureRow.zone.id]);
+    });
+
+    it('schedules the next re-plan timer for the configured local hour', async () => {
+        const { db } = createDaemonDbStub();
+        // Set initial time to 12:00, hour=4 -> next re-plan should be 04:00 next day = +16h
+        const { clock, getPendingDelays } = createFakeClock(NOW);
+
+        await start(db, { clock, rePlanHourLocal: 4 });
+
+        const sixteenHoursMs = 16 * 60 * 60 * 1000;
+        expect(getPendingDelays()).toContain(sixteenHoursMs);
+    });
+
+    it('returned rePlan() runs the planner for every enabled zone and inserts the planner output', async () => {
+        const enabledRow = buildJoinedRow({ zone: { id: 'zone-loaded', name: 'Loaded Zone' } });
+        const { db, inserts, deletes } = createDaemonDbStub({ enabledZones: [enabledRow] });
+        const { clock } = createFakeClock(NOW);
+        const planned: IrrigationScheduleEntry[] = [
+            buildEntry('2026-05-04', [{ startTime: '2026-05-04T13:00:00Z', durationMin: 20 }]),
+        ];
+
+        const control = await start(db, {
+            clock,
+            rePlanHourLocal: 4,
+            runPlan: async () => planned,
+            openZone: async () => {},
+            closeZone: async () => {},
+        });
+
+        await control.rePlan();
+
+        expect(deletes.length).toBeGreaterThanOrEqual(1);
+        expect(inserts.filter(c => c.table === scheduleEntries)).toHaveLength(1);
+        expect(inserts.filter(c => c.table === irrigationCycles)).toHaveLength(1);
+    });
+
+    it('rePlan() cancels pending open timers from the previous plan', async () => {
+        const futureRow = buildFutureCycleRow({
+            cycle: {
+                id: 'cycle-old',
+                startTime: new Date('2026-05-04T15:00:00.000Z'),
+                durationMin: 20,
+            },
+        });
+        const enabledRow = buildJoinedRow({ zone: { id: 'zone-loaded' } });
+        const { db } = createDaemonDbStub({ futureCycles: [futureRow], enabledZones: [enabledRow] });
+        const { clock, advanceTo } = createFakeClock(NOW);
+        const opens: string[] = [];
+
+        const control = await start(db, {
+            clock,
+            rePlanHourLocal: 4,
+            runPlan: async () => [],
+            openZone: async (z) => { opens.push(z.id); },
+            closeZone: async () => {},
+        });
+
+        await control.rePlan();
+        await advanceTo(new Date('2026-05-04T15:30:00.000Z'));
+
+        expect(opens).toEqual([]);
+    });
+
+    it('rePlan() logs and continues when the planner throws for a single zone', async () => {
+        const enabledRows = [
+            buildJoinedRow({ zone: { id: 'zone-bad' } }),
+            buildJoinedRow({ zone: { id: 'zone-good' } }),
+        ];
+        const { db, inserts } = createDaemonDbStub({ enabledZones: enabledRows });
+        const { clock } = createFakeClock(NOW);
+        const planned = buildEntry('2026-05-04', [{ startTime: '2026-05-04T13:00:00Z', durationMin: 20 }]);
+
+        const control = await start(db, {
+            clock,
+            rePlanHourLocal: 4,
+            runPlan: async (z) => {
+                if (z.id === 'zone-bad') throw new Error('plan failed');
+                return [planned];
+            },
+            openZone: async () => {},
+            closeZone: async () => {},
+        });
+
+        await control.rePlan();
+
+        // Only zone-good should have produced inserts.
+        expect(inserts.filter(c => c.table === scheduleEntries)).toHaveLength(1);
+    });
+
+    it('shutdown() cancels pending timers and closes any in-flight relay', async () => {
+        const futureRow = buildFutureCycleRow({
+            cycle: {
+                id: 'cycle-inflight',
+                startTime: new Date('2026-05-04T13:00:00.000Z'),
+                durationMin: 60,
+            },
+        });
+        const { db } = createDaemonDbStub({ futureCycles: [futureRow] });
+        const { clock, advanceTo } = createFakeClock(NOW);
+        const opens: string[] = [];
+        const closes: string[] = [];
+
+        const control = await start(db, {
+            clock,
+            rePlanHourLocal: 4,
+            runPlan: async () => [],
+            openZone: async (z) => { opens.push(z.id); },
+            closeZone: async (z) => { closes.push(z.id); },
+        });
+
+        // Advance past the open but before the natural close; the relay is now in-flight.
+        await advanceTo(new Date('2026-05-04T13:05:00.000Z'));
+        expect(opens).toHaveLength(1);
+        expect(closes).toEqual([]);
+
+        await control.shutdown();
+
+        expect(closes).toEqual([futureRow.zone.id]);
+    });
+
+    it('shutdown() with no in-flight cycles only cancels timers and resolves quickly', async () => {
+        const { db } = createDaemonDbStub();
+        const { clock } = createFakeClock(NOW);
+        const closes: string[] = [];
+
+        const control = await start(db, {
+            clock,
+            rePlanHourLocal: 4,
+            runPlan: async () => [],
+            openZone: async () => {},
+            closeZone: async (z) => { closes.push(z.id); },
+        });
+
+        await control.shutdown();
+
+        expect(closes).toEqual([]);
+    });
+
+    it('the scheduled re-plan timer fires runPlan automatically when its time elapses', async () => {
+        const enabledRow = buildJoinedRow({ zone: { id: 'zone-loaded' } });
+        const { db } = createDaemonDbStub({ enabledZones: [enabledRow] });
+        const { clock, advanceTo } = createFakeClock(NOW);
+        const planCalls: string[] = [];
+
+        await start(db, {
+            clock,
+            rePlanHourLocal: 4,
+            runPlan: async (z) => {
+                planCalls.push(z.id);
+                return [];
+            },
+            openZone: async () => {},
+            closeZone: async () => {},
+        });
+
+        // Advance to just past the next 04:00 — the scheduled timer should fire and
+        // call rePlan, which iterates enabled zones.
+        await advanceTo(new Date('2026-05-05T04:00:01.000Z'));
+
+        expect(planCalls).toContain('zone-loaded');
+    });
+
+    it('rePlan() does not cancel the close timer of an already-fired cycle', async () => {
+        const futureRow = buildFutureCycleRow({
+            cycle: {
+                id: 'cycle-running',
+                startTime: new Date('2026-05-04T13:00:00.000Z'),
+                durationMin: 30,
+            },
+        });
+        const { db } = createDaemonDbStub({ futureCycles: [futureRow], enabledZones: [] });
+        const { clock, advanceTo } = createFakeClock(NOW);
+        const opens: string[] = [];
+        const closes: string[] = [];
+
+        const control = await start(db, {
+            clock,
+            rePlanHourLocal: 4,
+            runPlan: async () => [],
+            openZone: async (z) => { opens.push(z.id); },
+            closeZone: async (z) => { closes.push(z.id); },
+        });
+
+        // Open fires; cycle is now in-flight.
+        await advanceTo(new Date('2026-05-04T13:00:01.000Z'));
+        expect(opens).toHaveLength(1);
+        expect(closes).toEqual([]);
+
+        // rePlan happens mid-cycle. The in-flight close timer should NOT be cancelled.
+        await control.rePlan();
+        await advanceTo(new Date('2026-05-04T13:30:01.000Z'));
+
+        expect(closes).toEqual([futureRow.zone.id]);
     });
 });

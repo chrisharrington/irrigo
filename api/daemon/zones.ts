@@ -14,10 +14,18 @@ export type ZoneJoinedRow = {
 };
 
 /**
- * Minimal db interface needed by `loadEnabledZones` — mirrors the chained
- * Drizzle `select()` call. Production callers pass the real db; tests pass a
- * recording stub. The chain stays untyped beyond the surface shape because we
- * only care that the call sequence matches what Drizzle expects at runtime.
+ * Recursive view of Drizzle's chained select-with-joins query. Each inner
+ * join returns the same shape, so any number of joins can be added. The
+ * chain terminates at `where(...)` which yields the typed result rows.
+ */
+export type SelectJoinChain<TRow> = {
+    innerJoin: (table: unknown, on: unknown) => SelectJoinChain<TRow>;
+    where: (cond: unknown) => Promise<TRow[]>;
+};
+
+/**
+ * Minimal db interface needed by `loadEnabledZones`. Production callers pass
+ * the real Drizzle `db`; tests pass a recording stub.
  */
 export type ZoneLoaderDb = {
     select: (columns: {
@@ -26,15 +34,7 @@ export type ZoneLoaderDb = {
         soilType: typeof soilTypes;
         site: typeof sites;
     }) => {
-        from: (table: typeof zones) => {
-            innerJoin: (table: unknown, on: unknown) => {
-                innerJoin: (table: unknown, on: unknown) => {
-                    innerJoin: (table: unknown, on: unknown) => {
-                        where: (cond: unknown) => Promise<ZoneJoinedRow[]>;
-                    };
-                };
-            };
-        };
+        from: (table: typeof zones) => SelectJoinChain<ZoneJoinedRow>;
     };
 };
 
