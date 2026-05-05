@@ -1,6 +1,6 @@
 import { test, expect } from 'bun:test';
 import { getTableConfig } from 'drizzle-orm/pg-core';
-import { grassTypes, sites, soilTypes, zones } from '.';
+import { grassTypes, irrigationCycles, scheduleEntries, sites, soilTypes, zones } from '.';
 
 function columnsByName(table: Parameters<typeof getTableConfig>[0]) {
     const config = getTableConfig(table);
@@ -104,4 +104,65 @@ test('zones foreign keys reference the right parent tables', () => {
     expect(siteFk?.to).toBe(sites);
     expect(grassFk?.to).toBe(grassTypes);
     expect(soilFk?.to).toBe(soilTypes);
+});
+
+test('schedule_entries table has the expected columns and constraints', () => {
+    const config = getTableConfig(scheduleEntries);
+    const columns = columnsByName(scheduleEntries);
+
+    expect(config.name).toBe('schedule_entries');
+    expect(columns['id']?.primary).toBe(true);
+    expect(columns['id']?.hasDefault).toBe(true);
+    expect(columns['zone_id']?.notNull).toBe(true);
+    expect(columns['date']?.notNull).toBe(true);
+    expect(columns['date']?.columnType).toBe('PgDateString');
+    expect(columns['applied_depth_mm']?.notNull).toBe(true);
+    expect(columns['applied_depth_mm']?.columnType).toBe('PgReal');
+    expect(columns['depletion_before_mm']?.notNull).toBe(true);
+    expect(columns['depletion_after_mm']?.notNull).toBe(true);
+    expect(columns['created_at']?.notNull).toBe(true);
+    expect(columns['updated_at']?.notNull).toBe(true);
+});
+
+test('schedule_entries foreign key references zones', () => {
+    const config = getTableConfig(scheduleEntries);
+    const fkTargets = config.foreignKeys.map(fk => {
+        const reference = fk.reference();
+        return {
+            from: reference.columns.map(c => c.name),
+            to: reference.foreignTable,
+        };
+    });
+
+    const zoneFk = fkTargets.find(fk => fk.from.includes('zone_id'));
+    expect(zoneFk?.to).toBe(zones);
+});
+
+test('irrigation_cycles table has the expected columns and constraints', () => {
+    const config = getTableConfig(irrigationCycles);
+    const columns = columnsByName(irrigationCycles);
+
+    expect(config.name).toBe('irrigation_cycles');
+    expect(columns['id']?.primary).toBe(true);
+    expect(columns['id']?.hasDefault).toBe(true);
+    expect(columns['schedule_entry_id']?.notNull).toBe(true);
+    expect(columns['start_time']?.notNull).toBe(true);
+    expect(columns['start_time']?.columnType).toBe('PgTimestamp');
+    expect(columns['duration_min']?.notNull).toBe(true);
+    expect(columns['duration_min']?.columnType).toBe('PgReal');
+    expect(columns['fired_at']?.notNull).toBe(false);
+    expect(columns['closed_at']?.notNull).toBe(false);
+    expect(columns['created_at']?.notNull).toBe(true);
+    expect(columns['updated_at']?.notNull).toBe(true);
+});
+
+test('irrigation_cycles foreign key cascades on schedule_entry delete', () => {
+    const config = getTableConfig(irrigationCycles);
+    const fk = config.foreignKeys[0];
+
+    expect(fk).toBeDefined();
+    const reference = fk!.reference();
+    expect(reference.columns.map(c => c.name)).toContain('schedule_entry_id');
+    expect(reference.foreignTable).toBe(scheduleEntries);
+    expect(fk!.onDelete).toBe('cascade');
 });
