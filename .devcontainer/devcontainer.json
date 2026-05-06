@@ -1,0 +1,17 @@
+{
+    "name": "Irrigo",
+    "dockerComposeFile": ["../docker-compose.yml"],
+    "service": "dev",
+    "workspaceFolder": "/app",
+    "shutdownAction": "none",
+    "customizations": {
+        "vscode": {
+            "extensions": [
+                "oven.bun-vscode",
+                "dbaeumer.vscode-eslint",
+                "esbenp.prettier-vscode",
+                "bradlc.vscode-tailwindcss"
+            ]
+        }
+    }
+}
