@@ -34,7 +34,7 @@ services:
 
     api:
         build:
-            context: .
+            context: ./api
             dockerfile: Dockerfile
         container_name: irrigo_api
         restart: unless-stopped
@@ -42,7 +42,7 @@ services:
             db:
                 condition: service_healthy
         volumes:
-            - .:/app
+            - ./api:/app
             - /app/node_modules
         environment:
             NODE_ENV: ${NODE_ENV:-production}
