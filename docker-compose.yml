@@ -59,6 +59,41 @@ services:
             - backend
             - frontend
 
+    # VS Code Dev Container — editor host that VS Code's Dev Containers
+    # extension attaches to. Runs `sleep infinity`; lifecycle independent from
+    # the `api` service so editor sessions survive api restarts.
+    dev:
+        build:
+            context: .
+            dockerfile: Dockerfile.dev
+            args:
+                DEV_USER: ${DEV_USER:-chrisharrington}
+                DEV_UID: ${DEV_UID:-1000}
+                DEV_GID: ${DEV_GID:-1000}
+        container_name: irrigo_dev
+        restart: unless-stopped
+        depends_on:
+            db:
+                condition: service_healthy
+        volumes:
+            # Whole repo bind-mounted so the editor sees api/, app/, shared/.
+            - .:/app
+            # Shared with host so Claude sessions inside the container see the
+            # same skills/commands and can write auth, history, and session
+            # state back. Same path on both sides because DEV_USER aligns.
+            - ${HOME}/.claude:/home/${DEV_USER:-chrisharrington}/.claude
+            # Share the host's gh CLI auth so `gh` works without re-login.
+            - ${HOME}/.config/gh:/home/${DEV_USER:-chrisharrington}/.config/gh
+            # Share the host's git identity (user.name, user.email, signing
+            # keys, aliases) so commits made inside the container are
+            # attributed correctly without per-container configuration.
+            - ${HOME}/.gitconfig:/home/${DEV_USER:-chrisharrington}/.gitconfig:ro
+        networks:
+            # backend → reach the `db` container.
+            # frontend → outbound internet for bun install, gh, etc.
+            - backend
+            - frontend
+
     pgadmin:
         image: dpage/pgadmin4:8
         container_name: irrigo_pgadmin
