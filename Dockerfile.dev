@@ -1,0 +1,51 @@
+# VS Code Dev Container — editor host with bun + git + gh tooling.
+#
+# This container is NOT a runtime service. It runs `sleep infinity` and exists
+# solely so VS Code (via the Dev Containers extension) can attach and run dev
+# tasks: bun install, bun test, drizzle-kit migrations, gh pr create, etc.
+#
+# Lifecycle is independent from the `api` service. Restarting api won't drop
+# editor sessions, and the daemon survives editor restarts.
+FROM oven/bun:latest
+
+ARG DEV_USER=chrisharrington
+ARG DEV_UID=1000
+ARG DEV_GID=1000
+
+ENV DEV_USER=${DEV_USER} DEV_UID=${DEV_UID} DEV_GID=${DEV_GID}
+
+# curl + ca-certificates: needed by the gh installer below.
+# git: source control inside the editor.
+# nodejs: some VS Code extensions (ESLint, JS debugger) shell out to `node` and
+# don't honor bun-as-node configuration. Bun stays the package manager and
+# runtime; node is here only to satisfy extension hosts.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends curl ca-certificates git nodejs \
+    && rm -rf /var/lib/apt/lists/*
+
+# GitHub CLI — used for PR creation and other GitHub workflows from inside the
+# dev container. Installed from GitHub's official apt repository.
+RUN curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg \
+        -o /usr/share/keyrings/githubcli-archive-keyring.gpg \
+    && chmod go+r /usr/share/keyrings/githubcli-archive-keyring.gpg \
+    && echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" \
+        > /etc/apt/sources.list.d/github-cli.list \
+    && apt-get update \
+    && apt-get install -y --no-install-recommends gh \
+    && rm -rf /var/lib/apt/lists/*
+
+# Align the dev user's UID/GID with the host's so bind-mount file ownership is
+# consistent. The bun base image already ships a `bun` user at UID 1000, so
+# rename in place when DEV_UID matches an existing user; create fresh otherwise.
+RUN (getent group $DEV_GID > /dev/null 2>&1 || groupadd --gid $DEV_GID $DEV_USER) \
+    && (getent passwd $DEV_UID > /dev/null 2>&1 \
+        && usermod -l $DEV_USER -d /home/$DEV_USER -m $(getent passwd $DEV_UID | cut -d: -f1) \
+        || useradd --uid $DEV_UID --gid $DEV_GID --create-home --shell /bin/bash $DEV_USER)
+
+WORKDIR /app
+USER ${DEV_USER}
+
+# Print a ready line on startup so `docker compose logs dev` confirms the
+# container came up healthy. `exec` hands PID 1 to sleep so the container
+# still exits cleanly on stop signals.
+CMD ["sh", "-c", "echo \"irrigo dev: ready (user=$(whoami) workspace=/app)\" && exec sleep infinity"]

@@ -12,9 +12,9 @@
     "db:migrate": "drizzle-kit migrate",
     "db:push": "drizzle-kit push",
     "db:studio": "drizzle-kit studio",
-    "logs": "docker compose logs -f --tail 100 api",
-    "up": "docker compose --profile tools up -d",
-    "down": "docker compose --profile tools down"
+    "logs": "docker compose -f ../docker-compose.yml logs -f --tail 100 api",
+    "up": "docker compose -f ../docker-compose.yml --profile tools up -d",
+    "down": "docker compose -f ../docker-compose.yml --profile tools down"
   },
   "devDependencies": {
     "@types/bun": "latest",

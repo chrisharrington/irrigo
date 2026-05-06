@@ -34,7 +34,7 @@ services:
 
     api:
         build:
-            context: .
+            context: ./api
             dockerfile: Dockerfile
         container_name: irrigo_api
         restart: unless-stopped
@@ -42,20 +42,55 @@ services:
             db:
                 condition: service_healthy
         volumes:
-            - .:/app
+            - ./api:/app
             - /app/node_modules
         environment:
             NODE_ENV: ${NODE_ENV:-production}
             PORT: ${PORT:-9753}
             DATABASE_URL: ${DATABASE_URL:-postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@db:5432/${POSTGRES_DB:-irrigation}}
-            HA_URL: ${HA_URL}
-            HA_TOKEN: ${HA_TOKEN}
+            HA_URL: ${HA_URL:-}
+            HA_TOKEN: ${HA_TOKEN:-}
             HA_RETRY_MAX: ${HA_RETRY_MAX:-3}
             HA_RETRY_BASE_MS: ${HA_RETRY_BASE_MS:-1000}
         ports:
             - "${PORT:-9753}:9753"
         command: sh -c "bun run start"
         networks:
+            - backend
+            - frontend
+
+    # VS Code Dev Container — editor host that VS Code's Dev Containers
+    # extension attaches to. Runs `sleep infinity`; lifecycle independent from
+    # the `api` service so editor sessions survive api restarts.
+    dev:
+        build:
+            context: .
+            dockerfile: Dockerfile.dev
+            args:
+                DEV_USER: ${DEV_USER:-chrisharrington}
+                DEV_UID: ${DEV_UID:-1000}
+                DEV_GID: ${DEV_GID:-1000}
+        container_name: irrigo_dev
+        restart: unless-stopped
+        depends_on:
+            db:
+                condition: service_healthy
+        volumes:
+            # Whole repo bind-mounted so the editor sees api/, app/, shared/.
+            - .:/app
+            # Shared with host so Claude sessions inside the container see the
+            # same skills/commands and can write auth, history, and session
+            # state back. Same path on both sides because DEV_USER aligns.
+            - ${HOME}/.claude:/home/${DEV_USER:-chrisharrington}/.claude
+            # Share the host's gh CLI auth so `gh` works without re-login.
+            - ${HOME}/.config/gh:/home/${DEV_USER:-chrisharrington}/.config/gh
+            # Share the host's git identity (user.name, user.email, signing
+            # keys, aliases) so commits made inside the container are
+            # attributed correctly without per-container configuration.
+            - ${HOME}/.gitconfig:/home/${DEV_USER:-chrisharrington}/.gitconfig:ro
+        networks:
+            # backend → reach the `db` container.
+            # frontend → outbound internet for bun install, gh, etc.
             - backend
             - frontend
 

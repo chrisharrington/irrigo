@@ -8,13 +8,13 @@ Irrigation control system. The repo contains:
 
 ## Local development
 
-First-time setup for the `api/` stack:
+First-time setup:
 
-1. `cp api/.env.example api/.env` — Docker Compose loads `.env` from the directory containing the compose file, so the file must live at `api/.env`.
-2. Edit `api/.env` and fill in the required values: `HA_URL` (your Home Assistant base URL) and `HA_TOKEN` (a long-lived access token from HA → Profile → Security → Long-Lived Access Tokens). Postgres / pgAdmin / port values have working defaults and only need to be set if you're overriding them.
-3. From `api/`, bring the stack up: `docker compose up` (or `bun run up` for the variant that includes pgAdmin via the `tools` profile).
+1. `cp .env.example .env` — at the repo root. Docker Compose loads `.env` from the directory containing the compose file.
+2. Edit `.env` and fill in the required values: `HA_URL` (your Home Assistant base URL) and `HA_TOKEN` (a long-lived access token from HA → Profile → Security → Long-Lived Access Tokens). Postgres / pgAdmin / port values have working defaults and only need to be set if you're overriding them.
+3. From the repo root, bring the stack up: `docker compose up` (or `bun --cwd api run up` for the variant that includes pgAdmin via the `tools` profile).
 
-`api/.env` is gitignored — never commit credentials.
+`.env` is gitignored — never commit credentials.
 
 ## General Code Guidelines
 
