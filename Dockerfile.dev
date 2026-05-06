@@ -45,4 +45,7 @@ RUN (getent group $DEV_GID > /dev/null 2>&1 || groupadd --gid $DEV_GID $DEV_USER
 WORKDIR /app
 USER ${DEV_USER}
 
-CMD ["sleep", "infinity"]
+# Print a ready line on startup so `docker compose logs dev` confirms the
+# container came up healthy. `exec` hands PID 1 to sleep so the container
+# still exits cleanly on stop signals.
+CMD ["sh", "-c", "echo \"irrigo dev: ready (user=$(whoami) workspace=/app)\" && exec sleep infinity"]
