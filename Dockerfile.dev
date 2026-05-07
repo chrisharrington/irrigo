@@ -34,6 +34,12 @@ RUN curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg \
     && apt-get install -y --no-install-recommends gh \
     && rm -rf /var/lib/apt/lists/*
 
+# uv / uvx — Astral's Python package + tool runner. Required by MCP servers
+# that ship as Python packages and are launched via `uvx <pkg>` (e.g. Plane).
+# Installed system-wide to /usr/local/bin so it's on PATH for every user.
+RUN curl -LsSf https://astral.sh/uv/install.sh \
+    | env UV_UNMANAGED_INSTALL=/usr/local/bin sh
+
 # Align the dev user's UID/GID with the host's so bind-mount file ownership is
 # consistent. The bun base image already ships a `bun` user at UID 1000, so
 # rename in place when DEV_UID matches an existing user; create fresh otherwise.
@@ -41,6 +47,13 @@ RUN (getent group $DEV_GID > /dev/null 2>&1 || groupadd --gid $DEV_GID $DEV_USER
     && (getent passwd $DEV_UID > /dev/null 2>&1 \
         && usermod -l $DEV_USER -d /home/$DEV_USER -m $(getent passwd $DEV_UID | cut -d: -f1) \
         || useradd --uid $DEV_UID --gid $DEV_GID --create-home --shell /bin/bash $DEV_USER)
+
+# Pre-create ~/.vscode-server with dev-user ownership. The devcontainer config
+# mounts a named volume at this path; on first mount Docker initializes the
+# (empty) volume from the directory's contents, which copies ownership too.
+# Without this, the volume comes up root-owned and VS Code can't install its
+# server into it.
+RUN install -d -o $DEV_UID -g $DEV_GID /home/${DEV_USER}/.vscode-server
 
 WORKDIR /app
 USER ${DEV_USER}

@@ -4,7 +4,8 @@
   "type": "module",
   "private": true,
   "scripts": {
-    "start": "bun --watch index.ts",
+    "start": "bun index.ts",
+    "dev": "bun --watch index.ts",
     "test": "bun test",
     "type-check": "tsc --noEmit",
     "seed": "bun scripts/seed.ts",

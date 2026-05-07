@@ -37,6 +37,23 @@ export type DaemonOptions = {
 };
 
 /**
+ * Snapshot of the daemon's runtime state for the HTTP `/health` endpoint and
+ * any other ops surface that needs to know whether the scheduling loop is
+ * alive and what it's currently doing. `lastRePlanAt` is ISO-8601 UTC so it
+ * round-trips cleanly through JSON.
+ */
+export type DaemonStatus = {
+    /** True once `start()` has finished its initial bootstrap. */
+    alive: boolean;
+
+    /** ISO-8601 UTC of the most recent successful re-plan, or null if none yet. */
+    lastRePlanAt: string | null;
+
+    /** Zones whose relay is currently open (cycle fired, close pending). */
+    activeZones: ReadonlyArray<{ id: string; name: string }>;
+};
+
+/**
  * Control surface returned from `start`. Lets the unified entrypoint (and
  * tests) drive the daemon without reaching into its internals.
  */
@@ -46,6 +63,9 @@ export type DaemonControl = {
 
     /** Cancels all timers and closes any in-flight relay. */
     shutdown: () => Promise<void>;
+
+    /** Snapshot of daemon liveness and currently active zones. */
+    getStatus: () => DaemonStatus;
 };
 
 /**
@@ -66,6 +86,8 @@ export async function start(db: DaemonDb, options?: DaemonOptions): Promise<Daem
     const closeZone = options?.closeZone ?? defaultCloseZone;
 
     const registry = new TimerRegistry();
+    let lastRePlanAt: Date | null = null;
+    let started = false;
 
     console.log(`daemon: starting (re-plan hour: ${rePlanHourLocal}:00 local).`);
 
@@ -105,6 +127,7 @@ export async function start(db: DaemonDb, options?: DaemonOptions): Promise<Daem
             }
         }
 
+        lastRePlanAt = clock.now();
         scheduleNextRePlan();
         console.log('daemon: re-plan complete.');
     };
@@ -117,8 +140,15 @@ export async function start(db: DaemonDb, options?: DaemonOptions): Promise<Daem
     };
 
     scheduleNextRePlan();
+    started = true;
 
-    return { rePlan, shutdown };
+    const getStatus = (): DaemonStatus => ({
+        alive: started,
+        lastRePlanAt: lastRePlanAt === null ? null : lastRePlanAt.toISOString(),
+        activeZones: registry.snapshotInFlight().map(({ zone }) => ({ id: zone.id, name: zone.name })),
+    });
+
+    return { rePlan, shutdown, getStatus };
 }
 
 /**

@@ -1,20 +1,70 @@
-import Fastify from 'fastify';
+import Fastify, { type FastifyInstance } from 'fastify';
 import Config from '@/config';
+import { start as daemonStart, type DaemonControl, type DaemonDb, type DaemonStatus } from '@/daemon';
 
-const fastify = Fastify();
+const shutdownStarted = new WeakSet<FastifyInstance>();
 
-fastify.get('/', async () => {
-    return { message: 'Hello, world!' };
-});
+/**
+ * Builds the Fastify instance with the routes Irrigo exposes today. The status
+ * getter is injected so tests can pass a stub without a running daemon.
+ */
+export function buildApp(opts: { getStatus: () => DaemonStatus }): FastifyInstance {
+    const app = Fastify();
 
-const start = async () => {
+    app.get('/', async () => {
+        return { message: 'Hello, world!' };
+    });
+
+    app.get('/health', async () => {
+        return opts.getStatus();
+    });
+
+    return app;
+}
+
+/**
+ * Closes the daemon (relays first) before the HTTP server. Idempotent per app
+ * so the SIGINT/SIGTERM handlers can both fire without double-closing.
+ */
+export async function gracefulShutdown(app: FastifyInstance, daemon: DaemonControl): Promise<void> {
+    if (shutdownStarted.has(app)) return;
+    shutdownStarted.add(app);
+    console.log('shutdown: starting; closing daemon before HTTP.');
+    await daemon.shutdown();
+    await app.close();
+    console.log('shutdown: complete.');
+}
+
+if (import.meta.main) {
+    const { db } = await import('@/db');
+    const daemon = await daemonStart(db as unknown as DaemonDb);
+    const app = buildApp({ getStatus: daemon.getStatus });
+
+    const onSignal = (signal: NodeJS.Signals): void => {
+        console.log(`process: received ${signal}; shutting down.`);
+        gracefulShutdown(app, daemon)
+            .then(() => process.exit(0))
+            .catch(err => {
+                console.error('shutdown: failed.', err);
+                process.exit(1);
+            });
+    };
+
+    process.on('SIGINT', onSignal);
+    process.on('SIGTERM', onSignal);
+
+    process.on('uncaughtException', err => {
+        console.error('process: uncaughtException; HTTP server staying up.', err);
+    });
+    process.on('unhandledRejection', reason => {
+        console.error('process: unhandledRejection; HTTP server staying up.', reason);
+    });
+
     try {
-        await fastify.listen({ port: Config.port, host: '0.0.0.0' });
+        await app.listen({ port: Config.port, host: '0.0.0.0' });
         console.log(`Server is running on listening on port ${Config.port}.`);
     } catch (err) {
-        fastify.log.error(err);
+        app.log.error(err);
         process.exit(1);
     }
-};
-
-start();
+}

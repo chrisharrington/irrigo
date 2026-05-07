@@ -82,6 +82,10 @@ services:
             # same skills/commands and can write auth, history, and session
             # state back. Same path on both sides because DEV_USER aligns.
             - ${HOME}/.claude:/home/${DEV_USER:-chrisharrington}/.claude
+            # User-scope MCP server config lives here (not under .claude/), so
+            # mount it explicitly to expose host-registered MCP servers inside
+            # the container. Read-write because Claude Code updates it.
+            - ${HOME}/.claude.json:/home/${DEV_USER:-chrisharrington}/.claude.json
             # Share the host's gh CLI auth so `gh` works without re-login.
             - ${HOME}/.config/gh:/home/${DEV_USER:-chrisharrington}/.config/gh
             # Share the host's git identity (user.name, user.email, signing
