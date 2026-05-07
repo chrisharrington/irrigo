@@ -87,6 +87,9 @@ export type Zone = {
     /** Required. The current soil moisture deficit (0 = full). */
     currentDepletionMm: number;
 
+    /** Required. The IANA timezone of the site this zone belongs to. */
+    siteTimezone: string;
+
     /** Optional. Whether the zone is enabled for irrigation. Default true. */
     isEnabled?: boolean;
 

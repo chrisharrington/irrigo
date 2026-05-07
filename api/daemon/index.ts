@@ -1,11 +1,17 @@
 import dayjs from 'dayjs';
+import utc from 'dayjs/plugin/utc';
+import timezone from 'dayjs/plugin/timezone';
 import { closeZone as defaultCloseZone, openZone as defaultOpenZone } from '@/data/home-assistant';
 import type { Zone } from '@/models';
 import { runScheduleForZone, type RunScheduleForZoneOptions } from '@/schedules';
 import type { PlanZoneScheduleResult } from '@/schedules/dynamic';
 import { loadFutureCycles, replaceZoneSchedule, type FutureCyclesDb, type ScheduleWriterDb } from './schedules';
 import { armCycle, closeAllInFlight, realClock, TimerRegistry, type Clock, type RuntimeDb } from './runtime';
+import { loadSiteTimezone, type SiteTimezoneDb } from './sites';
 import { countZones, loadEnabledZones, type ZoneCountDb, type ZoneLoaderDb } from './zones';
+
+dayjs.extend(utc);
+dayjs.extend(timezone);
 
 const DEFAULT_REPLAN_HOUR_LOCAL = 4;
 
@@ -14,7 +20,7 @@ const DEFAULT_REPLAN_HOUR_LOCAL = 4;
  * pass the eager `db` export from `@/db`; tests pass a recording stub that
  * implements the union of the smaller per-helper interfaces.
  */
-export type DaemonDb = ZoneLoaderDb & ScheduleWriterDb & FutureCyclesDb & RuntimeDb & ZoneCountDb;
+export type DaemonDb = ZoneLoaderDb & ScheduleWriterDb & FutureCyclesDb & RuntimeDb & ZoneCountDb & SiteTimezoneDb;
 
 /**
  * Caller-overridable hooks. Defaults wire to the real planning function and
@@ -35,6 +41,9 @@ export type DaemonOptions = {
 
     /** Override for time/timer access. */
     clock?: Clock;
+
+    /** Override the resolved site timezone (skips the DB lookup). Used by tests. */
+    siteTimezone?: string;
 };
 
 /**
@@ -90,7 +99,9 @@ export async function start(db: DaemonDb, options?: DaemonOptions): Promise<Daem
     let lastRePlanAt: Date | null = null;
     let started = false;
 
-    console.log(`daemon: starting (re-plan hour: ${rePlanHourLocal}:00 local).`);
+    const siteTimezone = options?.siteTimezone ?? await loadSiteTimezone(db);
+
+    console.log(`daemon: starting (re-plan hour: ${rePlanHourLocal}:00 ${siteTimezone}).`);
 
     const futureCycles = await loadFutureCycles(db, clock.now());
     for (const { cycle, zone } of futureCycles) {
@@ -105,7 +116,7 @@ export async function start(db: DaemonDb, options?: DaemonOptions): Promise<Daem
     }
 
     const scheduleNextRePlan = (): void => {
-        const next = computeNextRePlanAt(clock.now(), rePlanHourLocal);
+        const next = computeNextRePlanAt(clock.now(), rePlanHourLocal, siteTimezone);
         const delay = Math.max(0, next.getTime() - clock.now().getTime());
         console.log(`daemon: next re-plan scheduled at ${next.toISOString()} (${delay}ms from now).`);
         const handle = clock.setTimeout(() => {
@@ -160,15 +171,18 @@ export async function start(db: DaemonDb, options?: DaemonOptions): Promise<Daem
 }
 
 /**
- * Returns the next wall-clock occurrence of `hourLocal:00` after `now`. Pure
- * function exported so the scheduling math is unit-testable directly.
+ * Returns the next wall-clock occurrence of `hourLocal:00` after `now`,
+ * resolved against the supplied IANA timezone. Pure function exported so the
+ * scheduling math is unit-testable directly. The container TZ is irrelevant
+ * — the target is always the next 04:00 (or whatever) at the *site*.
  *
- * @param now - Current time.
- * @param hourLocal - Target hour-of-day (0-23) in the system local timezone.
- * @returns The next Date at which the hour rolls over.
+ * @param now - Current time (any TZ — only the absolute instant is used).
+ * @param hourLocal - Target hour-of-day (0-23) at the site.
+ * @param timezone - IANA timezone of the site (e.g. `America/Edmonton`).
+ * @returns The absolute Date at which the hour rolls over at the site.
  */
-export function computeNextRePlanAt(now: Date, hourLocal: number): Date {
-    const ref = dayjs(now);
+export function computeNextRePlanAt(now: Date, hourLocal: number, timezone: string): Date {
+    const ref = dayjs(now).tz(timezone);
     const todayAtHour = ref.hour(hourLocal).minute(0).second(0).millisecond(0);
     const next = todayAtHour.isAfter(ref) ? todayAtHour : todayAtHour.add(1, 'day');
     return next.toDate();
