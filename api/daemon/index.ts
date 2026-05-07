@@ -4,7 +4,7 @@ import type { IrrigationScheduleEntry, Zone } from '@/models';
 import { runScheduleForZone, type RunScheduleForZoneOptions } from '@/schedules';
 import { loadFutureCycles, replaceZoneSchedule, type FutureCyclesDb, type ScheduleWriterDb } from './schedules';
 import { armCycle, closeAllInFlight, realClock, TimerRegistry, type Clock, type RuntimeDb } from './runtime';
-import { loadEnabledZones, type ZoneLoaderDb } from './zones';
+import { countZones, loadEnabledZones, type ZoneCountDb, type ZoneLoaderDb } from './zones';
 
 const DEFAULT_REPLAN_HOUR_LOCAL = 4;
 
@@ -13,7 +13,7 @@ const DEFAULT_REPLAN_HOUR_LOCAL = 4;
  * pass the eager `db` export from `@/db`; tests pass a recording stub that
  * implements the union of the smaller per-helper interfaces.
  */
-export type DaemonDb = ZoneLoaderDb & ScheduleWriterDb & FutureCyclesDb & RuntimeDb;
+export type DaemonDb = ZoneLoaderDb & ScheduleWriterDb & FutureCyclesDb & RuntimeDb & ZoneCountDb;
 
 /**
  * Caller-overridable hooks. Defaults wire to the real planning function and
@@ -72,6 +72,13 @@ export async function start(db: DaemonDb, options?: DaemonOptions): Promise<Daem
     const futureCycles = await loadFutureCycles(db, clock.now());
     for (const { cycle, zone } of futureCycles) {
         armCycle({ db, clock, registry, zone, cycle, openZone, closeZone });
+    }
+
+    const { total, enabled } = await countZones(db);
+    if (total === 0) {
+        console.warn('daemon: has no zones to manage. Did you run `bun run seed`? Daemon is idle until zones are added.');
+    } else if (enabled === 0) {
+        console.warn('daemon: all zones are disabled. Daemon is idle until at least one zone is enabled.');
     }
 
     const scheduleNextRePlan = (): void => {
