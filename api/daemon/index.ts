@@ -1,7 +1,8 @@
 import dayjs from 'dayjs';
 import { closeZone as defaultCloseZone, openZone as defaultOpenZone } from '@/data/home-assistant';
-import type { IrrigationScheduleEntry, Zone } from '@/models';
+import type { Zone } from '@/models';
 import { runScheduleForZone, type RunScheduleForZoneOptions } from '@/schedules';
+import type { PlanZoneScheduleResult } from '@/schedules/dynamic';
 import { loadFutureCycles, replaceZoneSchedule, type FutureCyclesDb, type ScheduleWriterDb } from './schedules';
 import { armCycle, closeAllInFlight, realClock, TimerRegistry, type Clock, type RuntimeDb } from './runtime';
 import { countZones, loadEnabledZones, type ZoneCountDb, type ZoneLoaderDb } from './zones';
@@ -24,7 +25,7 @@ export type DaemonOptions = {
     rePlanHourLocal?: number;
 
     /** Planner override. Defaults to the real `runScheduleForZone`. */
-    runPlan?: (zone: Zone, options?: RunScheduleForZoneOptions) => Promise<IrrigationScheduleEntry[]>;
+    runPlan?: (zone: Zone, options?: RunScheduleForZoneOptions) => Promise<PlanZoneScheduleResult>;
 
     /** Override the HA open-relay primitive. */
     openZone?: (zone: Zone) => Promise<void>;
@@ -124,8 +125,8 @@ export async function start(db: DaemonDb, options?: DaemonOptions): Promise<Daem
 
         for (const zone of enabledZones) {
             try {
-                const entries = await runPlan(zone);
-                const { cycles } = await replaceZoneSchedule(db, zone.id, entries, today);
+                const { entries, projectedNextDepletionMm } = await runPlan(zone);
+                const { cycles } = await replaceZoneSchedule(db, zone.id, entries, today, projectedNextDepletionMm);
                 for (const cycle of cycles) {
                     armCycle({ db, clock, registry, zone, cycle, openZone, closeZone });
                 }

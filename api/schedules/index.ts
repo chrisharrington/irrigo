@@ -1,6 +1,6 @@
 import { getWeatherData } from '../data/weather';
-import type { IrrigationScheduleEntry, Zone } from '../models';
-import { planZoneSchedule } from './dynamic';
+import type { Zone } from '../models';
+import { planZoneSchedule, type PlanZoneScheduleResult } from './dynamic';
 
 export type RunScheduleForZoneOptions = {
     /** Optional. Number of days of forecast weather to plan against. Default 7. */
@@ -15,13 +15,14 @@ export type RunScheduleForZoneOptions = {
  *
  * @param zone - The fully-formed irrigation zone. Must have a non-null location.
  * @param options - Orchestration options.
- * @returns Array of scheduled irrigation entries.
+ * @returns Per-day schedule entries plus the projected next-day starting
+ *   depletion, which the daemon persists so tomorrow's re-plan starts honest.
  * @throws Error if zone.location is undefined.
  */
 export async function runScheduleForZone(
     zone: Zone,
     options?: RunScheduleForZoneOptions
-): Promise<IrrigationScheduleEntry[]> {
+): Promise<PlanZoneScheduleResult> {
     if (!zone.location) {
         throw new Error(`runScheduleForZone: zone ${zone.id} has no location; caller must resolve coordinates before calling.`);
     }
@@ -36,5 +37,5 @@ export async function runScheduleForZone(
         forecastDays,
     });
 
-    return planZoneSchedule(zone, weather).entries;
+    return planZoneSchedule(zone, weather);
 }
