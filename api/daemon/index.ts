@@ -140,13 +140,18 @@ export async function start(db: DaemonDb, options?: DaemonOptions): Promise<Daem
 
         const enabledZones = await loadEnabledZones(db);
         const today = dayjs(clock.now()).format('YYYY-MM-DD');
+        const busyWindows: Array<{ start: Date; end: Date }> = [];
 
         for (const zone of enabledZones) {
             try {
-                const { entries, projectedNextDepletionMm } = await runPlan(zone);
+                const { entries, projectedNextDepletionMm } = await runPlan(zone, { busyWindows });
                 const { cycles } = await replaceZoneSchedule(db, zone.id, entries, today, projectedNextDepletionMm);
                 for (const cycle of cycles) {
                     armCycle({ db, clock, registry, sequencer, zone, cycle, openZone, closeZone, notifier });
+                    busyWindows.push({
+                        start: cycle.startTime,
+                        end: new Date(cycle.startTime.getTime() + cycle.durationMin * 60_000),
+                    });
                 }
             } catch (err) {
                 console.error(`daemon: re-plan failed for zone ${zone.id}.`, err);

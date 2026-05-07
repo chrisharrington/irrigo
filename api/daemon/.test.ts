@@ -1794,6 +1794,120 @@ describe('start', () => {
         expect(errorCall?.context).toEqual({ zoneName: 'Bad Zone', operation: 're-plan', reason: 'forecast unavailable' });
     });
 
+    describe('cross-zone deconfliction', () => {
+        type RunPlanCall = {
+            zoneId: string;
+            busyWindows: ReadonlyArray<{ start: Date; end: Date }>;
+        };
+
+        it('passes the first zone\'s persisted cycle as a busy window to the second zone\'s planner', async () => {
+            const enabledRows = [
+                buildJoinedRow({ zone: { id: 'zone-A', name: 'Zone A' } }),
+                buildJoinedRow({ zone: { id: 'zone-B', name: 'Zone B' } }),
+            ];
+            const { db } = createDaemonDbStub({ enabledZones: enabledRows });
+            const { clock } = createFakeClock(NOW);
+            const calls: RunPlanCall[] = [];
+            const zoneAEntry = buildEntry('2026-05-04', [{ startTime: '2026-05-04T05:00:00Z', durationMin: 30 }]);
+            const zoneBEntry = buildEntry('2026-05-04', [{ startTime: '2026-05-04T05:10:00Z', durationMin: 30 }]);
+
+            const control = await start(db, {
+                clock,
+                rePlanHourLocal: 4,
+                runPlan: async (zone, opts) => {
+                    calls.push({ zoneId: zone.id, busyWindows: [...(opts?.busyWindows ?? [])] });
+                    return zone.id === 'zone-A'
+                        ? { entries: [zoneAEntry], projectedNextDepletionMm: 0 }
+                        : { entries: [zoneBEntry], projectedNextDepletionMm: 0 };
+                },
+                openZone: async () => {},
+                closeZone: async () => {},
+            });
+
+            await control.rePlan();
+
+            expect(calls).toHaveLength(2);
+            expect(calls[0]).toEqual({ zoneId: 'zone-A', busyWindows: [] });
+            expect(calls[1]?.zoneId).toBe('zone-B');
+            expect(calls[1]?.busyWindows).toHaveLength(1);
+            const zoneABusy = calls[1]!.busyWindows[0]!;
+            expect(zoneABusy.start.toISOString()).toBe('2026-05-04T05:00:00.000Z');
+            expect(zoneABusy.end.toISOString()).toBe('2026-05-04T05:30:00.000Z');
+        });
+
+        it('accumulates busy windows across three zones in iteration order', async () => {
+            const enabledRows = [
+                buildJoinedRow({ zone: { id: 'zone-A' } }),
+                buildJoinedRow({ zone: { id: 'zone-B' } }),
+                buildJoinedRow({ zone: { id: 'zone-C' } }),
+            ];
+            const { db } = createDaemonDbStub({ enabledZones: enabledRows });
+            const { clock } = createFakeClock(NOW);
+            const calls: RunPlanCall[] = [];
+            const entryFor = (zoneId: string, start: string, durationMin: number) =>
+                buildEntry('2026-05-04', [{ startTime: start, durationMin }]);
+
+            const control = await start(db, {
+                clock,
+                rePlanHourLocal: 4,
+                runPlan: async (zone, opts) => {
+                    calls.push({ zoneId: zone.id, busyWindows: [...(opts?.busyWindows ?? [])] });
+                    if (zone.id === 'zone-A') return { entries: [entryFor(zone.id, '2026-05-04T05:00:00Z', 20)], projectedNextDepletionMm: 0 };
+                    if (zone.id === 'zone-B') return { entries: [entryFor(zone.id, '2026-05-04T05:30:00Z', 20)], projectedNextDepletionMm: 0 };
+                    return { entries: [entryFor(zone.id, '2026-05-04T06:00:00Z', 20)], projectedNextDepletionMm: 0 };
+                },
+                openZone: async () => {},
+                closeZone: async () => {},
+            });
+
+            await control.rePlan();
+
+            expect(calls.map(c => c.busyWindows.length)).toEqual([0, 1, 2]);
+            const zoneCBusy = calls[2]!.busyWindows;
+            expect(zoneCBusy[0]?.start.toISOString()).toBe('2026-05-04T05:00:00.000Z');
+            expect(zoneCBusy[0]?.end.toISOString()).toBe('2026-05-04T05:20:00.000Z');
+            expect(zoneCBusy[1]?.start.toISOString()).toBe('2026-05-04T05:30:00.000Z');
+            expect(zoneCBusy[1]?.end.toISOString()).toBe('2026-05-04T05:50:00.000Z');
+        });
+
+        it('omits a failed zone\'s windows from the busy set passed to subsequent zones', async () => {
+            const enabledRows = [
+                buildJoinedRow({ zone: { id: 'zone-A' } }),
+                buildJoinedRow({ zone: { id: 'zone-bad' } }),
+                buildJoinedRow({ zone: { id: 'zone-C' } }),
+            ];
+            const { db } = createDaemonDbStub({ enabledZones: enabledRows });
+            const { clock } = createFakeClock(NOW);
+            const calls: RunPlanCall[] = [];
+
+            const control = await start(db, {
+                clock,
+                rePlanHourLocal: 4,
+                runPlan: async (zone, opts) => {
+                    calls.push({ zoneId: zone.id, busyWindows: [...(opts?.busyWindows ?? [])] });
+                    if (zone.id === 'zone-bad') throw new Error('plan failed');
+                    if (zone.id === 'zone-A') return {
+                        entries: [buildEntry('2026-05-04', [{ startTime: '2026-05-04T05:00:00Z', durationMin: 25 }])],
+                        projectedNextDepletionMm: 0,
+                    };
+                    return {
+                        entries: [buildEntry('2026-05-04', [{ startTime: '2026-05-04T06:00:00Z', durationMin: 25 }])],
+                        projectedNextDepletionMm: 0,
+                    };
+                },
+                openZone: async () => {},
+                closeZone: async () => {},
+            });
+
+            await control.rePlan();
+
+            expect(calls.map(c => c.zoneId)).toEqual(['zone-A', 'zone-bad', 'zone-C']);
+            // zone-C must see only zone-A's window — not the failed zone's.
+            expect(calls[2]?.busyWindows).toHaveLength(1);
+            expect(calls[2]?.busyWindows[0]?.start.toISOString()).toBe('2026-05-04T05:00:00.000Z');
+        });
+    });
+
     describe('startup zone warnings', () => {
         let warnSpy: ReturnType<typeof spyOn>;
 
