@@ -2,6 +2,16 @@ import dayjs from 'dayjs';
 import type { Zone, DailyWeather, IrrigationScheduleEntry, IrrigationCycle } from '../../models';
 
 /**
+ * A time interval the planner must avoid placing cycles inside. Used by the
+ * daemon's sequential per-zone planning to prevent cross-zone overlap: each
+ * zone's persisted cycles become busy windows for subsequent zones.
+ */
+export type BusyWindow = {
+    start: dayjs.Dayjs;
+    end: dayjs.Dayjs;
+};
+
+/**
  * Result of `planZoneSchedule`. `entries` is the per-day irrigation plan;
  * `projectedNextDepletionMm` is the running soil-moisture depletion at the
  * end of day 0 of the planning horizon — i.e. the value the next morning's
@@ -19,9 +29,17 @@ export type PlanZoneScheduleResult = {
  *
  * @param zone - The irrigation zone configuration.
  * @param weatherHistory - Array of daily weather data.
+ * @param busyWindows - Time intervals already occupied by other zones'
+ *   cycles. Cycles whose preferred placement (per `buildCyclePlan`) would
+ *   overlap a busy window are shifted forward until they fit. Defaults to
+ *   empty for first-zone-in-the-batch / standalone planning calls.
  * @returns Per-day entries plus the projected next-day starting depletion.
  */
-export function planZoneSchedule(zone: Zone, weatherHistory: DailyWeather[]): PlanZoneScheduleResult {
+export function planZoneSchedule(
+    zone: Zone,
+    weatherHistory: DailyWeather[],
+    busyWindows: ReadonlyArray<BusyWindow> = [],
+): PlanZoneScheduleResult {
     const totalAvailableWaterMillimetersForClamp = zone.soil.availableWaterHoldingCapacityMmPerM * zone.rootDepthM,
         clampedStartingDepletion = clampValue(zone.currentDepletionMm ?? 0, 0, totalAvailableWaterMillimetersForClamp);
 
@@ -44,6 +62,12 @@ export function planZoneSchedule(zone: Zone, weatherHistory: DailyWeather[]): Pl
     let projectedNextDepletionMm = clampedStartingDepletion;
 
     const irrigationSchedule: IrrigationScheduleEntry[] = [];
+
+    // Running set of intervals this zone (and any earlier zones in the batch)
+    // have committed to. Each placed cycle is appended so subsequent cycles
+    // — both within this zone's later days and within the same day's
+    // multi-cycle plan — see them as occupied.
+    const busyWindowsSoFar: BusyWindow[] = [...busyWindows];
 
     // Process each day of weather history.
     for (const [dayIndex, weatherDay] of weatherHistory.entries()) {
@@ -88,12 +112,25 @@ export function planZoneSchedule(zone: Zone, weatherHistory: DailyWeather[]): Pl
                     : totalRunTimeMinutes;
 
             // Build cycle plan ending before sunrise.
-            const cycleList = buildCyclePlan(
+            const plannedCycles = buildCyclePlan(
                 totalRunTimeMinutes,
                 maximumCycleMinutes,
                 sunrise,
                 soakTimeMinutes
             );
+
+            // Shift cycles forward as needed to avoid any already-occupied
+            // window (cross-zone or within this zone's earlier days).
+            const placedCycles = deconflictCycles(plannedCycles, busyWindowsSoFar, soakTimeMinutes);
+
+            // Each placed cycle becomes a busy window for the rest of the
+            // planning horizon (this zone's later days and any later zones).
+            for (const cycle of placedCycles) {
+                busyWindowsSoFar.push({
+                    start: cycle.startTime,
+                    end: cycle.startTime.add(cycle.durationMin, 'minute'),
+                });
+            }
 
             // Reset depletion to zero after irrigation (soil fully replenished).
             const depletionAfterIrrigation = 0;
@@ -101,7 +138,7 @@ export function planZoneSchedule(zone: Zone, weatherHistory: DailyWeather[]): Pl
             irrigationSchedule.push({
                 date: date,
                 zoneId: zone.id,
-                cycles: cycleList,
+                cycles: placedCycles,
                 appliedDepthMm: roundTo1Decimal(grossIrrigationDepthMillimeters),
                 depletionBeforeMm: roundTo1Decimal(depletionBeforeIrrigation),
                 depletionAfterMm: roundTo1Decimal(depletionAfterIrrigation),
@@ -172,6 +209,53 @@ function buildCyclePlan(
 
     // Reverse to chronological order (earliest first).
     return cyclesInReverse.reverse();
+}
+
+/**
+ * Shifts cycles forward in chronological order so none overlap any busy
+ * window, while preserving intra-zone soak time between consecutive cycles.
+ * Walks input cycles in order; for each cycle the new start is at least
+ * `max(plannedStart, prevPlacedEnd + soakTime)`, then iteratively pushed
+ * past any busy interval it overlaps until stable. Durations are unchanged.
+ *
+ * @param cycles - Planned cycles (chronological, intra-zone soak-spaced).
+ * @param busyWindows - Intervals to avoid. Order doesn't matter.
+ * @param soakTimeMinutes - Soak time required between this zone's cycles.
+ * @returns New cycle list with possibly-shifted start times.
+ */
+function deconflictCycles(
+    cycles: IrrigationCycle[],
+    busyWindows: ReadonlyArray<BusyWindow>,
+    soakTimeMinutes: number,
+): IrrigationCycle[] {
+    if (cycles.length === 0) return cycles;
+    if (busyWindows.length === 0) return cycles;
+
+    const placed: IrrigationCycle[] = [];
+    let prevEnd: dayjs.Dayjs | null = null;
+
+    for (const cycle of cycles) {
+        const intraZoneFloor: dayjs.Dayjs = prevEnd === null ? cycle.startTime : prevEnd.add(soakTimeMinutes, 'minute');
+        let start: dayjs.Dayjs = cycle.startTime.isAfter(intraZoneFloor) ? cycle.startTime : intraZoneFloor;
+
+        let shifted = true;
+        while (shifted) {
+            shifted = false;
+            const cycleEnd = start.add(cycle.durationMin, 'minute');
+            for (const window of busyWindows) {
+                if (start.isBefore(window.end) && cycleEnd.isAfter(window.start)) {
+                    start = window.end;
+                    shifted = true;
+                    break;
+                }
+            }
+        }
+
+        placed.push({ startTime: start, durationMin: cycle.durationMin });
+        prevEnd = start.add(cycle.durationMin, 'minute');
+    }
+
+    return placed;
 }
 
 /**
