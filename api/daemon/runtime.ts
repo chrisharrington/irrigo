@@ -3,6 +3,7 @@ import { irrigationCycles } from '@/db/schema';
 import type { Zone } from '@/models';
 import type { Notifier } from '@/notifications';
 import type { PersistedCycle } from './schedules';
+import type { WateringSequencer } from './sequencer';
 
 /**
  * Opaque handle returned by `Clock.setTimeout`. The runtime doesn't introspect
@@ -117,6 +118,7 @@ export type ArmCycleInputs = {
     db: RuntimeDb;
     clock: Clock;
     registry: TimerRegistry;
+    sequencer: WateringSequencer;
     zone: Zone;
     cycle: PersistedCycle;
     openZone: (zone: Zone) => Promise<void>;
@@ -148,21 +150,55 @@ export function armCycle(inputs: ArmCycleInputs): void {
     let openHandle: TimerHandle;
     openHandle = clock.setTimeout(() => {
         registry.consumeOpen(openHandle);
-        runOpen(inputs).catch(err => {
+        attemptOpen(inputs).catch(err => {
             console.error(`daemon: unhandled error in cycle open path for ${cycle.id}.`, err);
         });
     }, openDelay);
     registry.addOpen(openHandle);
 }
 
+/**
+ * Acquires the sequencer lock and runs the cycle if free; otherwise enqueues
+ * the open invocation to fire when the current cycle releases. Either way,
+ * the wall-clock `setTimeout` set in `armCycle` has already fired — we're now
+ * deciding whether the relay can actually open.
+ */
+function attemptOpen(inputs: ArmCycleInputs): Promise<void> {
+    const { sequencer, cycle, zone } = inputs;
+    if (sequencer.tryAcquire()) {
+        return runOpen(inputs);
+    }
+    const queueDepth = sequencer.getQueueDepth() + 1;
+    console.log(`daemon: deferring cycle ${cycle.id} on zone ${zone.id} behind in-flight relay; queue depth: ${queueDepth}.`);
+    sequencer.enqueue(() => runOpen(inputs));
+    return Promise.resolve();
+}
+
+/**
+ * Pops the next deferred runOpen off the sequencer (if any) and invokes it.
+ * Called from every code path that ends a cycle (runOpen failure, runClose
+ * success, runClose failure) — at every release point, the next queued
+ * cycle gets its turn. When the queue is empty, the sequencer's lock is
+ * fully released and the next `tryAcquire` will succeed.
+ */
+function pumpQueue(sequencer: WateringSequencer, cycleId: string): void {
+    const next = sequencer.releaseAndDequeue();
+    if (next === null) return;
+    next().catch(err => {
+        console.error(`daemon: unhandled error in deferred cycle open path after ${cycleId}.`, err);
+    });
+}
+
 async function runOpen(inputs: ArmCycleInputs): Promise<void> {
-    const { db, clock, registry, zone, cycle, openZone, closeZone, notifier, armReason } = inputs;
+    const { db, clock, registry, sequencer, zone, cycle, openZone, closeZone, notifier, armReason } = inputs;
 
     try {
         await openZone(zone);
     } catch (err) {
         console.error(`daemon: openZone failed for cycle ${cycle.id} on zone ${zone.id}; leaving fired_at NULL.`, err);
         await notifier('error', { zoneName: zone.name, operation: 'open', reason: errorMessage(err) });
+        // Open failed — release the sequencer so deferred cycles can run.
+        pumpQueue(sequencer, cycle.id);
         return;
     }
 
@@ -177,7 +213,7 @@ async function runOpen(inputs: ArmCycleInputs): Promise<void> {
 
     const closeDelay = cycle.durationMin * 60_000;
     const closeHandle = clock.setTimeout(() => {
-        runClose({ db, clock, registry, zone, cycle, closeZone, notifier }).catch(err => {
+        runClose({ db, clock, registry, sequencer, zone, cycle, closeZone, notifier }).catch(err => {
             console.error(`daemon: unhandled error in cycle close path for ${cycle.id}.`, err);
         });
     }, closeDelay);
@@ -188,6 +224,7 @@ type RunCloseInputs = {
     db: RuntimeDb;
     clock: Clock;
     registry: TimerRegistry;
+    sequencer: WateringSequencer;
     zone: Zone;
     cycle: PersistedCycle;
     closeZone: (zone: Zone) => Promise<void>;
@@ -195,7 +232,7 @@ type RunCloseInputs = {
 };
 
 async function runClose(inputs: RunCloseInputs): Promise<void> {
-    const { db, clock, registry, zone, cycle, closeZone, notifier } = inputs;
+    const { db, clock, registry, sequencer, zone, cycle, closeZone, notifier } = inputs;
 
     try {
         await closeZone(zone);
@@ -203,6 +240,8 @@ async function runClose(inputs: RunCloseInputs): Promise<void> {
         console.error(`daemon: closeZone failed for cycle ${cycle.id} on zone ${zone.id}; leaving closed_at NULL.`, err);
         registry.clearInFlight(cycle.id);
         await notifier('error', { zoneName: zone.name, operation: 'close', reason: errorMessage(err) });
+        // Close failed — still release the sequencer so the next deferred cycle isn't blocked forever.
+        pumpQueue(sequencer, cycle.id);
         return;
     }
 
@@ -211,6 +250,7 @@ async function runClose(inputs: RunCloseInputs): Promise<void> {
     registry.clearInFlight(cycle.id);
     console.log(`daemon: closed zone ${zone.id} for cycle ${cycle.id} at ${closedAt.toISOString()}.`);
     await notifier('watering-ended', { zoneName: zone.name });
+    pumpQueue(sequencer, cycle.id);
 }
 
 /**

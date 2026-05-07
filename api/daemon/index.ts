@@ -8,6 +8,7 @@ import { runScheduleForZone, type RunScheduleForZoneOptions } from '@/schedules'
 import type { PlanZoneScheduleResult } from '@/schedules/dynamic';
 import { loadFutureCycles, replaceZoneSchedule, type FutureCyclesDb, type ScheduleWriterDb } from './schedules';
 import { armCycle, closeAllInFlight, realClock, TimerRegistry, type Clock, type RuntimeDb } from './runtime';
+import { WateringSequencer } from './sequencer';
 import { loadSiteTimezone, type SiteTimezoneDb } from './sites';
 import { countZones, loadEnabledZones, type ZoneCountDb, type ZoneLoaderDb } from './zones';
 
@@ -100,6 +101,7 @@ export async function start(db: DaemonDb, options?: DaemonOptions): Promise<Daem
     const closeZone = options?.closeZone ?? defaultCloseZone;
 
     const registry = new TimerRegistry();
+    const sequencer = new WateringSequencer();
     const notifier = options?.notifier ?? noopNotifier;
     let lastRePlanAt: Date | null = null;
     let started = false;
@@ -110,7 +112,7 @@ export async function start(db: DaemonDb, options?: DaemonOptions): Promise<Daem
 
     const futureCycles = await loadFutureCycles(db, clock.now());
     for (const { cycle, zone } of futureCycles) {
-        armCycle({ db, clock, registry, zone, cycle, openZone, closeZone, notifier, armReason: 'boot' });
+        armCycle({ db, clock, registry, sequencer, zone, cycle, openZone, closeZone, notifier, armReason: 'boot' });
     }
 
     const { total, enabled } = await countZones(db);
@@ -144,7 +146,7 @@ export async function start(db: DaemonDb, options?: DaemonOptions): Promise<Daem
                 const { entries, projectedNextDepletionMm } = await runPlan(zone);
                 const { cycles } = await replaceZoneSchedule(db, zone.id, entries, today, projectedNextDepletionMm);
                 for (const cycle of cycles) {
-                    armCycle({ db, clock, registry, zone, cycle, openZone, closeZone, notifier });
+                    armCycle({ db, clock, registry, sequencer, zone, cycle, openZone, closeZone, notifier });
                 }
             } catch (err) {
                 console.error(`daemon: re-plan failed for zone ${zone.id}.`, err);

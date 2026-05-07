@@ -26,6 +26,7 @@ import {
 } from './zones';
 import { loadSiteTimezone, type SiteTimezoneDb } from './sites';
 import { noopNotifier, type NotificationContext, type NotificationEvent, type Notifier } from '@/notifications';
+import { WateringSequencer } from './sequencer';
 
 type RecordedNotification = { event: NotificationEvent; context: NotificationContext | undefined };
 
@@ -855,7 +856,7 @@ describe('armCycle', () => {
         const openZone = async (z: Zone) => { opens.push(z); };
         const closeZone = async (z: Zone) => { closes.push(z); };
 
-        armCycle({ db, clock, registry, zone, cycle, openZone, closeZone, notifier: noopNotifier });
+        armCycle({ db, clock, registry, sequencer: new WateringSequencer(), zone, cycle, openZone, closeZone, notifier: noopNotifier });
 
         await advanceTo(new Date('2026-05-04T13:30:01.000Z'));
 
@@ -882,7 +883,7 @@ describe('armCycle', () => {
         const openZone = async () => { throw new Error('HA down'); };
         const closeZone = async (z: Zone) => { closes.push(z); };
 
-        armCycle({ db, clock, registry, zone, cycle, openZone, closeZone, notifier: noopNotifier });
+        armCycle({ db, clock, registry, sequencer: new WateringSequencer(), zone, cycle, openZone, closeZone, notifier: noopNotifier });
         await advanceTo(new Date('2026-05-04T13:30:00.000Z'));
 
         expect(closes).toEqual([]);
@@ -903,7 +904,7 @@ describe('armCycle', () => {
         const openZone = async () => { /* success */ };
         const closeZone = async () => { throw new Error('close failed'); };
 
-        armCycle({ db, clock, registry, zone, cycle, openZone, closeZone, notifier: noopNotifier });
+        armCycle({ db, clock, registry, sequencer: new WateringSequencer(), zone, cycle, openZone, closeZone, notifier: noopNotifier });
         await advanceTo(new Date('2026-05-04T13:30:00.000Z'));
 
         expect(updates).toHaveLength(1);
@@ -926,7 +927,7 @@ describe('armCycle', () => {
         const openZone = async (z: Zone) => { opens.push(z); };
         const closeZone = async () => { /* success */ };
 
-        armCycle({ db, clock, registry, zone, cycle, openZone, closeZone, notifier: noopNotifier });
+        armCycle({ db, clock, registry, sequencer: new WateringSequencer(), zone, cycle, openZone, closeZone, notifier: noopNotifier });
         await advanceTo(new Date('2026-05-04T12:05:01.000Z'));
 
         expect(opens).toHaveLength(1);
@@ -941,7 +942,7 @@ describe('armCycle', () => {
         const cycle = buildPersistedCycle({ id: 'cycle-N', startTime: new Date('2026-05-04T13:00:00.000Z'), durationMin: 12 });
         const { notifier, calls } = recordingNotifier();
 
-        armCycle({ db, clock, registry, zone, cycle, openZone: async () => {}, closeZone: async () => {}, notifier });
+        armCycle({ db, clock, registry, sequencer: new WateringSequencer(), zone, cycle, openZone: async () => {}, closeZone: async () => {}, notifier });
         await advanceTo(new Date('2026-05-04T13:00:30.000Z'));
 
         const started = calls.find(c => c.event === 'watering-started');
@@ -956,7 +957,7 @@ describe('armCycle', () => {
         const cycle = buildPersistedCycle({ id: 'cycle-B', startTime: new Date('2026-05-04T11:00:00.000Z'), durationMin: 12 });
         const { notifier, calls } = recordingNotifier();
 
-        armCycle({ db, clock, registry, zone, cycle, openZone: async () => {}, closeZone: async () => {}, notifier, armReason: 'boot' });
+        armCycle({ db, clock, registry, sequencer: new WateringSequencer(), zone, cycle, openZone: async () => {}, closeZone: async () => {}, notifier, armReason: 'boot' });
         await advanceTo(new Date('2026-05-04T12:00:30.000Z'));
 
         const started = calls.find(c => c.event === 'watering-started');
@@ -972,7 +973,7 @@ describe('armCycle', () => {
         const { notifier, calls } = recordingNotifier();
 
         armCycle({
-            db, clock, registry, zone, cycle,
+            db, clock, registry, sequencer: new WateringSequencer(), zone, cycle,
             openZone: async () => { throw new Error('HA 502'); },
             closeZone: async () => {},
             notifier,
@@ -992,7 +993,7 @@ describe('armCycle', () => {
         const cycle = buildPersistedCycle({ id: 'cycle-OK', startTime: new Date('2026-05-04T13:00:00.000Z'), durationMin: 5 });
         const { notifier, calls } = recordingNotifier();
 
-        armCycle({ db, clock, registry, zone, cycle, openZone: async () => {}, closeZone: async () => {}, notifier });
+        armCycle({ db, clock, registry, sequencer: new WateringSequencer(), zone, cycle, openZone: async () => {}, closeZone: async () => {}, notifier });
         await advanceTo(new Date('2026-05-04T13:05:30.000Z'));
 
         const ended = calls.find(c => c.event === 'watering-ended');
@@ -1008,7 +1009,7 @@ describe('armCycle', () => {
         const { notifier, calls } = recordingNotifier();
 
         armCycle({
-            db, clock, registry, zone, cycle,
+            db, clock, registry, sequencer: new WateringSequencer(), zone, cycle,
             openZone: async () => {},
             closeZone: async () => { throw new Error('close failed'); },
             notifier,
@@ -1018,6 +1019,170 @@ describe('armCycle', () => {
         expect(calls.some(c => c.event === 'watering-started')).toBe(true);
         const errorCall = calls.find(c => c.event === 'error');
         expect(errorCall?.context).toEqual({ zoneName: 'Front Lawn', operation: 'close', reason: 'close failed' });
+    });
+});
+
+describe('serial execution (WateringSequencer)', () => {
+    const NOW = new Date('2026-05-04T12:00:00.000Z');
+
+    it('defers a second cycle scheduled at the same start time until the first one closes', async () => {
+        const { clock, advanceTo } = createFakeClock(NOW);
+        const { db } = createRuntimeDbStub();
+        const registry = new TimerRegistry();
+        const sequencer = new WateringSequencer();
+        const zoneA = buildZoneModel({ id: 'zone-A', name: 'Zone A' });
+        const zoneB = buildZoneModel({ id: 'zone-B', name: 'Zone B' });
+        const opensInOrder: Array<{ id: string; firedAt: number }> = [];
+        const openZone = async (z: Zone) => { opensInOrder.push({ id: z.id, firedAt: clock.now().getTime() }); };
+        const closeZone = async () => {};
+
+        const cycleA = buildPersistedCycle({ id: 'cycle-A', startTime: new Date('2026-05-04T13:00:00.000Z'), durationMin: 20 });
+        const cycleB = buildPersistedCycle({ id: 'cycle-B', startTime: new Date('2026-05-04T13:00:00.000Z'), durationMin: 15 });
+
+        armCycle({ db, clock, registry, sequencer, zone: zoneA, cycle: cycleA, openZone, closeZone, notifier: noopNotifier });
+        armCycle({ db, clock, registry, sequencer, zone: zoneB, cycle: cycleB, openZone, closeZone, notifier: noopNotifier });
+
+        // After both setTimeouts fire (at 13:00), only A should have opened. B is queued.
+        await advanceTo(new Date('2026-05-04T13:00:01.000Z'));
+        expect(opensInOrder.map(o => o.id)).toEqual(['zone-A']);
+        expect(sequencer.getQueueDepth()).toBe(1);
+
+        // After A's close (20 min later), B should have opened with firedAt = release time, not 13:00.
+        await advanceTo(new Date('2026-05-04T13:20:01.000Z'));
+        expect(opensInOrder.map(o => o.id)).toEqual(['zone-A', 'zone-B']);
+        expect(opensInOrder[1]?.firedAt).toBe(new Date('2026-05-04T13:20:00.000Z').getTime());
+    });
+
+    it('defers a cycle whose start_time falls inside an in-flight cycle', async () => {
+        const { clock, advanceTo } = createFakeClock(NOW);
+        const { db } = createRuntimeDbStub();
+        const registry = new TimerRegistry();
+        const sequencer = new WateringSequencer();
+        const zoneA = buildZoneModel({ id: 'zone-A' });
+        const zoneB = buildZoneModel({ id: 'zone-B' });
+        const opensInOrder: Array<{ id: string; firedAt: number }> = [];
+        const openZone = async (z: Zone) => { opensInOrder.push({ id: z.id, firedAt: clock.now().getTime() }); };
+        const closeZone = async () => {};
+
+        // A starts at 13:00, runs 30 min. B is scheduled to start at 13:10 — inside A's window.
+        const cycleA = buildPersistedCycle({ id: 'cycle-A', startTime: new Date('2026-05-04T13:00:00.000Z'), durationMin: 30 });
+        const cycleB = buildPersistedCycle({ id: 'cycle-B', startTime: new Date('2026-05-04T13:10:00.000Z'), durationMin: 10 });
+
+        armCycle({ db, clock, registry, sequencer, zone: zoneA, cycle: cycleA, openZone, closeZone, notifier: noopNotifier });
+        armCycle({ db, clock, registry, sequencer, zone: zoneB, cycle: cycleB, openZone, closeZone, notifier: noopNotifier });
+
+        // Advance just past A's open and B's planned start; B should have queued.
+        await advanceTo(new Date('2026-05-04T13:10:30.000Z'));
+        expect(opensInOrder.map(o => o.id)).toEqual(['zone-A']);
+
+        // Past A's close (13:30); B should have fired at A's close time.
+        await advanceTo(new Date('2026-05-04T13:30:30.000Z'));
+        expect(opensInOrder.map(o => o.id)).toEqual(['zone-A', 'zone-B']);
+        expect(opensInOrder[1]?.firedAt).toBe(new Date('2026-05-04T13:30:00.000Z').getTime());
+    });
+
+    it('releases the lock when openZone fails so the next deferred cycle can fire', async () => {
+        const { clock, advanceTo } = createFakeClock(NOW);
+        const { db } = createRuntimeDbStub();
+        const registry = new TimerRegistry();
+        const sequencer = new WateringSequencer();
+        const zoneA = buildZoneModel({ id: 'zone-A' });
+        const zoneB = buildZoneModel({ id: 'zone-B' });
+        const opensInOrder: string[] = [];
+        const openZoneFail = async (z: Zone) => {
+            if (z.id === 'zone-A') throw new Error('HA 502');
+            opensInOrder.push(z.id);
+        };
+
+        const cycleA = buildPersistedCycle({ id: 'cycle-A', startTime: new Date('2026-05-04T13:00:00.000Z'), durationMin: 20 });
+        const cycleB = buildPersistedCycle({ id: 'cycle-B', startTime: new Date('2026-05-04T13:00:00.000Z'), durationMin: 10 });
+
+        armCycle({ db, clock, registry, sequencer, zone: zoneA, cycle: cycleA, openZone: openZoneFail, closeZone: async () => {}, notifier: noopNotifier });
+        armCycle({ db, clock, registry, sequencer, zone: zoneB, cycle: cycleB, openZone: openZoneFail, closeZone: async () => {}, notifier: noopNotifier });
+
+        await advanceTo(new Date('2026-05-04T13:00:01.000Z'));
+
+        // A failed to open; B should fire instead of being blocked.
+        expect(opensInOrder).toEqual(['zone-B']);
+        expect(sequencer.isHeld()).toBe(true); // B holds it now.
+    });
+
+    it('releases the lock when closeZone fails so the next deferred cycle can fire', async () => {
+        const { clock, advanceTo } = createFakeClock(NOW);
+        const { db } = createRuntimeDbStub();
+        const registry = new TimerRegistry();
+        const sequencer = new WateringSequencer();
+        const zoneA = buildZoneModel({ id: 'zone-A' });
+        const zoneB = buildZoneModel({ id: 'zone-B' });
+        const opensInOrder: string[] = [];
+        const openZone = async (z: Zone) => { opensInOrder.push(z.id); };
+        const closeZoneFail = async (z: Zone) => { if (z.id === 'zone-A') throw new Error('close stuck'); };
+
+        const cycleA = buildPersistedCycle({ id: 'cycle-A', startTime: new Date('2026-05-04T13:00:00.000Z'), durationMin: 5 });
+        const cycleB = buildPersistedCycle({ id: 'cycle-B', startTime: new Date('2026-05-04T13:00:00.000Z'), durationMin: 5 });
+
+        armCycle({ db, clock, registry, sequencer, zone: zoneA, cycle: cycleA, openZone, closeZone: closeZoneFail, notifier: noopNotifier });
+        armCycle({ db, clock, registry, sequencer, zone: zoneB, cycle: cycleB, openZone, closeZone: closeZoneFail, notifier: noopNotifier });
+
+        // After A's close (5 min) and the close failure, B should fire.
+        await advanceTo(new Date('2026-05-04T13:05:30.000Z'));
+        expect(opensInOrder).toEqual(['zone-A', 'zone-B']);
+    });
+
+    it('fires three queued cycles in armCycle insertion order', async () => {
+        const { clock, advanceTo } = createFakeClock(NOW);
+        const { db } = createRuntimeDbStub();
+        const registry = new TimerRegistry();
+        const sequencer = new WateringSequencer();
+        const zoneA = buildZoneModel({ id: 'zone-A' });
+        const zoneB = buildZoneModel({ id: 'zone-B' });
+        const zoneC = buildZoneModel({ id: 'zone-C' });
+        const opensInOrder: string[] = [];
+        const openZone = async (z: Zone) => { opensInOrder.push(z.id); };
+
+        const at = new Date('2026-05-04T13:00:00.000Z');
+        const cycleA = buildPersistedCycle({ id: 'cycle-A', startTime: at, durationMin: 5 });
+        const cycleB = buildPersistedCycle({ id: 'cycle-B', startTime: at, durationMin: 5 });
+        const cycleC = buildPersistedCycle({ id: 'cycle-C', startTime: at, durationMin: 5 });
+
+        armCycle({ db, clock, registry, sequencer, zone: zoneA, cycle: cycleA, openZone, closeZone: async () => {}, notifier: noopNotifier });
+        armCycle({ db, clock, registry, sequencer, zone: zoneB, cycle: cycleB, openZone, closeZone: async () => {}, notifier: noopNotifier });
+        armCycle({ db, clock, registry, sequencer, zone: zoneC, cycle: cycleC, openZone, closeZone: async () => {}, notifier: noopNotifier });
+
+        // Just past all three setTimeouts; A is firing, B+C queued.
+        await advanceTo(new Date('2026-05-04T13:00:01.000Z'));
+        expect(opensInOrder).toEqual(['zone-A']);
+        expect(sequencer.getQueueDepth()).toBe(2);
+
+        // Past A's close: B fires (queue depth 1).
+        await advanceTo(new Date('2026-05-04T13:05:01.000Z'));
+        expect(opensInOrder).toEqual(['zone-A', 'zone-B']);
+        expect(sequencer.getQueueDepth()).toBe(1);
+
+        // Past B's close: C fires.
+        await advanceTo(new Date('2026-05-04T13:10:01.000Z'));
+        expect(opensInOrder).toEqual(['zone-A', 'zone-B', 'zone-C']);
+        expect(sequencer.getQueueDepth()).toBe(0);
+    });
+
+    it('fires a non-overlapping cycle at its planned start time without involving the queue', async () => {
+        const { clock, advanceTo } = createFakeClock(NOW);
+        const { db } = createRuntimeDbStub();
+        const registry = new TimerRegistry();
+        const sequencer = new WateringSequencer();
+        const zone = buildZoneModel({ id: 'zone-001' });
+        const opensInOrder: number[] = [];
+        const openZone = async () => { opensInOrder.push(clock.now().getTime()); };
+
+        const cycle = buildPersistedCycle({ id: 'cycle-Solo', startTime: new Date('2026-05-04T13:00:00.000Z'), durationMin: 10 });
+
+        armCycle({ db, clock, registry, sequencer, zone, cycle, openZone, closeZone: async () => {}, notifier: noopNotifier });
+
+        await advanceTo(new Date('2026-05-04T13:00:30.000Z'));
+
+        // Fired at planned start, queue never had to grow.
+        expect(opensInOrder).toEqual([new Date('2026-05-04T13:00:00.000Z').getTime()]);
+        expect(sequencer.getQueueDepth()).toBe(0);
     });
 });
 
