@@ -11,7 +11,7 @@ Irrigation control system. The repo contains:
 First-time setup:
 
 1. `cp .env.example .env` — at the repo root. Docker Compose loads `.env` from the directory containing the compose file.
-2. Edit `.env` and fill in the required values: `HA_URL` (your Home Assistant base URL) and `HA_TOKEN` (a long-lived access token from HA → Profile → Security → Long-Lived Access Tokens). Postgres / pgAdmin / port values have working defaults and only need to be set if you're overriding them.
+2. Edit `.env` and fill in the required values: `HA_URL` (your Home Assistant base URL) and `HA_TOKEN` (a long-lived access token from HA → Profile → Security → Long-Lived Access Tokens). Postgres / pgAdmin / port values have working defaults and only need to be set if you're overriding them. To opt into push notifications via Home Assistant, set `HA_NOTIFY_SERVICE` (e.g. `mobile_app_pixel_8`); the `NOTIFY_ON_WATERING_START` / `NOTIFY_ON_WATERING_END` / `NOTIFY_ON_ERROR` flags toggle each event type (defaults: `false`/`false`/`true`).
 3. From the repo root, bring the stack up: `docker compose up` (or `bun --cwd api run up` for the variant that includes pgAdmin via the `tools` profile).
 
 `.env` is gitignored — never commit credentials.
