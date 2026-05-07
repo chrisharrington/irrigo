@@ -29,9 +29,9 @@ export type PersistedScheduleResult = {
 };
 
 /**
- * Minimal db interface for `replaceZoneSchedule`. Mirrors Drizzle's `delete()`
- * and `insert().values().returning()` chains so a recording stub can stand in
- * for tests.
+ * Minimal db interface for `replaceZoneSchedule`. Mirrors Drizzle's `delete()`,
+ * `insert().values().returning()`, and `update().set().where()` chains so a
+ * recording stub can stand in for tests.
  */
 export type ScheduleWriterDb = {
     delete: (table: typeof scheduleEntries) => {
@@ -42,18 +42,27 @@ export type ScheduleWriterDb = {
             returning: (cols: Record<string, unknown>) => Promise<Array<Record<string, unknown>>>;
         };
     };
+    update: (table: typeof zones) => {
+        set: (values: Record<string, unknown>) => {
+            where: (cond: unknown) => Promise<unknown>;
+        };
+    };
 };
 
 /**
  * Replaces today's-and-future schedule_entries for a zone with the planner's
  * fresh output, cascading future cycles through the FK delete. Past entries
- * (date < today) are left untouched for history.
+ * (date < today) are left untouched for history. Also updates the zone's
+ * `current_depletion_mm` to the planner's projected next-day starting value
+ * so tomorrow's re-plan starts from a correct "now" rather than the seed.
  *
  * @param db - Drizzle client (or compatible stub).
  * @param zoneId - The zone whose schedule is being replaced.
  * @param entries - Planner output for the next forecast window.
  * @param today - Local date string in YYYY-MM-DD; entries on this date and
  *   later are deleted before re-insert.
+ * @param projectedNextDepletionMm - Depletion value to write to
+ *   `zones.current_depletion_mm` (per-zone atomic with the schedule write).
  * @returns The inserted cycles in input order, ready for arming.
  */
 export async function replaceZoneSchedule(
@@ -61,6 +70,7 @@ export async function replaceZoneSchedule(
     zoneId: string,
     entries: ReadonlyArray<IrrigationScheduleEntry>,
     today: string,
+    projectedNextDepletionMm: number,
 ): Promise<PersistedScheduleResult> {
     console.log(`daemon: replacing schedule for zone ${zoneId} from ${today} (${entries.length} entry/entries).`);
 
@@ -115,6 +125,12 @@ export async function replaceZoneSchedule(
             });
         }
     }
+
+    await db
+        .update(zones)
+        .set({ currentDepletionMm: projectedNextDepletionMm })
+        .where(eq(zones.id, zoneId));
+    console.log(`daemon: persisted current_depletion_mm=${projectedNextDepletionMm} for zone ${zoneId}.`);
 
     return { cycles: persisted };
 }

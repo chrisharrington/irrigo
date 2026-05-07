@@ -280,10 +280,12 @@ describe('loadEnabledZones', () => {
 
 type DeleteCall = { table: unknown; conditions: unknown };
 type InsertCall = { table: unknown; rows: ReadonlyArray<Record<string, unknown>> };
+type UpdateCall = { table: unknown; values: Record<string, unknown>; conditions: unknown };
 
 function createScheduleWriterStub(idPlan?: { entries?: string[]; cycles?: string[][] }) {
     const deleteCalls: DeleteCall[] = [];
     const insertCalls: InsertCall[] = [];
+    const updateCalls: UpdateCall[] = [];
     let entryIdx = 0;
     let cycleBatchIdx = 0;
 
@@ -323,9 +325,21 @@ function createScheduleWriterStub(idPlan?: { entries?: string[]; cycles?: string
                 },
             };
         },
+        update(table) {
+            return {
+                set(values) {
+                    return {
+                        where(conditions) {
+                            updateCalls.push({ table, values, conditions });
+                            return Promise.resolve(undefined);
+                        },
+                    };
+                },
+            };
+        },
     };
 
-    return { db, deleteCalls, insertCalls };
+    return { db, deleteCalls, insertCalls, updateCalls };
 }
 
 function buildEntry(date: string, cycles: Array<{ startTime: string; durationMin: number }>): IrrigationScheduleEntry {
@@ -344,7 +358,7 @@ describe('replaceZoneSchedule', () => {
         const { db, deleteCalls, insertCalls } = createScheduleWriterStub();
         const entry = buildEntry('2026-05-04', [{ startTime: '2026-05-04T05:00:00Z', durationMin: 20 }]);
 
-        await replaceZoneSchedule(db, 'zone-001', [entry], '2026-05-04');
+        await replaceZoneSchedule(db, 'zone-001', [entry], '2026-05-04', 0);
 
         expect(deleteCalls).toHaveLength(1);
         expect(deleteCalls[0]?.table).toBe(scheduleEntries);
@@ -358,7 +372,7 @@ describe('replaceZoneSchedule', () => {
             buildEntry('2026-05-06', [{ startTime: '2026-05-06T05:00:00Z', durationMin: 25 }]),
         ];
 
-        await replaceZoneSchedule(db, 'zone-001', entries, '2026-05-04');
+        await replaceZoneSchedule(db, 'zone-001', entries, '2026-05-04', 0);
 
         const entryInserts = insertCalls.filter(c => c.table === scheduleEntries);
         expect(entryInserts).toHaveLength(2);
@@ -379,7 +393,7 @@ describe('replaceZoneSchedule', () => {
             { startTime: '2026-05-04T05:30:00Z', durationMin: 15 },
         ]);
 
-        await replaceZoneSchedule(db, 'zone-001', [entry], '2026-05-04');
+        await replaceZoneSchedule(db, 'zone-001', [entry], '2026-05-04', 0);
 
         const cycleInserts = insertCalls.filter(c => c.table === irrigationCycles);
         expect(cycleInserts).toHaveLength(1);
@@ -401,7 +415,7 @@ describe('replaceZoneSchedule', () => {
             { startTime: '2026-05-04T05:30:00Z', durationMin: 15 },
         ]);
 
-        const result = await replaceZoneSchedule(db, 'zone-001', [entry], '2026-05-04');
+        const result = await replaceZoneSchedule(db, 'zone-001', [entry], '2026-05-04', 0);
 
         expect(result.cycles).toHaveLength(2);
         expect(result.cycles[0]?.id).toBe('cycle-A1');
@@ -413,7 +427,7 @@ describe('replaceZoneSchedule', () => {
     it('still issues the delete and inserts no rows when given an empty entries array', async () => {
         const { db, deleteCalls, insertCalls } = createScheduleWriterStub();
 
-        const result = await replaceZoneSchedule(db, 'zone-001', [], '2026-05-04');
+        const result = await replaceZoneSchedule(db, 'zone-001', [], '2026-05-04', 0);
 
         expect(deleteCalls).toHaveLength(1);
         expect(insertCalls).toHaveLength(0);
@@ -424,11 +438,31 @@ describe('replaceZoneSchedule', () => {
         const { db, insertCalls } = createScheduleWriterStub({ entries: ['entry-A'] });
         const entry = buildEntry('2026-05-04', []);
 
-        const result = await replaceZoneSchedule(db, 'zone-001', [entry], '2026-05-04');
+        const result = await replaceZoneSchedule(db, 'zone-001', [entry], '2026-05-04', 0);
 
         expect(insertCalls.filter(c => c.table === scheduleEntries)).toHaveLength(1);
         expect(insertCalls.filter(c => c.table === irrigationCycles)).toHaveLength(0);
         expect(result.cycles).toEqual([]);
+    });
+
+    it('writes the projected next-day depletion to zones.current_depletion_mm', async () => {
+        const { db, updateCalls } = createScheduleWriterStub();
+        const entry = buildEntry('2026-05-04', [{ startTime: '2026-05-04T05:00:00Z', durationMin: 20 }]);
+
+        await replaceZoneSchedule(db, 'zone-001', [entry], '2026-05-04', 7.5);
+
+        expect(updateCalls).toHaveLength(1);
+        expect(updateCalls[0]?.table).toBe(zones);
+        expect(updateCalls[0]?.values).toEqual({ currentDepletionMm: 7.5 });
+    });
+
+    it('writes the depletion update even when the entries array is empty', async () => {
+        const { db, updateCalls } = createScheduleWriterStub();
+
+        await replaceZoneSchedule(db, 'zone-002', [], '2026-05-04', 12.3);
+
+        expect(updateCalls).toHaveLength(1);
+        expect(updateCalls[0]?.values).toEqual({ currentDepletionMm: 12.3 });
     });
 });
 
@@ -859,11 +893,15 @@ type DaemonStubInputs = {
 
 function createDaemonDbStub(inputs?: DaemonStubInputs) {
     const updates: CycleUpdate[] = [];
+    const zoneUpdates: Array<{ zoneId: string; currentDepletionMm: number }> = [];
     const inserts: InsertCall[] = [];
     const deletes: DeleteCall[] = [];
     const whereCallsZone: WhereCall[] = [];
     const whereCallsCycles: WhereCall[] = [];
     const counts = inputs?.zoneCounts ?? { total: 1, enabled: 1 };
+    // Mutable copy of the seed enabledZones so depletion writes from rePlan
+    // are reflected by subsequent loadEnabledZones calls (day-N reads day-(N-1)).
+    const enabledZoneRows = inputs?.enabledZones?.map(row => ({ ...row, zone: { ...row.zone } })) ?? [];
 
     const db: DaemonDb = {
         select(columns) {
@@ -872,7 +910,7 @@ function createDaemonDbStub(inputs?: DaemonStubInputs) {
                 return { from: () => Promise.resolve([counts]) } as never;
             }
             const isFutureCyclesQuery = 'cycle' in cols;
-            const rows = (isFutureCyclesQuery ? inputs?.futureCycles : inputs?.enabledZones) ?? [];
+            const rows = isFutureCyclesQuery ? (inputs?.futureCycles ?? []) : enabledZoneRows;
             const whereSink = isFutureCyclesQuery ? whereCallsCycles : whereCallsZone;
             return { from: () => buildJoinChainStub(whereSink, rows) };
         },
@@ -907,11 +945,26 @@ function createDaemonDbStub(inputs?: DaemonStubInputs) {
             };
         },
         update(table) {
-            expect(table).toBe(irrigationCycles);
+            const isZonesUpdate = table === zones;
             return {
                 set(values) {
                     return {
                         async where(cond) {
+                            if (isZonesUpdate) {
+                                const zoneId = extractZoneId(cond);
+                                const currentDepletionMm = values['currentDepletionMm'];
+                                if (typeof currentDepletionMm === 'number') {
+                                    zoneUpdates.push({ zoneId, currentDepletionMm });
+                                    // Reflect the write back into the stubbed enabledZones so the
+                                    // next loadEnabledZones returns the updated value (day-N reads
+                                    // day-(N-1)'s persisted depletion, per ticket requirement #3).
+                                    for (const row of enabledZoneRows) {
+                                        if (row.zone.id === zoneId) row.zone.currentDepletionMm = currentDepletionMm;
+                                    }
+                                }
+                                return Promise.resolve(undefined);
+                            }
+                            expect(table).toBe(irrigationCycles);
                             const update: CycleUpdate = { cycleId: extractCycleId(cond) };
                             if (values['firedAt'] instanceof Date) update.firedAt = values['firedAt'];
                             if (values['closedAt'] instanceof Date) update.closedAt = values['closedAt'];
@@ -924,7 +977,31 @@ function createDaemonDbStub(inputs?: DaemonStubInputs) {
         },
     };
 
-    return { db, updates, inserts, deletes };
+    return { db, updates, zoneUpdates, inserts, deletes };
+}
+
+// Walks an `eq(zones.id, X)` condition the same way `extractCycleId` walks the cycle equivalent.
+function extractZoneId(cond: unknown): string {
+    const seen = new WeakSet<object>();
+    function walk(node: unknown): string | undefined {
+        if (typeof node === 'string') return /^zone-/.test(node) ? node : undefined;
+        if (typeof node !== 'object' || node === null) return undefined;
+        if (seen.has(node)) return undefined;
+        seen.add(node);
+        if (Array.isArray(node)) {
+            for (const item of node) {
+                const found = walk(item);
+                if (found) return found;
+            }
+            return undefined;
+        }
+        for (const value of Object.values(node)) {
+            const found = walk(value);
+            if (found) return found;
+        }
+        return undefined;
+    }
+    return walk(cond) ?? '';
 }
 
 describe('start', () => {
@@ -946,7 +1023,7 @@ describe('start', () => {
         await start(db, {
             clock,
             rePlanHourLocal: 4,
-            runPlan: async () => [],
+            runPlan: async () => ({ entries: [], projectedNextDepletionMm: 0 }),
             openZone: async (z) => { opens.push(z.id); },
             closeZone: async (z) => { closes.push(z.id); },
         });
@@ -979,7 +1056,7 @@ describe('start', () => {
         const control = await start(db, {
             clock,
             rePlanHourLocal: 4,
-            runPlan: async () => planned,
+            runPlan: async () => ({ entries: planned, projectedNextDepletionMm: 0 }),
             openZone: async () => {},
             closeZone: async () => {},
         });
@@ -1007,7 +1084,7 @@ describe('start', () => {
         const control = await start(db, {
             clock,
             rePlanHourLocal: 4,
-            runPlan: async () => [],
+            runPlan: async () => ({ entries: [], projectedNextDepletionMm: 0 }),
             openZone: async (z) => { opens.push(z.id); },
             closeZone: async () => {},
         });
@@ -1032,7 +1109,7 @@ describe('start', () => {
             rePlanHourLocal: 4,
             runPlan: async (z) => {
                 if (z.id === 'zone-bad') throw new Error('plan failed');
-                return [planned];
+                return { entries: [planned], projectedNextDepletionMm: 0 };
             },
             openZone: async () => {},
             closeZone: async () => {},
@@ -1060,7 +1137,7 @@ describe('start', () => {
         const control = await start(db, {
             clock,
             rePlanHourLocal: 4,
-            runPlan: async () => [],
+            runPlan: async () => ({ entries: [], projectedNextDepletionMm: 0 }),
             openZone: async (z) => { opens.push(z.id); },
             closeZone: async (z) => { closes.push(z.id); },
         });
@@ -1083,7 +1160,7 @@ describe('start', () => {
         const control = await start(db, {
             clock,
             rePlanHourLocal: 4,
-            runPlan: async () => [],
+            runPlan: async () => ({ entries: [], projectedNextDepletionMm: 0 }),
             openZone: async () => {},
             closeZone: async (z) => { closes.push(z.id); },
         });
@@ -1104,7 +1181,7 @@ describe('start', () => {
             rePlanHourLocal: 4,
             runPlan: async (z) => {
                 planCalls.push(z.id);
-                return [];
+                return { entries: [], projectedNextDepletionMm: 0 };
             },
             openZone: async () => {},
             closeZone: async () => {},
@@ -1134,7 +1211,7 @@ describe('start', () => {
         const control = await start(db, {
             clock,
             rePlanHourLocal: 4,
-            runPlan: async () => [],
+            runPlan: async () => ({ entries: [], projectedNextDepletionMm: 0 }),
             openZone: async () => {},
             closeZone: async () => {},
         });
@@ -1159,7 +1236,7 @@ describe('start', () => {
         const control = await start(db, {
             clock,
             rePlanHourLocal: 4,
-            runPlan: async () => [],
+            runPlan: async () => ({ entries: [], projectedNextDepletionMm: 0 }),
             openZone: async () => {},
             closeZone: async () => {},
         });
@@ -1187,7 +1264,7 @@ describe('start', () => {
         const control = await start(db, {
             clock,
             rePlanHourLocal: 4,
-            runPlan: async () => [],
+            runPlan: async () => ({ entries: [], projectedNextDepletionMm: 0 }),
             openZone: async (z) => { opens.push(z.id); },
             closeZone: async (z) => { closes.push(z.id); },
         });
@@ -1202,6 +1279,33 @@ describe('start', () => {
         await advanceTo(new Date('2026-05-04T13:30:01.000Z'));
 
         expect(closes).toEqual([futureRow.zone.id]);
+    });
+
+    it('persists projected depletion so the next rePlan reads the updated value, not the seed', async () => {
+        const enabledRow = buildJoinedRow({ zone: { id: 'zone-001', currentDepletionMm: 0 } });
+        const { db, zoneUpdates } = createDaemonDbStub({ enabledZones: [enabledRow] });
+        const { clock } = createFakeClock(NOW);
+        const seenDepletionsByCall: number[] = [];
+
+        const control = await start(db, {
+            clock,
+            rePlanHourLocal: 4,
+            runPlan: async zone => {
+                seenDepletionsByCall.push(zone.currentDepletionMm);
+                return { entries: [], projectedNextDepletionMm: 7.5 };
+            },
+            openZone: async () => {},
+            closeZone: async () => {},
+        });
+
+        await control.rePlan();
+        await control.rePlan();
+
+        expect(zoneUpdates).toEqual([
+            { zoneId: 'zone-001', currentDepletionMm: 7.5 },
+            { zoneId: 'zone-001', currentDepletionMm: 7.5 },
+        ]);
+        expect(seenDepletionsByCall).toEqual([0, 7.5]);
     });
 
     describe('startup zone warnings', () => {

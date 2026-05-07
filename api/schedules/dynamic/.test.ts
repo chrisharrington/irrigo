@@ -21,7 +21,7 @@ describe('planZoneSchedule', () => {
             });
             const weather = createDryPeriod(7, 1.0);
 
-            const schedule = planZoneSchedule(zone, weather);
+            const { entries: schedule } = planZoneSchedule(zone, weather);
 
             expect(schedule).toHaveLength(0);
         });
@@ -33,7 +33,7 @@ describe('planZoneSchedule', () => {
             });
             const weather = createDryPeriod(7, 1.5);
 
-            const schedule = planZoneSchedule(zone, weather);
+            const { entries: schedule } = planZoneSchedule(zone, weather);
 
             expect(schedule.length).toBeGreaterThan(0);
             expect(schedule[0]!.appliedDepthMm).toBeGreaterThan(0);
@@ -46,7 +46,7 @@ describe('planZoneSchedule', () => {
             });
             const weather = createDryPeriod(30, 3.5);
 
-            const schedule = planZoneSchedule(zone, weather);
+            const { entries: schedule } = planZoneSchedule(zone, weather);
 
             expect(schedule.length).toBeGreaterThan(1);
         });
@@ -59,7 +59,7 @@ describe('planZoneSchedule', () => {
             });
             const weather = createHeatWave(14);
 
-            const schedule = planZoneSchedule(zone, weather);
+            const { entries: schedule } = planZoneSchedule(zone, weather);
 
             // Heat wave with high water use grass requires frequent irrigation.
             expect(schedule.length).toBeGreaterThan(3);
@@ -72,7 +72,7 @@ describe('planZoneSchedule', () => {
             });
             const weather = createDryPeriod(7, 2.0);
 
-            const schedule = planZoneSchedule(zone, weather);
+            const { entries: schedule } = planZoneSchedule(zone, weather);
 
             expect(schedule.length).toBeGreaterThan(0);
             expect(schedule[0]!.date.format('YYYY-MM-DD')).toBe(weather[0]!.date.format('YYYY-MM-DD'));
@@ -91,7 +91,7 @@ describe('planZoneSchedule', () => {
                 { evapotranspirationMmPerDay: 10.0, rainfallMm: 0 },
             ]);
 
-            const schedule = planZoneSchedule(zone, weather);
+            const { entries: schedule } = planZoneSchedule(zone, weather);
 
             expect(schedule.length).toBeGreaterThan(0);
             const lastScheduled = schedule[schedule.length - 1]!;
@@ -109,7 +109,7 @@ describe('planZoneSchedule', () => {
                 { evapotranspirationMmPerDay: 2.0, rainfallMm: 0.5 },
             ]);
 
-            const schedule = planZoneSchedule(zone, weather);
+            const { entries: schedule } = planZoneSchedule(zone, weather);
 
             expect(schedule.length).toBeGreaterThan(0);
         });
@@ -122,7 +122,7 @@ describe('planZoneSchedule', () => {
                 { evapotranspirationMmPerDay: 2.0, rainfallMm: 0 },
             ]);
 
-            const schedule = planZoneSchedule(zone, weather);
+            const { entries: schedule } = planZoneSchedule(zone, weather);
 
             expect(schedule).toHaveLength(0);
         });
@@ -135,7 +135,7 @@ describe('planZoneSchedule', () => {
                 { evapotranspirationMmPerDay: 2.0, rainfallMm: 0 },
             ]);
 
-            const schedule = planZoneSchedule(zone, weather);
+            const { entries: schedule } = planZoneSchedule(zone, weather);
 
             expect(schedule.length).toBeGreaterThan(0);
         });
@@ -144,7 +144,7 @@ describe('planZoneSchedule', () => {
             const zone = createTestZone({ currentDepletionMm: 10 });
             const weather = createIntermittentRainfall(14);
 
-            const schedule = planZoneSchedule(zone, weather);
+            const { entries: schedule } = planZoneSchedule(zone, weather);
 
             // Should have some irrigation events but fewer than dry period.
             expect(schedule.length).toBeLessThan(14);
@@ -154,7 +154,7 @@ describe('planZoneSchedule', () => {
             const zone = createTestZone({ currentDepletionMm: 15 });
             const weather = createRainyPeriod(10, 8.0);
 
-            const schedule = planZoneSchedule(zone, weather);
+            const { entries: schedule } = planZoneSchedule(zone, weather);
 
             expect(schedule).toHaveLength(0);
         });
@@ -165,7 +165,7 @@ describe('planZoneSchedule', () => {
                 { evapotranspirationMmPerDay: 2.0, rainfallMm: 2.0 },
             ]);
 
-            const schedule = planZoneSchedule(zone, weather);
+            const { entries: schedule } = planZoneSchedule(zone, weather);
 
             // 2mm * 0.8 = 1.6mm effective rainfall, less than 2mm ET.
             // Depletion: 20 + 2 - 1.6 = 20.4mm (still below 22.5mm threshold).
@@ -183,7 +183,7 @@ describe('planZoneSchedule', () => {
                 { evapotranspirationMmPerDay: 0, rainfallMm: 0 },
             ]);
 
-            const schedule = planZoneSchedule(zone, weather);
+            const { entries: schedule } = planZoneSchedule(zone, weather);
 
             expect(schedule).toHaveLength(0);
         });
@@ -192,7 +192,7 @@ describe('planZoneSchedule', () => {
             const zone = createTestZone({ currentDepletionMm: 0 });
             const weather = createDryPeriod(14, 6.0);
 
-            const schedule = planZoneSchedule(zone, weather);
+            const { entries: schedule } = planZoneSchedule(zone, weather);
 
             expect(schedule.length).toBeGreaterThan(2);
         });
@@ -201,7 +201,7 @@ describe('planZoneSchedule', () => {
             const zone = createTestZone({ currentDepletionMm: 10 });
             const weather = createVariableET(14);
 
-            const schedule = planZoneSchedule(zone, weather);
+            const { entries: schedule } = planZoneSchedule(zone, weather);
 
             expect(schedule.length).toBeGreaterThan(0);
         });
@@ -215,7 +215,7 @@ describe('planZoneSchedule', () => {
                 { evapotranspirationMmPerDay: 1.0, rainfallMm: 0 },
             ]);
 
-            const schedule = planZoneSchedule(zone, weather);
+            const { entries: schedule } = planZoneSchedule(zone, weather);
 
             expect(schedule.length).toBeGreaterThan(0);
         });
@@ -230,7 +230,7 @@ describe('planZoneSchedule', () => {
             });
             const weather = createDryPeriod(14, 3.0);
 
-            const schedule = planZoneSchedule(zone, weather);
+            const { entries: schedule } = planZoneSchedule(zone, weather);
 
             // Sandy soil has lower AWHC, reaches threshold faster.
             expect(schedule.length).toBeGreaterThanOrEqual(3);
@@ -243,7 +243,7 @@ describe('planZoneSchedule', () => {
             });
             const weather = createDryPeriod(14, 3.0);
 
-            const schedule = planZoneSchedule(zone, weather);
+            const { entries: schedule } = planZoneSchedule(zone, weather);
 
             // Clay soil has higher AWHC, takes longer to reach threshold.
             expect(schedule.length).toBeLessThan(5);
@@ -256,7 +256,7 @@ describe('planZoneSchedule', () => {
             });
             const weather = createDryPeriod(14, 3.0);
 
-            const schedule = planZoneSchedule(zone, weather);
+            const { entries: schedule } = planZoneSchedule(zone, weather);
 
             expect(schedule.length).toBeGreaterThan(0);
             expect(schedule.length).toBeLessThan(14);
@@ -269,7 +269,7 @@ describe('planZoneSchedule', () => {
             });
             const weather = createDryPeriod(14, 3.0);
 
-            const schedule = planZoneSchedule(zone, weather);
+            const { entries: schedule } = planZoneSchedule(zone, weather);
 
             expect(schedule.length).toBeGreaterThan(0);
         });
@@ -284,7 +284,7 @@ describe('planZoneSchedule', () => {
             });
             const weather = createDryPeriod(14, 4.0);
 
-            const schedule = planZoneSchedule(zone, weather);
+            const { entries: schedule } = planZoneSchedule(zone, weather);
 
             expect(schedule.length).toBeLessThan(7);
         });
@@ -296,7 +296,7 @@ describe('planZoneSchedule', () => {
             });
             const weather = createDryPeriod(14, 4.0);
 
-            const schedule = planZoneSchedule(zone, weather);
+            const { entries: schedule } = planZoneSchedule(zone, weather);
 
             expect(schedule.length).toBeGreaterThan(0);
         });
@@ -308,7 +308,7 @@ describe('planZoneSchedule', () => {
             });
             const weather = createDryPeriod(14, 4.0);
 
-            const schedule = planZoneSchedule(zone, weather);
+            const { entries: schedule } = planZoneSchedule(zone, weather);
 
             expect(schedule.length).toBeGreaterThan(1);
         });
@@ -320,7 +320,7 @@ describe('planZoneSchedule', () => {
             });
             const weather = createDryPeriod(14, 5.0);
 
-            const schedule = planZoneSchedule(zone, weather);
+            const { entries: schedule } = planZoneSchedule(zone, weather);
 
             expect(schedule.length).toBeLessThan(3);
         });
@@ -335,7 +335,7 @@ describe('planZoneSchedule', () => {
             });
             const weather = createDryPeriod(14, 3.0);
 
-            const schedule = planZoneSchedule(zone, weather);
+            const { entries: schedule } = planZoneSchedule(zone, weather);
 
             // Shallow roots mean less total available water, more frequent irrigation.
             expect(schedule.length).toBeGreaterThan(2);
@@ -348,7 +348,7 @@ describe('planZoneSchedule', () => {
             });
             const weather = createDryPeriod(14, 3.0);
 
-            const schedule = planZoneSchedule(zone, weather);
+            const { entries: schedule } = planZoneSchedule(zone, weather);
 
             expect(schedule.length).toBeGreaterThan(0);
         });
@@ -360,7 +360,7 @@ describe('planZoneSchedule', () => {
             });
             const weather = createDryPeriod(14, 3.0);
 
-            const schedule = planZoneSchedule(zone, weather);
+            const { entries: schedule } = planZoneSchedule(zone, weather);
 
             // Deep roots mean more total available water, less frequent irrigation.
             expect(schedule.length).toBeLessThan(5);
@@ -376,7 +376,7 @@ describe('planZoneSchedule', () => {
             });
             const weather = createDryPeriod(14, 2.5);
 
-            const schedule = planZoneSchedule(zone, weather);
+            const { entries: schedule } = planZoneSchedule(zone, weather);
 
             expect(schedule.length).toBeGreaterThan(1);
         });
@@ -388,7 +388,7 @@ describe('planZoneSchedule', () => {
             });
             const weather = createDryPeriod(14, 2.5);
 
-            const schedule = planZoneSchedule(zone, weather);
+            const { entries: schedule } = planZoneSchedule(zone, weather);
 
             expect(schedule.length).toBeGreaterThan(0);
             expect(schedule.length).toBeLessThan(7);
@@ -401,7 +401,7 @@ describe('planZoneSchedule', () => {
             });
             const weather = createDryPeriod(14, 2.5);
 
-            const schedule = planZoneSchedule(zone, weather);
+            const { entries: schedule } = planZoneSchedule(zone, weather);
 
             expect(schedule.length).toBeLessThan(4);
         });
@@ -416,7 +416,7 @@ describe('planZoneSchedule', () => {
             });
             const weather = createDryPeriod(3, 1.0);
 
-            const schedule = planZoneSchedule(zone, weather);
+            const { entries: schedule } = planZoneSchedule(zone, weather);
 
             expect(schedule.length).toBeGreaterThan(0);
             // Lower efficiency requires more applied depth.
@@ -430,7 +430,7 @@ describe('planZoneSchedule', () => {
             });
             const weather = createDryPeriod(3, 1.0);
 
-            const schedule = planZoneSchedule(zone, weather);
+            const { entries: schedule } = planZoneSchedule(zone, weather);
 
             expect(schedule.length).toBeGreaterThan(0);
             expect(schedule[0]!.appliedDepthMm).toBeGreaterThan(20);
@@ -444,7 +444,7 @@ describe('planZoneSchedule', () => {
             });
             const weather = createDryPeriod(3, 1.0);
 
-            const schedule = planZoneSchedule(zone, weather);
+            const { entries: schedule } = planZoneSchedule(zone, weather);
 
             expect(schedule.length).toBeGreaterThan(0);
             expect(schedule[0]!.appliedDepthMm).toBeLessThan(25);
@@ -461,7 +461,7 @@ describe('planZoneSchedule', () => {
             });
             const weather = createDryPeriod(3, 1.0);
 
-            const schedule = planZoneSchedule(zone, weather);
+            const { entries: schedule } = planZoneSchedule(zone, weather);
 
             expect(schedule.length).toBeGreaterThan(0);
             // May require 1 or 2 cycles depending on infiltration.
@@ -477,7 +477,7 @@ describe('planZoneSchedule', () => {
             });
             const weather = createDryPeriod(3, 1.0);
 
-            const schedule = planZoneSchedule(zone, weather);
+            const { entries: schedule } = planZoneSchedule(zone, weather);
 
             // Clay soil with low infiltration may prevent irrigation if depletion doesn't build enough.
             if (schedule.length > 0) {
@@ -497,7 +497,7 @@ describe('planZoneSchedule', () => {
             });
             const weather = createDryPeriod(3, 1.0);
 
-            const schedule = planZoneSchedule(zone, weather);
+            const { entries: schedule } = planZoneSchedule(zone, weather);
 
             // Clay soil with low infiltration may prevent irrigation if depletion doesn't build enough.
             if (schedule.length > 0) {
@@ -516,7 +516,7 @@ describe('planZoneSchedule', () => {
             });
             const weather = createDryPeriod(3, 1.0);
 
-            const schedule = planZoneSchedule(zone, weather);
+            const { entries: schedule } = planZoneSchedule(zone, weather);
 
             expect(schedule.length).toBeGreaterThan(0);
             expect(schedule[0]!.cycles).toHaveLength(1);
@@ -529,7 +529,7 @@ describe('planZoneSchedule', () => {
             const zone = createTestZone({ isEnabled: false });
             const weather = createDryPeriod(14, 5.0);
 
-            const schedule = planZoneSchedule(zone, weather);
+            const { entries: schedule } = planZoneSchedule(zone, weather);
 
             expect(schedule).toHaveLength(0);
         });
@@ -541,7 +541,7 @@ describe('planZoneSchedule', () => {
             });
             const weather = createDryPeriod(3, 0.1);
 
-            const schedule = planZoneSchedule(zone, weather);
+            const { entries: schedule } = planZoneSchedule(zone, weather);
 
             expect(schedule.length).toBeGreaterThan(0);
         });
@@ -553,7 +553,7 @@ describe('planZoneSchedule', () => {
             });
             const weather = createDryPeriod(3, 0.1);
 
-            const schedule = planZoneSchedule(zone, weather);
+            const { entries: schedule } = planZoneSchedule(zone, weather);
 
             // With 0.1mm ET per day, depletion increases slightly but slowly.
             // May or may not trigger depending on accumulated ET.
@@ -567,7 +567,7 @@ describe('planZoneSchedule', () => {
             });
             const weather = createDryPeriod(3, 0.1);
 
-            const schedule = planZoneSchedule(zone, weather);
+            const { entries: schedule } = planZoneSchedule(zone, weather);
 
             expect(schedule.length).toBeGreaterThan(0);
         });
@@ -579,7 +579,7 @@ describe('planZoneSchedule', () => {
             });
             const weather = createDryPeriod(3, 1.0);
 
-            const schedule = planZoneSchedule(zone, weather);
+            const { entries: schedule } = planZoneSchedule(zone, weather);
 
             expect(schedule.length).toBeGreaterThan(0);
             expect(schedule[0]!.depletionBeforeMm).toBeLessThanOrEqual(45);
@@ -592,7 +592,7 @@ describe('planZoneSchedule', () => {
             });
             const weather = createDryPeriod(7, 3.5);
 
-            const schedule = planZoneSchedule(zone, weather);
+            const { entries: schedule } = planZoneSchedule(zone, weather);
 
             // Negative depletion clamped to 0, then needs to build to 22.5mm.
             // With 3.5mm ET and 0.85 crop coefficient = ~3mm/day.
@@ -610,7 +610,7 @@ describe('planZoneSchedule', () => {
                 },
             ]);
 
-            const schedule = planZoneSchedule(zone, weather);
+            const { entries: schedule } = planZoneSchedule(zone, weather);
 
             expect(schedule.length).toBeGreaterThan(0);
             expect(schedule[0]!.cycles[0]!.startTime.hour()).toBeLessThan(5);
@@ -626,7 +626,7 @@ describe('planZoneSchedule', () => {
                 },
             ]);
 
-            const schedule = planZoneSchedule(zone, weather);
+            const { entries: schedule } = planZoneSchedule(zone, weather);
 
             expect(schedule.length).toBeGreaterThan(0);
             expect(schedule[0]!.cycles[0]!.startTime.hour()).toBeLessThan(9);
@@ -643,7 +643,7 @@ describe('planZoneSchedule', () => {
             });
             const weather = createDryPeriod(14, 4.0);
 
-            const schedule = planZoneSchedule(zone, weather);
+            const { entries: schedule } = planZoneSchedule(zone, weather);
 
             // Rapid depletion requires frequent irrigation.
             expect(schedule.length).toBeGreaterThan(7);
@@ -657,7 +657,7 @@ describe('planZoneSchedule', () => {
             });
             const weather = createRainyPeriod(14, 6.0);
 
-            const schedule = planZoneSchedule(zone, weather);
+            const { entries: schedule } = planZoneSchedule(zone, weather);
 
             // High water retention with rainfall means minimal irrigation.
             expect(schedule).toHaveLength(0);
@@ -673,7 +673,7 @@ describe('planZoneSchedule', () => {
             });
             const weather = createDryPeriod(14, 5.0);
 
-            const schedule = planZoneSchedule(zone, weather);
+            const { entries: schedule } = planZoneSchedule(zone, weather);
 
             expect(schedule.length).toBeGreaterThan(0);
             // Should require cycle splitting due to clay infiltration.
@@ -688,7 +688,7 @@ describe('planZoneSchedule', () => {
             });
             const weather = createVariableET(14);
 
-            const schedule = planZoneSchedule(zone, weather);
+            const { entries: schedule } = planZoneSchedule(zone, weather);
 
             expect(schedule.length).toBeGreaterThan(0);
         });
@@ -705,7 +705,7 @@ describe('planZoneSchedule', () => {
                 { evapotranspirationMmPerDay: 2.0, rainfallMm: 0 },
             ]);
 
-            const schedule = planZoneSchedule(zone, weather);
+            const { entries: schedule } = planZoneSchedule(zone, weather);
 
             expect(schedule.length).toBeGreaterThan(0);
         });
@@ -718,7 +718,7 @@ describe('planZoneSchedule', () => {
             });
             const weather = createVariableET(14);
 
-            const schedule = planZoneSchedule(zone, weather);
+            const { entries: schedule } = planZoneSchedule(zone, weather);
 
             expect(schedule.length).toBeGreaterThan(0);
         });
@@ -730,7 +730,7 @@ describe('planZoneSchedule', () => {
             });
             const weather = createHeatWave(14);
 
-            const schedule = planZoneSchedule(zone, weather);
+            const { entries: schedule } = planZoneSchedule(zone, weather);
 
             expect(schedule.length).toBeGreaterThan(3);
         });
@@ -742,7 +742,7 @@ describe('planZoneSchedule', () => {
             const zone = createTestZone({ currentDepletionMm: 10 });
             const weather = createDryPeriod(14, 2.5);
 
-            const schedule = planZoneSchedule(zone, weather);
+            const { entries: schedule } = planZoneSchedule(zone, weather);
 
             expect(schedule.length).toBeGreaterThan(0);
         });
@@ -751,7 +751,7 @@ describe('planZoneSchedule', () => {
             const zone = createTestZone({ currentDepletionMm: 0 });
             const weather = createDryPeriod(30, 2.5);
 
-            const schedule = planZoneSchedule(zone, weather);
+            const { entries: schedule } = planZoneSchedule(zone, weather);
 
             expect(schedule.length).toBeGreaterThan(1);
         });
@@ -760,7 +760,7 @@ describe('planZoneSchedule', () => {
             const zone = createTestZone({ currentDepletionMm: 15 });
             const weather = createDryPeriod(7, 2.5);
 
-            const schedule = planZoneSchedule(zone, weather);
+            const { entries: schedule } = planZoneSchedule(zone, weather);
 
             expect(schedule.length).toBeGreaterThan(0);
         });
@@ -769,7 +769,7 @@ describe('planZoneSchedule', () => {
             const zone = createTestZone({ currentDepletionMm: 23 });
             const weather = createDryPeriod(1, 2.0);
 
-            const schedule = planZoneSchedule(zone, weather);
+            const { entries: schedule } = planZoneSchedule(zone, weather);
 
             expect(schedule.length).toBeGreaterThan(0);
         });
@@ -784,7 +784,7 @@ describe('planZoneSchedule', () => {
             });
             const weather = createDryPeriod(3, 1.0);
 
-            const schedule = planZoneSchedule(zone, weather);
+            const { entries: schedule } = planZoneSchedule(zone, weather);
 
             expect(schedule.length).toBeGreaterThan(0);
             // Low flow means longer cycle duration.
@@ -798,7 +798,7 @@ describe('planZoneSchedule', () => {
             });
             const weather = createDryPeriod(3, 1.0);
 
-            const schedule = planZoneSchedule(zone, weather);
+            const { entries: schedule } = planZoneSchedule(zone, weather);
 
             expect(schedule.length).toBeGreaterThan(0);
             // High flow means shorter total cycle time, but actual duration depends on efficiency and depletion.
@@ -813,7 +813,7 @@ describe('planZoneSchedule', () => {
             });
             const weather = createDryPeriod(3, 1.0);
 
-            const schedule = planZoneSchedule(zone, weather);
+            const { entries: schedule } = planZoneSchedule(zone, weather);
 
             expect(schedule.length).toBeGreaterThan(0);
         });
@@ -827,7 +827,7 @@ describe('planZoneSchedule', () => {
             });
             const weather = createDryPeriod(3, 1.0);
 
-            const schedule = planZoneSchedule(zone, weather);
+            const { entries: schedule } = planZoneSchedule(zone, weather);
 
             expect(schedule.length).toBeGreaterThan(0);
             // Precipitation rate: 10 L/min * 60 / 150 m2 = 4 mm/hr.
@@ -845,7 +845,7 @@ describe('planZoneSchedule', () => {
             });
             const weather = createDryPeriod(3, 1.0);
 
-            const schedule = planZoneSchedule(zone, weather);
+            const { entries: schedule } = planZoneSchedule(zone, weather);
 
             // Clay soil with low infiltration may prevent irrigation if depletion doesn't build enough.
             if (schedule.length > 0) {
@@ -866,7 +866,7 @@ describe('planZoneSchedule', () => {
             const weather = createDryPeriod(30, 3.0);
             const maxDepletion = zone.soil.availableWaterHoldingCapacityMmPerM * zone.rootDepthM;
 
-            const schedule = planZoneSchedule(zone, weather);
+            const { entries: schedule } = planZoneSchedule(zone, weather);
 
             schedule.forEach((entry) => {
                 expect(entry.depletionBeforeMm).toBeGreaterThanOrEqual(0);
@@ -885,7 +885,7 @@ describe('planZoneSchedule', () => {
             });
             const weather = createDryPeriod(7, 2.0);
 
-            const schedule = planZoneSchedule(zone, weather);
+            const { entries: schedule } = planZoneSchedule(zone, weather);
 
             schedule.forEach((entry, index) => {
                 const weatherDay = weather.find(w => w.date.isSame(entry.date, 'day'));
@@ -903,7 +903,7 @@ describe('planZoneSchedule', () => {
             const zone = createTestZone({ currentDepletionMm: 0 });
             const weather = createDryPeriod(30, 3.0);
 
-            const schedule = planZoneSchedule(zone, weather);
+            const { entries: schedule } = planZoneSchedule(zone, weather);
 
             schedule.forEach((entry) => {
                 expect(entry.appliedDepthMm).toBeGreaterThan(0);
@@ -914,10 +914,68 @@ describe('planZoneSchedule', () => {
             const zone = createTestZone({ currentDepletionMm: 25 });
             const weather = createDryPeriod(3, 1.0);
 
-            const schedule = planZoneSchedule(zone, weather);
+            const { entries: schedule } = planZoneSchedule(zone, weather);
 
             expect(schedule.length).toBeGreaterThan(0);
             expect(schedule[0]!.depletionAfterMm).toBe(0);
+        });
+    });
+
+    describe('projectedNextDepletionMm', () => {
+        it('returns clamped starting depletion when weather history is empty', () => {
+            const zone = createTestZone({ currentDepletionMm: 12 });
+
+            const { projectedNextDepletionMm } = planZoneSchedule(zone, []);
+
+            expect(projectedNextDepletionMm).toBe(12);
+        });
+
+        it('returns clamped starting depletion for a disabled zone', () => {
+            const zone = createTestZone({ isEnabled: false, currentDepletionMm: 8 });
+            const weather = createDryPeriod(7, 3.0);
+
+            const { entries, projectedNextDepletionMm } = planZoneSchedule(zone, weather);
+
+            expect(entries).toHaveLength(0);
+            expect(projectedNextDepletionMm).toBe(8);
+        });
+
+        it('grows depletion by net day-0 ET on a no-irrigation day', () => {
+            const zone = createTestZone({ currentDepletionMm: 5, allowableDepletionFraction: 0.5 });
+            const weather = createWeatherDays([
+                { evapotranspirationMmPerDay: 2.0, rainfallMm: 0 },
+            ]);
+
+            const { projectedNextDepletionMm } = planZoneSchedule(zone, weather);
+
+            // Net change: 0.85 (Kc) * 2.0 ET - 0 effective rain = 1.7 mm.
+            expect(projectedNextDepletionMm).toBeCloseTo(5 + 1.7, 5);
+        });
+
+        it('clamps projected depletion to zero when day-0 rainfall exceeds depletion + ET', () => {
+            const zone = createTestZone({ currentDepletionMm: 4 });
+            const weather = createWeatherDays([
+                { evapotranspirationMmPerDay: 1.0, rainfallMm: 50 },
+            ]);
+
+            const { projectedNextDepletionMm } = planZoneSchedule(zone, weather);
+
+            expect(projectedNextDepletionMm).toBe(0);
+        });
+
+        it('reflects post-irrigation reset plus another full day of net ET when day-0 irrigates', () => {
+            const zone = createTestZone({ currentDepletionMm: 25, allowableDepletionFraction: 0.5 });
+            const weather = createWeatherDays([
+                { evapotranspirationMmPerDay: 2.0, rainfallMm: 0 },
+            ]);
+
+            const { entries, projectedNextDepletionMm } = planZoneSchedule(zone, weather);
+
+            // Day-0 irrigation fires (depletion 25 + 1.7 ET = 26.7 >= 22.5 RAW), then
+            // depletion resets to 0 and the planner re-applies the day's net ET. Net
+            // is Kc * ET - 0 effective rain = 1.7 mm.
+            expect(entries.length).toBeGreaterThan(0);
+            expect(projectedNextDepletionMm).toBeCloseTo(1.7, 5);
         });
     });
 });

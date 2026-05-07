@@ -2,15 +2,30 @@ import dayjs from 'dayjs';
 import type { Zone, DailyWeather, IrrigationScheduleEntry, IrrigationCycle } from '../../models';
 
 /**
+ * Result of `planZoneSchedule`. `entries` is the per-day irrigation plan;
+ * `projectedNextDepletionMm` is the running soil-moisture depletion at the
+ * end of day 0 of the planning horizon — i.e. the value the next morning's
+ * re-plan should treat as 'now' when it kicks off. Persisting this value
+ * back to `zones.current_depletion_mm` is what keeps day-N planning honest.
+ */
+export type PlanZoneScheduleResult = {
+    entries: IrrigationScheduleEntry[];
+    projectedNextDepletionMm: number;
+};
+
+/**
  * Plan irrigation schedule for a zone based on weather history.
  * Uses soil moisture balance to determine when irrigation is needed.
  *
  * @param zone - The irrigation zone configuration.
  * @param weatherHistory - Array of daily weather data.
- * @returns Array of scheduled irrigation entries.
+ * @returns Per-day entries plus the projected next-day starting depletion.
  */
-export function planZoneSchedule(zone: Zone, weatherHistory: DailyWeather[]): IrrigationScheduleEntry[] {
-    if (zone.isEnabled === false) return [];
+export function planZoneSchedule(zone: Zone, weatherHistory: DailyWeather[]): PlanZoneScheduleResult {
+    const totalAvailableWaterMillimetersForClamp = zone.soil.availableWaterHoldingCapacityMmPerM * zone.rootDepthM,
+        clampedStartingDepletion = clampValue(zone.currentDepletionMm ?? 0, 0, totalAvailableWaterMillimetersForClamp);
+
+    if (zone.isEnabled === false) return { entries: [], projectedNextDepletionMm: clampedStartingDepletion };
 
     // Calculate soil water holding capacity and thresholds.
     const availableWaterHoldingCapacity = zone.soil.availableWaterHoldingCapacityMmPerM,
@@ -25,12 +40,13 @@ export function planZoneSchedule(zone: Zone, weatherHistory: DailyWeather[]): Ir
         soakTimeMinutes = estimateSoakMinutes(infiltrationRateMillimetersPerHour);
 
     // Initialize current soil moisture depletion.
-    let currentDepletionMillimeters = clampValue(zone.currentDepletionMm ?? 0, 0, totalAvailableWaterMillimeters);
+    let currentDepletionMillimeters = clampedStartingDepletion;
+    let projectedNextDepletionMm = clampedStartingDepletion;
 
     const irrigationSchedule: IrrigationScheduleEntry[] = [];
 
     // Process each day of weather history.
-    for (const weatherDay of weatherHistory) {
+    for (const [dayIndex, weatherDay] of weatherHistory.entries()) {
         const date = weatherDay.date,
             sunrise = weatherDay.sunrise ?? date.hour(6).minute(0).second(0);
 
@@ -101,9 +117,13 @@ export function planZoneSchedule(zone: Zone, weatherHistory: DailyWeather[]): Ir
 
         // Ensure depletion stays within valid bounds.
         currentDepletionMillimeters = clampValue(currentDepletionMillimeters, 0, totalAvailableWaterMillimeters);
+
+        // Capture the projected end-of-day-0 depletion — this becomes the
+        // starting depletion that tomorrow's re-plan should treat as 'now'.
+        if (dayIndex === 0) projectedNextDepletionMm = currentDepletionMillimeters;
     }
 
-    return irrigationSchedule;
+    return { entries: irrigationSchedule, projectedNextDepletionMm };
 }
 
 /**

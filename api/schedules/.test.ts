@@ -68,11 +68,25 @@ describe('runScheduleForZone', () => {
             location: { lat: 51.0447, lon: -114.0719 },
         });
 
-        const schedule = await runScheduleForZone(zone);
+        const { entries: schedule } = await runScheduleForZone(zone);
 
         expect(schedule.length).toBeGreaterThan(0);
         expect(schedule[0]!.zoneId).toBe(zone.id);
         expect(schedule[0]!.appliedDepthMm).toBeGreaterThan(0);
+    });
+
+    it('returns the projected next-day depletion alongside the schedule entries', async () => {
+        stubSuccess();
+        const zone = createTestZone({
+            currentDepletionMm: 5,
+            allowableDepletionFraction: 0.5,
+            location: { lat: 51.0447, lon: -114.0719 },
+        });
+
+        const result = await runScheduleForZone(zone);
+
+        expect(result.projectedNextDepletionMm).toBeGreaterThan(0);
+        expect(typeof result.projectedNextDepletionMm).toBe('number');
     });
 
     it('throws when the zone has no location and does not call the weather API', async () => {
@@ -114,7 +128,7 @@ describe('runScheduleForZone', () => {
             location: { lat: 51.0447, lon: -114.0719 },
         });
 
-        const schedule = await runScheduleForZone(zone);
+        const { entries: schedule } = await runScheduleForZone(zone);
 
         expect(schedule).toHaveLength(0);
     });
