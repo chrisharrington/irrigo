@@ -102,6 +102,30 @@ export async function loadEnabledZones(db: ZoneLoaderDb): Promise<Zone[]> {
 }
 
 /**
+ * Loads a single zone by id, joined with its grass/soil/site reference rows.
+ * Returns `null` if no zone exists with that id. Disabled zones are still
+ * returned — callers (e.g. the manual-fire HTTP routes) decide whether to
+ * refuse based on `zone.isEnabled`.
+ *
+ * @param db - Drizzle client (or a compatible stub).
+ * @param zoneId - The zone's UUID.
+ * @returns The mapped Zone or null.
+ */
+export async function loadZoneById(db: ZoneLoaderDb, zoneId: string): Promise<Zone | null> {
+    const rows = await db
+        .select({ zone: zones, grassType: grassTypes, soilType: soilTypes, site: sites })
+        .from(zones)
+        .innerJoin(grassTypes, eq(zones.grassTypeId, grassTypes.id))
+        .innerJoin(soilTypes, eq(zones.soilTypeId, soilTypes.id))
+        .innerJoin(sites, eq(zones.siteId, sites.id))
+        .where(eq(zones.id, zoneId));
+
+    const row = rows[0];
+    if (!row) return null;
+    return joinedRowToZone(row);
+}
+
+/**
  * Pure mapping function: filters disabled rows and turns each joined row into
  * a fully-formed `Zone` with embedded grass type, soil type, and resolved
  * location. Tested directly to keep coverage tight without involving Drizzle.
