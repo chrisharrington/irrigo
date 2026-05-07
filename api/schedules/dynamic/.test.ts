@@ -978,4 +978,177 @@ describe('planZoneSchedule', () => {
             expect(projectedNextDepletionMm).toBeCloseTo(1.7, 5);
         });
     });
+
+    describe('busy-window deconfliction', () => {
+        // Single-cycle scenario: high infiltration + matching precip rate keeps
+        // totalRunTime ≤ maxCycle so buildCyclePlan emits exactly one cycle.
+        const singleCycleZone = () => createTestZone({
+            currentDepletionMm: 22,
+            soil: { name: 'TestSoil', availableWaterHoldingCapacityMmPerM: 150, infiltrationRateMmPerHr: 100 },
+            precipitationRateMmPerHr: 50,
+        });
+        const singleCycleWeather = () => createWeatherDays([
+            {
+                evapotranspirationMmPerDay: 1.0,
+                rainfallMm: 0,
+                sunrise: dayjs('2025-10-20').hour(6).minute(0).second(0).millisecond(0),
+            },
+        ]);
+
+        it('returns identical output when busyWindows is empty', () => {
+            const zone = singleCycleZone();
+            const weather = singleCycleWeather();
+
+            const baseline = planZoneSchedule(zone, weather);
+            const withEmpty = planZoneSchedule(zone, weather, []);
+
+            expect(withEmpty.entries).toHaveLength(baseline.entries.length);
+            const baselineCycle = baseline.entries[0]!.cycles[0]!;
+            const emptyCycle = withEmpty.entries[0]!.cycles[0]!;
+            expect(emptyCycle.startTime.isSame(baselineCycle.startTime)).toBe(true);
+            expect(emptyCycle.durationMin).toBe(baselineCycle.durationMin);
+        });
+
+        it('shifts a cycle forward to the end of an overlapping busy window', () => {
+            const zone = singleCycleZone();
+            const weather = singleCycleWeather();
+            const baseline = planZoneSchedule(zone, weather);
+            const baselineCycle = baseline.entries[0]!.cycles[0]!;
+            const busyStart = baselineCycle.startTime.subtract(20, 'minute');
+            const busyEnd = baselineCycle.startTime.add(10, 'minute');
+
+            const { entries } = planZoneSchedule(zone, weather, [{ start: busyStart, end: busyEnd }]);
+
+            const shifted = entries[0]!.cycles[0]!;
+            expect(shifted.startTime.isSame(busyEnd)).toBe(true);
+            expect(shifted.durationMin).toBe(baselineCycle.durationMin);
+        });
+
+        it('shifts a cycle whose tail straddles a busy window forward', () => {
+            const zone = singleCycleZone();
+            const weather = singleCycleWeather();
+            const baseline = planZoneSchedule(zone, weather);
+            const baselineCycle = baseline.entries[0]!.cycles[0]!;
+            const baselineEnd = baselineCycle.startTime.add(baselineCycle.durationMin, 'minute');
+            // Busy window starts inside the cycle, ending after the cycle ends.
+            const busyStart = baselineCycle.startTime.add(5, 'minute');
+            const busyEnd = baselineEnd.add(20, 'minute');
+
+            const { entries } = planZoneSchedule(zone, weather, [{ start: busyStart, end: busyEnd }]);
+
+            const shifted = entries[0]!.cycles[0]!;
+            expect(shifted.startTime.isSame(busyEnd)).toBe(true);
+        });
+
+        it('skips a cycle past two adjacent busy windows', () => {
+            const zone = singleCycleZone();
+            const weather = singleCycleWeather();
+            const baseline = planZoneSchedule(zone, weather);
+            const baselineCycle = baseline.entries[0]!.cycles[0]!;
+            const firstBusyEnd = baselineCycle.startTime.add(10, 'minute');
+            const secondBusyStart = firstBusyEnd.add(2, 'minute');
+            const secondBusyEnd = secondBusyStart.add(20, 'minute');
+
+            const { entries } = planZoneSchedule(zone, weather, [
+                { start: baselineCycle.startTime.subtract(30, 'minute'), end: firstBusyEnd },
+                { start: secondBusyStart, end: secondBusyEnd },
+            ]);
+
+            const shifted = entries[0]!.cycles[0]!;
+            // Cycle starts at first busy end, but its duration overlaps the second window;
+            // a second iteration of the shifter pushes it past the second window.
+            expect(shifted.startTime.isSame(secondBusyEnd)).toBe(true);
+        });
+
+        it('leaves a cycle untouched when no busy window overlaps', () => {
+            const zone = singleCycleZone();
+            const weather = singleCycleWeather();
+            const baseline = planZoneSchedule(zone, weather);
+            const baselineCycle = baseline.entries[0]!.cycles[0]!;
+            const farPast = baselineCycle.startTime.subtract(6, 'hour');
+
+            const { entries } = planZoneSchedule(zone, weather, [
+                { start: farPast, end: farPast.add(30, 'minute') },
+            ]);
+
+            const cycle = entries[0]!.cycles[0]!;
+            expect(cycle.startTime.isSame(baselineCycle.startTime)).toBe(true);
+            expect(cycle.durationMin).toBe(baselineCycle.durationMin);
+        });
+
+        it('preserves intra-zone soak time when an earlier cycle is shifted', () => {
+            // Default zone: precip=9, infiltration=25, depletion 22, ET 1.0 →
+            // ~190 min total over 2 cycles with a 15-min soak between them.
+            const zone = createTestZone({ currentDepletionMm: 22 });
+            const weather = createWeatherDays([
+                {
+                    evapotranspirationMmPerDay: 1.0,
+                    rainfallMm: 0,
+                    sunrise: dayjs('2025-10-20').hour(6).minute(0).second(0).millisecond(0),
+                },
+            ]);
+            const baseline = planZoneSchedule(zone, weather);
+            expect(baseline.entries[0]!.cycles).toHaveLength(2);
+            const baselineFirst = baseline.entries[0]!.cycles[0]!;
+            const busyStart = baselineFirst.startTime.subtract(15, 'minute');
+            const busyEnd = baselineFirst.startTime.add(45, 'minute');
+
+            const { entries } = planZoneSchedule(zone, weather, [{ start: busyStart, end: busyEnd }]);
+
+            const [first, second] = entries[0]!.cycles;
+            expect(first!.startTime.isSame(busyEnd)).toBe(true);
+            const firstEnd = first!.startTime.add(first!.durationMin, 'minute');
+            const expectedSecondStart = firstEnd.add(15, 'minute');
+            expect(second!.startTime.isSame(expectedSecondStart)).toBe(true);
+        });
+
+        it('places a cycle past sunrise when no earlier slot fits', () => {
+            const zone = singleCycleZone();
+            const sunrise = dayjs('2025-10-20').hour(6).minute(0).second(0).millisecond(0);
+            const weather = createWeatherDays([
+                { evapotranspirationMmPerDay: 1.0, rainfallMm: 0, sunrise },
+            ]);
+            const busyStart = sunrise.subtract(2, 'hour');
+            const busyEnd = sunrise.add(2, 'hour');
+
+            const { entries } = planZoneSchedule(zone, weather, [{ start: busyStart, end: busyEnd }]);
+
+            const cycle = entries[0]!.cycles[0]!;
+            expect(cycle.startTime.isSame(busyEnd) || cycle.startTime.isAfter(busyEnd)).toBe(true);
+            expect(cycle.startTime.isAfter(sunrise)).toBe(true);
+        });
+
+        it('treats an own previously-placed cycle as busy across multiple irrigation days', () => {
+            const zone = createTestZone({ currentDepletionMm: 22 });
+            // Two days both crossing threshold so both produce cycles.
+            const weather = createWeatherDays([
+                {
+                    evapotranspirationMmPerDay: 1.0,
+                    rainfallMm: 0,
+                    sunrise: dayjs('2025-10-20').hour(6).minute(0).second(0).millisecond(0),
+                },
+                {
+                    evapotranspirationMmPerDay: 1.0,
+                    rainfallMm: 0,
+                    sunrise: dayjs('2025-10-21').hour(6).minute(0).second(0).millisecond(0),
+                },
+            ]);
+
+            const { entries } = planZoneSchedule(zone, weather);
+
+            // Each day's cycles must not overlap any other day's cycles (sanity:
+            // different dates, but verify no accidental cross-day overlap).
+            const allCycles = entries.flatMap(e => e.cycles);
+            for (let i = 0; i < allCycles.length; i++) {
+                for (let j = i + 1; j < allCycles.length; j++) {
+                    const a = allCycles[i]!;
+                    const b = allCycles[j]!;
+                    const aEnd = a.startTime.add(a.durationMin, 'minute');
+                    const bEnd = b.startTime.add(b.durationMin, 'minute');
+                    const overlap = a.startTime.isBefore(bEnd) && aEnd.isAfter(b.startTime);
+                    expect(overlap).toBe(false);
+                }
+            }
+        });
+    });
 });

@@ -1,10 +1,19 @@
+import dayjs from 'dayjs';
 import { getWeatherData } from '../data/weather';
 import type { Zone } from '../models';
-import { planZoneSchedule, type PlanZoneScheduleResult } from './dynamic';
+import { planZoneSchedule, type BusyWindow, type PlanZoneScheduleResult } from './dynamic';
 
 export type RunScheduleForZoneOptions = {
     /** Optional. Number of days of forecast weather to plan against. Default 7. */
     forecastDays?: number;
+
+    /**
+     * Optional. Time intervals already occupied by other zones' cycles. The
+     * planner shifts conflicting cycles forward to avoid overlap. The daemon
+     * passes already-persisted cycles' `[startTime, startTime + duration]`
+     * windows so subsequent zones plan around them.
+     */
+    busyWindows?: ReadonlyArray<{ start: Date; end: Date }>;
 };
 
 /**
@@ -37,5 +46,10 @@ export async function runScheduleForZone(
         forecastDays,
     });
 
-    return planZoneSchedule(zone, weather);
+    const busyWindows: BusyWindow[] = (options?.busyWindows ?? []).map(w => ({
+        start: dayjs(w.start),
+        end: dayjs(w.end),
+    }));
+
+    return planZoneSchedule(zone, weather, busyWindows);
 }

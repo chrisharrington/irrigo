@@ -108,6 +108,30 @@ describe('runScheduleForZone', () => {
         await expect(runScheduleForZone(zone)).rejects.toThrow(/503/);
     });
 
+    it('forwards busyWindows to the planner so cycles avoid them', async () => {
+        stubSuccess();
+        const zone = createTestZone({
+            currentDepletionMm: 22,
+            soil: { name: 'TestSoil', availableWaterHoldingCapacityMmPerM: 150, infiltrationRateMmPerHr: 100 },
+            precipitationRateMmPerHr: 50,
+            location: { lat: 51.0447, lon: -114.0719 },
+        });
+
+        // First, baseline plan without busy windows — capture the cycle's natural start.
+        stubSuccess();
+        const baseline = await runScheduleForZone(zone);
+        const baselineCycle = baseline.entries[0]!.cycles[0]!;
+
+        // Now plan again with a busy window covering the baseline cycle's start.
+        const busyStart = baselineCycle.startTime.subtract(15, 'minute').toDate();
+        const busyEnd = baselineCycle.startTime.add(20, 'minute').toDate();
+
+        const { entries } = await runScheduleForZone(zone, { busyWindows: [{ start: busyStart, end: busyEnd }] });
+
+        const shifted = entries[0]!.cycles[0]!;
+        expect(shifted.startTime.toDate().getTime()).toBe(busyEnd.getTime());
+    });
+
     it('returns an empty schedule when the weather API returns no days', async () => {
         mockFetch.mockResolvedValueOnce({
             ok: true,
