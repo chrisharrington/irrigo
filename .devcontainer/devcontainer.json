@@ -4,6 +4,9 @@
     "service": "dev",
     "workspaceFolder": "/app",
     "shutdownAction": "none",
+    "mounts": [
+        "source=irrigo-vscode-server,target=/home/chrisharrington/.vscode-server,type=volume"
+    ],
     "customizations": {
         "vscode": {
             "extensions": [
