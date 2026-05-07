@@ -1,0 +1,1 @@
+ALTER TABLE "schedule_entries" ADD COLUMN "source" text DEFAULT 'scheduled' NOT NULL;
