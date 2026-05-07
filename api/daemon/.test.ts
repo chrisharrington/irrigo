@@ -1084,6 +1084,60 @@ describe('start', () => {
         expect(planCalls).toContain('zone-loaded');
     });
 
+    it('exposes alive=true and a null lastRePlanAt with no activeZones immediately after boot', async () => {
+        const { db } = createDaemonDbStub();
+        const { clock } = createFakeClock(NOW);
+
+        const control = await start(db, { clock, rePlanHourLocal: 4 });
+
+        expect(control.getStatus()).toEqual({ alive: true, lastRePlanAt: null, activeZones: [] });
+    });
+
+    it('records lastRePlanAt as the ISO timestamp at which rePlan() finished', async () => {
+        const enabledRow = buildJoinedRow({ zone: { id: 'zone-loaded' } });
+        const { db } = createDaemonDbStub({ enabledZones: [enabledRow] });
+        const { clock } = createFakeClock(NOW);
+
+        const control = await start(db, {
+            clock,
+            rePlanHourLocal: 4,
+            runPlan: async () => [],
+            openZone: async () => {},
+            closeZone: async () => {},
+        });
+
+        await control.rePlan();
+
+        expect(control.getStatus().lastRePlanAt).toBe(clock.now().toISOString());
+    });
+
+    it('reports an in-flight cycles zone in activeZones during the open-to-close window', async () => {
+        const futureRow = buildFutureCycleRow({
+            cycle: {
+                id: 'cycle-active',
+                startTime: new Date('2026-05-04T13:00:00.000Z'),
+                durationMin: 30,
+            },
+            zone: { id: 'zone-active', name: 'Active Zone' },
+        });
+        const { db } = createDaemonDbStub({ futureCycles: [futureRow] });
+        const { clock, advanceTo } = createFakeClock(NOW);
+
+        const control = await start(db, {
+            clock,
+            rePlanHourLocal: 4,
+            runPlan: async () => [],
+            openZone: async () => {},
+            closeZone: async () => {},
+        });
+
+        await advanceTo(new Date('2026-05-04T13:05:00.000Z'));
+        expect(control.getStatus().activeZones).toEqual([{ id: 'zone-active', name: 'Active Zone' }]);
+
+        await advanceTo(new Date('2026-05-04T13:30:01.000Z'));
+        expect(control.getStatus().activeZones).toEqual([]);
+    });
+
     it('rePlan() does not cancel the close timer of an already-fired cycle', async () => {
         const futureRow = buildFutureCycleRow({
             cycle: {
