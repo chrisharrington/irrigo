@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'bun:test';
+import { afterEach, beforeEach, describe, it, expect, spyOn } from 'bun:test';
 import dayjs from 'dayjs';
 import {
     grassTypes,
@@ -11,9 +11,11 @@ import {
 import type { IrrigationScheduleEntry, Zone } from '@/models';
 import { computeNextRePlanAt, start, type DaemonDb } from '.';
 import {
+    countZones,
     loadEnabledZones,
     mapJoinedRowsToZones,
     type SelectJoinChain,
+    type ZoneCountDb,
     type ZoneJoinedRow,
     type ZoneLoaderDb,
 } from './zones';
@@ -129,6 +131,32 @@ function createZoneLoaderStub(rows: ZoneJoinedRow[]) {
         getSelectColumns: () => selectColumns,
     };
 }
+
+function createZoneCountStub(rows: ReadonlyArray<{ total: number; enabled: number }>): ZoneCountDb {
+    return {
+        select() {
+            return { from: () => Promise.resolve([...rows]) };
+        },
+    };
+}
+
+describe('countZones', () => {
+    it('returns the total and enabled counts from the single returned row', async () => {
+        const db = createZoneCountStub([{ total: 5, enabled: 3 }]);
+
+        const result = await countZones(db);
+
+        expect(result).toEqual({ total: 5, enabled: 3 });
+    });
+
+    it('defaults to zero counts when the query returns no rows', async () => {
+        const db = createZoneCountStub([]);
+
+        const result = await countZones(db);
+
+        expect(result).toEqual({ total: 0, enabled: 0 });
+    });
+});
 
 describe('mapJoinedRowsToZones', () => {
     it('drops zones whose is_enabled flag is false', () => {
@@ -826,6 +854,7 @@ describe('closeAllInFlight', () => {
 type DaemonStubInputs = {
     futureCycles?: FutureCycleJoinedRow[];
     enabledZones?: ZoneJoinedRow[];
+    zoneCounts?: { total: number; enabled: number };
 };
 
 function createDaemonDbStub(inputs?: DaemonStubInputs) {
@@ -834,10 +863,14 @@ function createDaemonDbStub(inputs?: DaemonStubInputs) {
     const deletes: DeleteCall[] = [];
     const whereCallsZone: WhereCall[] = [];
     const whereCallsCycles: WhereCall[] = [];
+    const counts = inputs?.zoneCounts ?? { total: 1, enabled: 1 };
 
     const db: DaemonDb = {
         select(columns) {
             const cols = columns as Record<string, unknown>;
+            if ('total' in cols && 'enabled' in cols) {
+                return { from: () => Promise.resolve([counts]) } as never;
+            }
             const isFutureCyclesQuery = 'cycle' in cols;
             const rows = (isFutureCyclesQuery ? inputs?.futureCycles : inputs?.enabledZones) ?? [];
             const whereSink = isFutureCyclesQuery ? whereCallsCycles : whereCallsZone;
@@ -1169,5 +1202,47 @@ describe('start', () => {
         await advanceTo(new Date('2026-05-04T13:30:01.000Z'));
 
         expect(closes).toEqual([futureRow.zone.id]);
+    });
+
+    describe('startup zone warnings', () => {
+        let warnSpy: ReturnType<typeof spyOn>;
+
+        beforeEach(() => {
+            warnSpy = spyOn(console, 'warn').mockImplementation(() => {});
+        });
+
+        afterEach(() => {
+            warnSpy.mockRestore();
+        });
+
+        it('warns about an empty zones table when total is zero', async () => {
+            const { db } = createDaemonDbStub({ zoneCounts: { total: 0, enabled: 0 } });
+            const { clock } = createFakeClock(NOW);
+
+            await start(db, { clock, rePlanHourLocal: 4 });
+
+            const messages = warnSpy.mock.calls.map((args: unknown[]) => String(args[0]));
+            expect(messages.some((m: string) => m.includes('has no zones to manage') && m.includes('bun run seed'))).toBe(true);
+        });
+
+        it('warns that all zones are disabled when total > 0 but enabled is zero', async () => {
+            const { db } = createDaemonDbStub({ zoneCounts: { total: 4, enabled: 0 } });
+            const { clock } = createFakeClock(NOW);
+
+            await start(db, { clock, rePlanHourLocal: 4 });
+
+            const messages = warnSpy.mock.calls.map((args: unknown[]) => String(args[0]));
+            expect(messages.some((m: string) => m.includes('all zones are disabled'))).toBe(true);
+            expect(messages.some((m: string) => m.includes('has no zones to manage'))).toBe(false);
+        });
+
+        it('emits no startup warning when at least one zone is enabled', async () => {
+            const { db } = createDaemonDbStub({ zoneCounts: { total: 4, enabled: 2 } });
+            const { clock } = createFakeClock(NOW);
+
+            await start(db, { clock, rePlanHourLocal: 4 });
+
+            expect(warnSpy).not.toHaveBeenCalled();
+        });
     });
 });

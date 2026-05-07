@@ -1,4 +1,4 @@
-import { eq } from 'drizzle-orm';
+import { eq, sql } from 'drizzle-orm';
 import { grassTypes, sites, soilTypes, zones } from '@/db/schema';
 import type { Zone } from '@/models';
 
@@ -37,6 +37,46 @@ export type ZoneLoaderDb = {
         from: (table: typeof zones) => SelectJoinChain<ZoneJoinedRow>;
     };
 };
+
+/**
+ * Result of `countZones`. Used at daemon startup to distinguish "no zones in
+ * the table at all" from "zones exist but every one is disabled".
+ */
+export type ZoneCountResult = {
+    total: number;
+    enabled: number;
+};
+
+/**
+ * Minimal db interface for the count query. Single `select(...).from(zones)`
+ * with no joins or where — Drizzle returns the chained promise directly.
+ */
+export type ZoneCountDb = {
+    select: (columns: Record<string, unknown>) => {
+        from: (table: typeof zones) => Promise<Array<{ total: number; enabled: number }>>;
+    };
+};
+
+/**
+ * Counts every zone row in a single query. Returns both the total and the
+ * enabled-only count so callers can tell an empty table from one whose
+ * zones are all disabled.
+ *
+ * @param db - Drizzle client (or compatible stub).
+ * @returns `{ total, enabled }` zone counts.
+ */
+export async function countZones(db: ZoneCountDb): Promise<ZoneCountResult> {
+    const rows = await db
+        .select({
+            total: sql<number>`count(*)::int`,
+            enabled: sql<number>`count(*) filter (where ${zones.isEnabled})::int`,
+        })
+        .from(zones);
+
+    const row = rows[0];
+    if (!row) return { total: 0, enabled: 0 };
+    return { total: row.total, enabled: row.enabled };
+}
 
 /**
  * Loads every enabled zone from the database with its grass type, soil type,
