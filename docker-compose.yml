@@ -52,6 +52,10 @@ services:
             HA_TOKEN: ${HA_TOKEN:-}
             HA_RETRY_MAX: ${HA_RETRY_MAX:-3}
             HA_RETRY_BASE_MS: ${HA_RETRY_BASE_MS:-1000}
+            HA_NOTIFY_SERVICE: ${HA_NOTIFY_SERVICE:-}
+            NOTIFY_ON_WATERING_START: ${NOTIFY_ON_WATERING_START:-false}
+            NOTIFY_ON_WATERING_END: ${NOTIFY_ON_WATERING_END:-false}
+            NOTIFY_ON_ERROR: ${NOTIFY_ON_ERROR:-true}
         ports:
             - "${PORT:-9753}:9753"
         command: sh -c "bun run start"
