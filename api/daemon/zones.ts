@@ -144,6 +144,7 @@ export function joinedRowToZone(row: ZoneJoinedRow): Zone {
         areaM2: row.zone.areaM2,
         precipitationRateMmPerHr: row.zone.precipitationRateMmPerHr ?? undefined,
         currentDepletionMm: row.zone.currentDepletionMm,
+        siteTimezone: row.site.timezone,
         isEnabled: row.zone.isEnabled,
         location: { lat, lon },
         homeAssistantEntityId: row.zone.homeAssistantEntityId ?? undefined,

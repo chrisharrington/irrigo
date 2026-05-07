@@ -1,5 +1,7 @@
 import { afterEach, beforeEach, describe, it, expect, spyOn } from 'bun:test';
 import dayjs from 'dayjs';
+import utc from 'dayjs/plugin/utc';
+import timezone from 'dayjs/plugin/timezone';
 import {
     grassTypes,
     irrigationCycles,
@@ -8,6 +10,9 @@ import {
     soilTypes,
     zones,
 } from '@/db/schema';
+
+dayjs.extend(utc);
+dayjs.extend(timezone);
 import type { IrrigationScheduleEntry, Zone } from '@/models';
 import { computeNextRePlanAt, start, type DaemonDb } from '.';
 import {
@@ -19,6 +24,7 @@ import {
     type ZoneJoinedRow,
     type ZoneLoaderDb,
 } from './zones';
+import { loadSiteTimezone, type SiteTimezoneDb } from './sites';
 import {
     loadFutureCycles,
     replaceZoneSchedule,
@@ -234,6 +240,14 @@ describe('mapJoinedRowsToZones', () => {
 
         expect(result[0]?.precipitationRateMmPerHr).toBe(12.5);
         expect(result[0]?.homeAssistantEntityId).toBe('switch.front_yard');
+    });
+
+    it('propagates the site timezone onto the zone model', () => {
+        const row = buildJoinedRow({ site: { timezone: 'Europe/London' } });
+
+        const result = mapJoinedRowsToZones([row]);
+
+        expect(result[0]?.siteTimezone).toBe('Europe/London');
     });
 });
 
@@ -578,26 +592,103 @@ describe('loadFutureCycles', () => {
 });
 
 describe('computeNextRePlanAt', () => {
-    it('returns todays hour when the current time is before that hour', () => {
+    it('UTC: returns todays hour when the current time is before that hour', () => {
         const now = new Date('2026-05-04T01:30:00.000Z');
-        const next = computeNextRePlanAt(now, 4);
+        const next = computeNextRePlanAt(now, 4, 'UTC');
 
-        expect(dayjs(next).format('YYYY-MM-DDTHH:mm')).toBe(dayjs(now).hour(4).minute(0).format('YYYY-MM-DDTHH:mm'));
+        expect(next.toISOString()).toBe('2026-05-04T04:00:00.000Z');
     });
 
-    it('returns tomorrows hour when the current time is past todays hour', () => {
+    it('UTC: returns tomorrows hour when the current time is past todays hour', () => {
         const now = new Date('2026-05-04T18:30:00.000Z');
-        const next = computeNextRePlanAt(now, 4);
+        const next = computeNextRePlanAt(now, 4, 'UTC');
 
-        const expected = dayjs(now).add(1, 'day').hour(4).minute(0).second(0).millisecond(0);
-        expect(dayjs(next).format('YYYY-MM-DDTHH:mm:ss')).toBe(expected.format('YYYY-MM-DDTHH:mm:ss'));
+        expect(next.toISOString()).toBe('2026-05-05T04:00:00.000Z');
     });
 
-    it('returns tomorrows hour when the current time exactly matches todays hour', () => {
-        const now = dayjs(NOW_DAEMON).hour(4).minute(0).second(0).millisecond(0).toDate();
-        const next = computeNextRePlanAt(now, 4);
+    it('UTC: returns tomorrows hour when the current time exactly matches todays hour', () => {
+        const now = new Date('2026-05-04T04:00:00.000Z');
+        const next = computeNextRePlanAt(now, 4, 'UTC');
 
-        expect(dayjs(next).diff(dayjs(now), 'hour')).toBe(24);
+        expect(next.toISOString()).toBe('2026-05-05T04:00:00.000Z');
+    });
+
+    it('Edmonton MDT: maps local 04:00 to the correct UTC instant when now is before it', () => {
+        // 2026-05-04T01:30Z = 2026-05-03T19:30 MDT (UTC-6 during DST). Next local 04:00 is 2026-05-04T04:00 MDT = 2026-05-04T10:00Z.
+        const now = new Date('2026-05-04T01:30:00.000Z');
+        const next = computeNextRePlanAt(now, 4, 'America/Edmonton');
+
+        expect(next.toISOString()).toBe('2026-05-04T10:00:00.000Z');
+    });
+
+    it('Edmonton MDT: rolls to tomorrow when now is past local 04:00', () => {
+        // 2026-05-04T18:30Z = 2026-05-04T12:30 MDT. Next local 04:00 is 2026-05-05T04:00 MDT = 2026-05-05T10:00Z.
+        const now = new Date('2026-05-04T18:30:00.000Z');
+        const next = computeNextRePlanAt(now, 4, 'America/Edmonton');
+
+        expect(next.toISOString()).toBe('2026-05-05T10:00:00.000Z');
+    });
+
+    it('Edmonton MST: maps local 04:00 to the correct UTC instant outside DST', () => {
+        // 2026-01-15T18:30Z = 2026-01-15T11:30 MST (UTC-7 outside DST). Next local 04:00 is 2026-01-16T04:00 MST = 2026-01-16T11:00Z.
+        const now = new Date('2026-01-15T18:30:00.000Z');
+        const next = computeNextRePlanAt(now, 4, 'America/Edmonton');
+
+        expect(next.toISOString()).toBe('2026-01-16T11:00:00.000Z');
+    });
+});
+
+describe('loadSiteTimezone', () => {
+    function createSiteStub(rows: ReadonlyArray<{ timezone: string }>): SiteTimezoneDb {
+        return {
+            select() {
+                return { from: () => Promise.resolve([...rows]) };
+            },
+        };
+    }
+
+    let warnSpy: ReturnType<typeof spyOn>;
+
+    beforeEach(() => {
+        warnSpy = spyOn(console, 'warn').mockImplementation(() => {});
+    });
+
+    afterEach(() => {
+        warnSpy.mockRestore();
+    });
+
+    it(`returns the single site's timezone without warning`, async () => {
+        const db = createSiteStub([{ timezone: 'America/Edmonton' }]);
+
+        const result = await loadSiteTimezone(db);
+
+        expect(result).toBe('America/Edmonton');
+        expect(warnSpy).not.toHaveBeenCalled();
+    });
+
+    it('returns UTC and warns when no sites exist', async () => {
+        const db = createSiteStub([]);
+
+        const result = await loadSiteTimezone(db);
+
+        expect(result).toBe('UTC');
+        expect(warnSpy).toHaveBeenCalledTimes(1);
+        const message = String((warnSpy.mock.calls[0] as unknown[])[0] as string);
+        expect(message).toContain('no sites found');
+    });
+
+    it(`picks the first row's timezone and warns when multiple sites exist`, async () => {
+        const db = createSiteStub([
+            { timezone: 'America/Edmonton' },
+            { timezone: 'Europe/London' },
+        ]);
+
+        const result = await loadSiteTimezone(db);
+
+        expect(result).toBe('America/Edmonton');
+        expect(warnSpy).toHaveBeenCalledTimes(1);
+        const message = String((warnSpy.mock.calls[0] as unknown[])[0] as string);
+        expect(message).toContain('multiple sites');
     });
 });
 
@@ -889,6 +980,7 @@ type DaemonStubInputs = {
     futureCycles?: FutureCycleJoinedRow[];
     enabledZones?: ZoneJoinedRow[];
     zoneCounts?: { total: number; enabled: number };
+    siteTimezones?: ReadonlyArray<{ timezone: string }>;
 };
 
 function createDaemonDbStub(inputs?: DaemonStubInputs) {
@@ -903,11 +995,17 @@ function createDaemonDbStub(inputs?: DaemonStubInputs) {
     // are reflected by subsequent loadEnabledZones calls (day-N reads day-(N-1)).
     const enabledZoneRows = inputs?.enabledZones?.map(row => ({ ...row, zone: { ...row.zone } })) ?? [];
 
+    const siteTimezoneRows = inputs?.siteTimezones ?? [{ timezone: 'America/Edmonton' }];
+
     const db: DaemonDb = {
         select(columns) {
             const cols = columns as Record<string, unknown>;
             if ('total' in cols && 'enabled' in cols) {
                 return { from: () => Promise.resolve([counts]) } as never;
+            }
+            // SiteTimezoneDb shape: a single `timezone` column, no other keys.
+            if ('timezone' in cols && Object.keys(cols).length === 1) {
+                return { from: () => Promise.resolve([...siteTimezoneRows]) } as never;
             }
             const isFutureCyclesQuery = 'cycle' in cols;
             const rows = isFutureCyclesQuery ? (inputs?.futureCycles ?? []) : enabledZoneRows;
@@ -1034,15 +1132,26 @@ describe('start', () => {
         expect(closes).toEqual([futureRow.zone.id]);
     });
 
-    it('schedules the next re-plan timer for the configured local hour', async () => {
+    it('schedules the next re-plan timer for the configured local hour (UTC)', async () => {
         const { db } = createDaemonDbStub();
-        // Set initial time to 12:00, hour=4 -> next re-plan should be 04:00 next day = +16h
+        // Set initial time to 12:00 UTC, hour=4, tz=UTC -> next re-plan should be 04:00 next day = +16h
         const { clock, getPendingDelays } = createFakeClock(NOW);
 
-        await start(db, { clock, rePlanHourLocal: 4 });
+        await start(db, { clock, rePlanHourLocal: 4, siteTimezone: 'UTC' });
 
         const sixteenHoursMs = 16 * 60 * 60 * 1000;
         expect(getPendingDelays()).toContain(sixteenHoursMs);
+    });
+
+    it('schedules the next re-plan in the site timezone, not the container timezone', async () => {
+        const { db } = createDaemonDbStub();
+        // NOW = 2026-05-04T12:00Z = 06:00 MDT. Next 04:00 MDT is tomorrow = 2026-05-05T10:00Z = +22h from now.
+        const { clock, getPendingDelays } = createFakeClock(NOW);
+
+        await start(db, { clock, rePlanHourLocal: 4, siteTimezone: 'America/Edmonton' });
+
+        const twentyTwoHoursMs = 22 * 60 * 60 * 1000;
+        expect(getPendingDelays()).toContain(twentyTwoHoursMs);
     });
 
     it('returned rePlan() runs the planner for every enabled zone and inserts the planner output', async () => {
@@ -1179,6 +1288,7 @@ describe('start', () => {
         await start(db, {
             clock,
             rePlanHourLocal: 4,
+            siteTimezone: 'UTC',
             runPlan: async (z) => {
                 planCalls.push(z.id);
                 return { entries: [], projectedNextDepletionMm: 0 };
@@ -1187,7 +1297,7 @@ describe('start', () => {
             closeZone: async () => {},
         });
 
-        // Advance to just past the next 04:00 — the scheduled timer should fire and
+        // Advance to just past the next 04:00 UTC — the scheduled timer should fire and
         // call rePlan, which iterates enabled zones.
         await advanceTo(new Date('2026-05-05T04:00:01.000Z'));
 
