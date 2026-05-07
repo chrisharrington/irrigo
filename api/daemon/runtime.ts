@@ -1,6 +1,7 @@
 import { eq } from 'drizzle-orm';
 import { irrigationCycles } from '@/db/schema';
 import type { Zone } from '@/models';
+import type { Notifier } from '@/notifications';
 import type { PersistedCycle } from './schedules';
 
 /**
@@ -120,6 +121,15 @@ export type ArmCycleInputs = {
     cycle: PersistedCycle;
     openZone: (zone: Zone) => Promise<void>;
     closeZone: (zone: Zone) => Promise<void>;
+    notifier: Notifier;
+
+    /**
+     * Why this cycle is being armed. `'boot'` cycles fire from the daemon's
+     * startup loop (recovering future cycles from a previous run); `'scheduled'`
+     * fires from a fresh re-plan. Surfaced in notifications so the user can
+     * tell a boot-recovery firing from a freshly planned one.
+     */
+    armReason?: 'boot' | 'scheduled';
 };
 
 /**
@@ -146,22 +156,28 @@ export function armCycle(inputs: ArmCycleInputs): void {
 }
 
 async function runOpen(inputs: ArmCycleInputs): Promise<void> {
-    const { db, clock, registry, zone, cycle, openZone, closeZone } = inputs;
+    const { db, clock, registry, zone, cycle, openZone, closeZone, notifier, armReason } = inputs;
 
     try {
         await openZone(zone);
     } catch (err) {
         console.error(`daemon: openZone failed for cycle ${cycle.id} on zone ${zone.id}; leaving fired_at NULL.`, err);
+        await notifier('error', { zoneName: zone.name, operation: 'open', reason: errorMessage(err) });
         return;
     }
 
     const firedAt = clock.now();
     await db.update(irrigationCycles).set({ firedAt }).where(eq(irrigationCycles.id, cycle.id));
     console.log(`daemon: opened zone ${zone.id} for cycle ${cycle.id} at ${firedAt.toISOString()}.`);
+    await notifier('watering-started', {
+        zoneName: zone.name,
+        durationMin: cycle.durationMin,
+        ...(armReason === 'boot' ? { reason: 'boot' } : {}),
+    });
 
     const closeDelay = cycle.durationMin * 60_000;
     const closeHandle = clock.setTimeout(() => {
-        runClose({ db, clock, registry, zone, cycle, closeZone }).catch(err => {
+        runClose({ db, clock, registry, zone, cycle, closeZone, notifier }).catch(err => {
             console.error(`daemon: unhandled error in cycle close path for ${cycle.id}.`, err);
         });
     }, closeDelay);
@@ -175,16 +191,18 @@ type RunCloseInputs = {
     zone: Zone;
     cycle: PersistedCycle;
     closeZone: (zone: Zone) => Promise<void>;
+    notifier: Notifier;
 };
 
 async function runClose(inputs: RunCloseInputs): Promise<void> {
-    const { db, clock, registry, zone, cycle, closeZone } = inputs;
+    const { db, clock, registry, zone, cycle, closeZone, notifier } = inputs;
 
     try {
         await closeZone(zone);
     } catch (err) {
         console.error(`daemon: closeZone failed for cycle ${cycle.id} on zone ${zone.id}; leaving closed_at NULL.`, err);
         registry.clearInFlight(cycle.id);
+        await notifier('error', { zoneName: zone.name, operation: 'close', reason: errorMessage(err) });
         return;
     }
 
@@ -192,6 +210,7 @@ async function runClose(inputs: RunCloseInputs): Promise<void> {
     await db.update(irrigationCycles).set({ closedAt }).where(eq(irrigationCycles.id, cycle.id));
     registry.clearInFlight(cycle.id);
     console.log(`daemon: closed zone ${zone.id} for cycle ${cycle.id} at ${closedAt.toISOString()}.`);
+    await notifier('watering-ended', { zoneName: zone.name });
 }
 
 /**
@@ -205,8 +224,9 @@ export async function closeAllInFlight(inputs: {
     clock: Clock;
     registry: TimerRegistry;
     closeZone: (zone: Zone) => Promise<void>;
+    notifier: Notifier;
 }): Promise<void> {
-    const { db, clock, registry, closeZone } = inputs;
+    const { db, clock, registry, closeZone, notifier } = inputs;
     const inFlight = registry.snapshotInFlight();
 
     if (inFlight.length === 0) return;
@@ -216,9 +236,16 @@ export async function closeAllInFlight(inputs: {
         try {
             await closeZone(zone);
             await db.update(irrigationCycles).set({ closedAt: clock.now() }).where(eq(irrigationCycles.id, cycleId));
+            await notifier('watering-ended', { zoneName: zone.name, reason: 'shutdown' });
         } catch (err) {
             console.error(`daemon: shutdown closeZone failed for cycle ${cycleId} on zone ${zone.id}.`, err);
+            await notifier('error', { zoneName: zone.name, operation: 'shutdown-close', reason: errorMessage(err) });
         }
         registry.clearInFlight(cycleId);
     }
+}
+
+function errorMessage(err: unknown): string {
+    if (err instanceof Error) return err.message;
+    return String(err);
 }

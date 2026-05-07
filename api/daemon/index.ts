@@ -3,6 +3,7 @@ import utc from 'dayjs/plugin/utc';
 import timezone from 'dayjs/plugin/timezone';
 import { closeZone as defaultCloseZone, openZone as defaultOpenZone } from '@/data/home-assistant';
 import type { Zone } from '@/models';
+import { noopNotifier, type Notifier } from '@/notifications';
 import { runScheduleForZone, type RunScheduleForZoneOptions } from '@/schedules';
 import type { PlanZoneScheduleResult } from '@/schedules/dynamic';
 import { loadFutureCycles, replaceZoneSchedule, type FutureCyclesDb, type ScheduleWriterDb } from './schedules';
@@ -44,6 +45,9 @@ export type DaemonOptions = {
 
     /** Override the resolved site timezone (skips the DB lookup). Used by tests. */
     siteTimezone?: string;
+
+    /** Override the notifier. Defaults to the no-op so tests don't have to. */
+    notifier?: Notifier;
 };
 
 /**
@@ -96,6 +100,7 @@ export async function start(db: DaemonDb, options?: DaemonOptions): Promise<Daem
     const closeZone = options?.closeZone ?? defaultCloseZone;
 
     const registry = new TimerRegistry();
+    const notifier = options?.notifier ?? noopNotifier;
     let lastRePlanAt: Date | null = null;
     let started = false;
 
@@ -105,7 +110,7 @@ export async function start(db: DaemonDb, options?: DaemonOptions): Promise<Daem
 
     const futureCycles = await loadFutureCycles(db, clock.now());
     for (const { cycle, zone } of futureCycles) {
-        armCycle({ db, clock, registry, zone, cycle, openZone, closeZone });
+        armCycle({ db, clock, registry, zone, cycle, openZone, closeZone, notifier, armReason: 'boot' });
     }
 
     const { total, enabled } = await countZones(db);
@@ -139,10 +144,15 @@ export async function start(db: DaemonDb, options?: DaemonOptions): Promise<Daem
                 const { entries, projectedNextDepletionMm } = await runPlan(zone);
                 const { cycles } = await replaceZoneSchedule(db, zone.id, entries, today, projectedNextDepletionMm);
                 for (const cycle of cycles) {
-                    armCycle({ db, clock, registry, zone, cycle, openZone, closeZone });
+                    armCycle({ db, clock, registry, zone, cycle, openZone, closeZone, notifier });
                 }
             } catch (err) {
                 console.error(`daemon: re-plan failed for zone ${zone.id}.`, err);
+                await notifier('error', {
+                    zoneName: zone.name,
+                    operation: 're-plan',
+                    reason: err instanceof Error ? err.message : String(err),
+                });
             }
         }
 
@@ -154,7 +164,7 @@ export async function start(db: DaemonDb, options?: DaemonOptions): Promise<Daem
     const shutdown = async (): Promise<void> => {
         console.log('daemon: shutdown starting.');
         registry.cancelAllTimers(clock);
-        await closeAllInFlight({ db, clock, registry, closeZone });
+        await closeAllInFlight({ db, clock, registry, closeZone, notifier });
         console.log('daemon: shutdown complete.');
     };
 

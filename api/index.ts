@@ -1,6 +1,7 @@
 import Fastify, { type FastifyInstance } from 'fastify';
 import Config from '@/config';
 import { start as daemonStart, type DaemonControl, type DaemonDb, type DaemonStatus } from '@/daemon';
+import { createNotifier } from '@/notifications';
 
 const shutdownStarted = new WeakSet<FastifyInstance>();
 
@@ -37,7 +38,8 @@ export async function gracefulShutdown(app: FastifyInstance, daemon: DaemonContr
 
 if (import.meta.main) {
     const { db } = await import('@/db');
-    const daemon = await daemonStart(db as unknown as DaemonDb);
+    const notifier = createNotifier();
+    const daemon = await daemonStart(db as unknown as DaemonDb, { notifier });
     const app = buildApp({ getStatus: daemon.getStatus });
 
     const onSignal = (signal: NodeJS.Signals): void => {

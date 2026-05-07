@@ -25,6 +25,17 @@ import {
     type ZoneLoaderDb,
 } from './zones';
 import { loadSiteTimezone, type SiteTimezoneDb } from './sites';
+import { noopNotifier, type NotificationContext, type NotificationEvent, type Notifier } from '@/notifications';
+
+type RecordedNotification = { event: NotificationEvent; context: NotificationContext | undefined };
+
+function recordingNotifier(): { notifier: Notifier; calls: RecordedNotification[] } {
+    const calls: RecordedNotification[] = [];
+    const notifier: Notifier = async (event, context) => {
+        calls.push({ event, context });
+    };
+    return { notifier, calls };
+}
 import {
     loadFutureCycles,
     replaceZoneSchedule,
@@ -844,7 +855,7 @@ describe('armCycle', () => {
         const openZone = async (z: Zone) => { opens.push(z); };
         const closeZone = async (z: Zone) => { closes.push(z); };
 
-        armCycle({ db, clock, registry, zone, cycle, openZone, closeZone });
+        armCycle({ db, clock, registry, zone, cycle, openZone, closeZone, notifier: noopNotifier });
 
         await advanceTo(new Date('2026-05-04T13:30:01.000Z'));
 
@@ -871,7 +882,7 @@ describe('armCycle', () => {
         const openZone = async () => { throw new Error('HA down'); };
         const closeZone = async (z: Zone) => { closes.push(z); };
 
-        armCycle({ db, clock, registry, zone, cycle, openZone, closeZone });
+        armCycle({ db, clock, registry, zone, cycle, openZone, closeZone, notifier: noopNotifier });
         await advanceTo(new Date('2026-05-04T13:30:00.000Z'));
 
         expect(closes).toEqual([]);
@@ -892,7 +903,7 @@ describe('armCycle', () => {
         const openZone = async () => { /* success */ };
         const closeZone = async () => { throw new Error('close failed'); };
 
-        armCycle({ db, clock, registry, zone, cycle, openZone, closeZone });
+        armCycle({ db, clock, registry, zone, cycle, openZone, closeZone, notifier: noopNotifier });
         await advanceTo(new Date('2026-05-04T13:30:00.000Z'));
 
         expect(updates).toHaveLength(1);
@@ -915,11 +926,98 @@ describe('armCycle', () => {
         const openZone = async (z: Zone) => { opens.push(z); };
         const closeZone = async () => { /* success */ };
 
-        armCycle({ db, clock, registry, zone, cycle, openZone, closeZone });
+        armCycle({ db, clock, registry, zone, cycle, openZone, closeZone, notifier: noopNotifier });
         await advanceTo(new Date('2026-05-04T12:05:01.000Z'));
 
         expect(opens).toHaveLength(1);
         expect(updates.length).toBeGreaterThanOrEqual(1);
+    });
+
+    it('notifies watering-started without a reason qualifier when armReason is omitted', async () => {
+        const { clock, advanceTo } = createFakeClock(NOW);
+        const { db } = createRuntimeDbStub();
+        const registry = new TimerRegistry();
+        const zone = buildZoneModel({ id: 'zone-001', name: 'Front Lawn' });
+        const cycle = buildPersistedCycle({ id: 'cycle-N', startTime: new Date('2026-05-04T13:00:00.000Z'), durationMin: 12 });
+        const { notifier, calls } = recordingNotifier();
+
+        armCycle({ db, clock, registry, zone, cycle, openZone: async () => {}, closeZone: async () => {}, notifier });
+        await advanceTo(new Date('2026-05-04T13:00:30.000Z'));
+
+        const started = calls.find(c => c.event === 'watering-started');
+        expect(started?.context).toEqual({ zoneName: 'Front Lawn', durationMin: 12 });
+    });
+
+    it('flags watering-started with reason=boot when armReason is boot', async () => {
+        const { clock, advanceTo } = createFakeClock(NOW);
+        const { db } = createRuntimeDbStub();
+        const registry = new TimerRegistry();
+        const zone = buildZoneModel({ id: 'zone-001', name: 'Front Lawn' });
+        const cycle = buildPersistedCycle({ id: 'cycle-B', startTime: new Date('2026-05-04T11:00:00.000Z'), durationMin: 12 });
+        const { notifier, calls } = recordingNotifier();
+
+        armCycle({ db, clock, registry, zone, cycle, openZone: async () => {}, closeZone: async () => {}, notifier, armReason: 'boot' });
+        await advanceTo(new Date('2026-05-04T12:00:30.000Z'));
+
+        const started = calls.find(c => c.event === 'watering-started');
+        expect(started?.context).toEqual({ zoneName: 'Front Lawn', durationMin: 12, reason: 'boot' });
+    });
+
+    it('emits an error notification when openZone fails', async () => {
+        const { clock, advanceTo } = createFakeClock(NOW);
+        const { db } = createRuntimeDbStub();
+        const registry = new TimerRegistry();
+        const zone = buildZoneModel({ id: 'zone-001', name: 'Front Lawn' });
+        const cycle = buildPersistedCycle({ id: 'cycle-E', startTime: new Date('2026-05-04T13:00:00.000Z'), durationMin: 10 });
+        const { notifier, calls } = recordingNotifier();
+
+        armCycle({
+            db, clock, registry, zone, cycle,
+            openZone: async () => { throw new Error('HA 502'); },
+            closeZone: async () => {},
+            notifier,
+        });
+        await advanceTo(new Date('2026-05-04T13:00:30.000Z'));
+
+        expect(calls.find(c => c.event === 'watering-started')).toBeUndefined();
+        const errorCall = calls.find(c => c.event === 'error');
+        expect(errorCall?.context).toEqual({ zoneName: 'Front Lawn', operation: 'open', reason: 'HA 502' });
+    });
+
+    it('notifies watering-ended without a reason when a cycle closes naturally', async () => {
+        const { clock, advanceTo } = createFakeClock(NOW);
+        const { db } = createRuntimeDbStub();
+        const registry = new TimerRegistry();
+        const zone = buildZoneModel({ id: 'zone-001', name: 'Front Lawn' });
+        const cycle = buildPersistedCycle({ id: 'cycle-OK', startTime: new Date('2026-05-04T13:00:00.000Z'), durationMin: 5 });
+        const { notifier, calls } = recordingNotifier();
+
+        armCycle({ db, clock, registry, zone, cycle, openZone: async () => {}, closeZone: async () => {}, notifier });
+        await advanceTo(new Date('2026-05-04T13:05:30.000Z'));
+
+        const ended = calls.find(c => c.event === 'watering-ended');
+        expect(ended?.context).toEqual({ zoneName: 'Front Lawn' });
+    });
+
+    it('emits an error notification when closeZone fails after a successful open', async () => {
+        const { clock, advanceTo } = createFakeClock(NOW);
+        const { db } = createRuntimeDbStub();
+        const registry = new TimerRegistry();
+        const zone = buildZoneModel({ id: 'zone-001', name: 'Front Lawn' });
+        const cycle = buildPersistedCycle({ id: 'cycle-F', startTime: new Date('2026-05-04T13:00:00.000Z'), durationMin: 5 });
+        const { notifier, calls } = recordingNotifier();
+
+        armCycle({
+            db, clock, registry, zone, cycle,
+            openZone: async () => {},
+            closeZone: async () => { throw new Error('close failed'); },
+            notifier,
+        });
+        await advanceTo(new Date('2026-05-04T13:30:00.000Z'));
+
+        expect(calls.some(c => c.event === 'watering-started')).toBe(true);
+        const errorCall = calls.find(c => c.event === 'error');
+        expect(errorCall?.context).toEqual({ zoneName: 'Front Lawn', operation: 'close', reason: 'close failed' });
     });
 });
 
@@ -937,7 +1035,7 @@ describe('closeAllInFlight', () => {
         const closes: Zone[] = [];
         const closeZone = async (z: Zone) => { closes.push(z); };
 
-        await closeAllInFlight({ db, clock, registry, closeZone });
+        await closeAllInFlight({ db, clock, registry, closeZone, notifier: noopNotifier });
 
         expect(closes.map(z => z.id)).toEqual(['zone-A', 'zone-B']);
         expect(updates.filter(u => u.closedAt instanceof Date)).toHaveLength(2);
@@ -956,7 +1054,7 @@ describe('closeAllInFlight', () => {
             if (calls === 1) throw new Error('HA flaky');
         };
 
-        await closeAllInFlight({ db, clock, registry, closeZone });
+        await closeAllInFlight({ db, clock, registry, closeZone, notifier: noopNotifier });
 
         expect(calls).toBe(2);
         expect(updates).toHaveLength(1); // only the second one updated closedAt
@@ -969,10 +1067,46 @@ describe('closeAllInFlight', () => {
         const registry = new TimerRegistry();
         const closes: Zone[] = [];
 
-        await closeAllInFlight({ db, clock, registry, closeZone: async (z) => { closes.push(z); } });
+        await closeAllInFlight({ db, clock, registry, closeZone: async (z) => { closes.push(z); }, notifier: noopNotifier });
 
         expect(closes).toEqual([]);
         expect(updates).toEqual([]);
+    });
+
+    it('notifies watering-ended with reason=shutdown for each successfully closed relay', async () => {
+        const { clock } = createFakeClock(NOW);
+        const { db } = createRuntimeDbStub();
+        const registry = new TimerRegistry();
+        const zoneA = buildZoneModel({ id: 'zone-A', name: 'Front Lawn' });
+        const zoneB = buildZoneModel({ id: 'zone-B', name: 'Back Yard' });
+        registry.addInFlight('cycle-X', zoneA, 999);
+        registry.addInFlight('cycle-Y', zoneB, 998);
+        const { notifier, calls } = recordingNotifier();
+
+        await closeAllInFlight({ db, clock, registry, closeZone: async () => {}, notifier });
+
+        expect(calls.map(c => c.event)).toEqual(['watering-ended', 'watering-ended']);
+        expect(calls[0]?.context).toEqual({ zoneName: 'Front Lawn', reason: 'shutdown' });
+        expect(calls[1]?.context).toEqual({ zoneName: 'Back Yard', reason: 'shutdown' });
+    });
+
+    it('notifies an error when shutdown closeZone fails for a relay', async () => {
+        const { clock } = createFakeClock(NOW);
+        const { db } = createRuntimeDbStub();
+        const registry = new TimerRegistry();
+        const zone = buildZoneModel({ id: 'zone-A', name: 'Front Lawn' });
+        registry.addInFlight('cycle-X', zone, 999);
+        const { notifier, calls } = recordingNotifier();
+
+        await closeAllInFlight({
+            db, clock, registry,
+            closeZone: async () => { throw new Error('HA flaky'); },
+            notifier,
+        });
+
+        const errorCall = calls.find(c => c.event === 'error');
+        expect(errorCall?.context).toEqual({ zoneName: 'Front Lawn', operation: 'shutdown-close', reason: 'HA flaky' });
+        expect(calls.some(c => c.event === 'watering-ended')).toBe(false);
     });
 });
 
@@ -1416,6 +1550,83 @@ describe('start', () => {
             { zoneId: 'zone-001', currentDepletionMm: 7.5 },
         ]);
         expect(seenDepletionsByCall).toEqual([0, 7.5]);
+    });
+
+    it('flags boot-armed cycles with reason=boot in their watering-started notifications', async () => {
+        const futureRow = buildFutureCycleRow({
+            cycle: {
+                id: 'cycle-boot',
+                startTime: new Date('2026-05-04T11:00:00.000Z'),
+                durationMin: 8,
+            },
+            zone: { id: 'zone-boot', name: 'Boot Zone' },
+        });
+        const { db } = createDaemonDbStub({ futureCycles: [futureRow] });
+        const { clock, advanceTo } = createFakeClock(NOW);
+        const { notifier, calls } = recordingNotifier();
+
+        await start(db, {
+            clock,
+            rePlanHourLocal: 4,
+            siteTimezone: 'UTC',
+            notifier,
+            runPlan: async () => ({ entries: [], projectedNextDepletionMm: 0 }),
+            openZone: async () => {},
+            closeZone: async () => {},
+        });
+
+        // Past start time fires immediately on boot.
+        await advanceTo(new Date('2026-05-04T12:00:01.000Z'));
+
+        const started = calls.find(c => c.event === 'watering-started');
+        expect(started?.context).toEqual({ zoneName: 'Boot Zone', durationMin: 8, reason: 'boot' });
+    });
+
+    it('does not flag rePlan-armed cycles with reason=boot in their watering-started notifications', async () => {
+        const enabledRow = buildJoinedRow({ zone: { id: 'zone-rp', name: 'Replan Zone' } });
+        const { db } = createDaemonDbStub({ enabledZones: [enabledRow] });
+        const { clock, advanceTo } = createFakeClock(NOW);
+        const { notifier, calls } = recordingNotifier();
+        const planned = buildEntry('2026-05-04', [{ startTime: '2026-05-04T13:00:00Z', durationMin: 6 }]);
+
+        const control = await start(db, {
+            clock,
+            rePlanHourLocal: 4,
+            siteTimezone: 'UTC',
+            notifier,
+            runPlan: async () => ({ entries: [planned], projectedNextDepletionMm: 0 }),
+            openZone: async () => {},
+            closeZone: async () => {},
+        });
+
+        await control.rePlan();
+        await advanceTo(new Date('2026-05-04T13:00:30.000Z'));
+
+        const started = calls.find(c => c.event === 'watering-started');
+        expect(started?.context).toEqual({ zoneName: 'Replan Zone', durationMin: 6 });
+        expect(started?.context).not.toHaveProperty('reason');
+    });
+
+    it('emits an error notification when the planner throws for a zone during rePlan', async () => {
+        const enabledRow = buildJoinedRow({ zone: { id: 'zone-bad', name: 'Bad Zone' } });
+        const { db } = createDaemonDbStub({ enabledZones: [enabledRow] });
+        const { clock } = createFakeClock(NOW);
+        const { notifier, calls } = recordingNotifier();
+
+        const control = await start(db, {
+            clock,
+            rePlanHourLocal: 4,
+            siteTimezone: 'UTC',
+            notifier,
+            runPlan: async () => { throw new Error('forecast unavailable'); },
+            openZone: async () => {},
+            closeZone: async () => {},
+        });
+
+        await control.rePlan();
+
+        const errorCall = calls.find(c => c.event === 'error');
+        expect(errorCall?.context).toEqual({ zoneName: 'Bad Zone', operation: 're-plan', reason: 'forecast unavailable' });
     });
 
     describe('startup zone warnings', () => {
