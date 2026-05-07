@@ -36,5 +36,5 @@ export async function runScheduleForZone(
         forecastDays,
     });
 
-    return planZoneSchedule(zone, weather);
+    return planZoneSchedule(zone, weather).entries;
 }
