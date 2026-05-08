@@ -15,6 +15,13 @@
       "when": 1777945136892,
       "tag": "0001_robust_jigsaw",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1778180644537,
+      "tag": "0002_lovely_lady_vermin",
+      "breakpoints": true
     }
   ]
 }

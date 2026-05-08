@@ -1,4 +1,4 @@
-import { date, pgTable, real, uuid } from 'drizzle-orm/pg-core';
+import { date, pgTable, real, text, uuid } from 'drizzle-orm/pg-core';
 import { auditColumns } from './audit-columns';
 import { zones } from './zones';
 
@@ -9,5 +9,6 @@ export const scheduleEntries = pgTable('schedule_entries', {
     appliedDepthMm: real('applied_depth_mm').notNull(),
     depletionBeforeMm: real('depletion_before_mm').notNull(),
     depletionAfterMm: real('depletion_after_mm').notNull(),
+    source: text('source').notNull().default('scheduled'),
     ...auditColumns,
 });

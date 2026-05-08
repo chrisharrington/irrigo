@@ -56,6 +56,10 @@ Available scripts (run from `api/`):
 - `bun run db:push` — push the schema directly to the database (dev only; bypasses migrations)
 - `bun run db:studio` — launch Drizzle Studio against `DATABASE_URL`
 
+## Security
+
+The api container exposes manual zone-control endpoints (`POST /zones/:id/open`, `/close`, `/run`) with **no authentication** — they assume a trusted LAN. Bind the api port to LAN-only or run it behind a VPN. **Never expose the api container's port to the public internet.**
+
 ## Tickets
 
 Tickets are tracked in **Plane**, in the `api` project (`API-XXX` keys). Categorization is via labels, not work-item types — every ticket gets exactly one of Epic / Feature / Bug.

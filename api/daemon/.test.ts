@@ -18,6 +18,7 @@ import { computeNextRePlanAt, start, type DaemonDb } from '.';
 import {
     countZones,
     loadEnabledZones,
+    loadZoneById,
     mapJoinedRowsToZones,
     type SelectJoinChain,
     type ZoneCountDb,
@@ -300,6 +301,27 @@ describe('loadEnabledZones', () => {
         const result = await loadEnabledZones(db);
 
         expect(result).toEqual([]);
+    });
+});
+
+describe('loadZoneById', () => {
+    it('returns the mapped Zone when a row matches the id', async () => {
+        const row = buildJoinedRow({ zone: { id: 'zone-target', name: 'Target Zone' } });
+        const { db } = createZoneLoaderStub([row]);
+
+        const result = await loadZoneById(db, 'zone-target');
+
+        expect(result).not.toBeNull();
+        expect(result?.id).toBe('zone-target');
+        expect(result?.name).toBe('Target Zone');
+    });
+
+    it('returns null when no row matches the id', async () => {
+        const { db } = createZoneLoaderStub([]);
+
+        const result = await loadZoneById(db, 'zone-missing');
+
+        expect(result).toBeNull();
     });
 });
 
