@@ -365,3 +365,93 @@ describe('buildApp manual zone routes', () => {
         });
     });
 });
+
+describe('buildApp schedule routes', () => {
+    const NOW = new Date('2026-05-08T12:00:00.000Z');
+    const buildSchedule = (overrides?: Partial<{ slug: string; name: string; siteId: string; isActive: boolean }>) => ({
+        id: 'sched-1',
+        siteId: 'site-A',
+        slug: 'maintenance',
+        name: 'Maintenance',
+        isActive: true,
+        createdAt: NOW,
+        updatedAt: NOW,
+        ...overrides,
+    });
+
+    describe('POST /schedule/enable/:slug', () => {
+        it('returns 200 with the schedule payload on success', async () => {
+            const app = buildApp({
+                getStatus: () => buildStatus(),
+                schedule: {
+                    enable: async slug => buildSchedule({ slug, name: 'Maintenance', siteId: 'site-A', isActive: true }),
+                    disable: async () => null,
+                },
+            });
+
+            const res = await app.inject({ method: 'POST', url: '/schedule/enable/maintenance' });
+
+            expect(res.statusCode).toBe(200);
+            expect(res.json()).toEqual({
+                status: 'enabled',
+                schedule: { slug: 'maintenance', name: 'Maintenance', siteId: 'site-A' },
+            });
+            await app.close();
+        });
+
+        it('returns 404 when the controller returns null', async () => {
+            const app = buildApp({
+                getStatus: () => buildStatus(),
+                schedule: { enable: async () => null, disable: async () => null },
+            });
+
+            const res = await app.inject({ method: 'POST', url: '/schedule/enable/no-such' });
+
+            expect(res.statusCode).toBe(404);
+            expect(res.json()).toMatchObject({ error: 'not-found' });
+            await app.close();
+        });
+    });
+
+    describe('POST /schedule/disable/:slug', () => {
+        it('returns 200 with the schedule payload on success', async () => {
+            const app = buildApp({
+                getStatus: () => buildStatus(),
+                schedule: {
+                    enable: async () => null,
+                    disable: async slug => buildSchedule({ slug, isActive: false }),
+                },
+            });
+
+            const res = await app.inject({ method: 'POST', url: '/schedule/disable/maintenance' });
+
+            expect(res.statusCode).toBe(200);
+            expect(res.json()).toMatchObject({
+                status: 'disabled',
+                schedule: { slug: 'maintenance' },
+            });
+            await app.close();
+        });
+
+        it('returns 404 when the controller returns null', async () => {
+            const app = buildApp({
+                getStatus: () => buildStatus(),
+                schedule: { enable: async () => null, disable: async () => null },
+            });
+
+            const res = await app.inject({ method: 'POST', url: '/schedule/disable/no-such' });
+
+            expect(res.statusCode).toBe(404);
+            await app.close();
+        });
+    });
+
+    it('does not register schedule routes when the option is absent', async () => {
+        const app = buildApp({ getStatus: () => buildStatus() });
+
+        const res = await app.inject({ method: 'POST', url: '/schedule/enable/maintenance' });
+
+        expect(res.statusCode).toBe(404);
+        await app.close();
+    });
+});

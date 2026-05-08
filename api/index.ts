@@ -10,6 +10,7 @@ import { queryLatestMigrationViaDrizzle, readJournalFile, verifyMigrations } fro
 import { BusyError, createManualController, type ManualController } from '@/manual';
 import type { Zone } from '@/models';
 import { createNotifier } from '@/notifications';
+import { disableSchedule as defaultDisableSchedule, enableSchedule as defaultEnableSchedule, type Schedule, type ScheduleManagerDb } from '@/daemon/schedule-manager';
 
 const shutdownStarted = new WeakSet<FastifyInstance>();
 
@@ -18,10 +19,21 @@ const shutdownStarted = new WeakSet<FastifyInstance>();
  * optional so tests that only care about `/` and `/health` don't have to
  * stub the manual surface.
  */
+/**
+ * Subset of the `ScheduleManager` API exposed to HTTP. Both methods return
+ * the post-update `Schedule` row, or `null` if the slug is unknown so the
+ * route handler can map that to a 404.
+ */
+export type ScheduleApi = {
+    enable: (slug: string) => Promise<Schedule | null>;
+    disable: (slug: string) => Promise<Schedule | null>;
+};
+
 export type BuildAppOptions = {
     getStatus: () => DaemonStatus;
     manual?: ManualController;
     zoneById?: (zoneId: string) => Promise<Zone | null>;
+    schedule?: ScheduleApi;
 };
 
 /**
@@ -53,7 +65,47 @@ export function buildApp(opts: BuildAppOptions): FastifyInstance {
         registerManualRoutes(app, opts.manual, opts.zoneById);
     }
 
+    if (opts.schedule) {
+        registerScheduleRoutes(app, opts.schedule);
+    }
+
     return app;
+}
+
+function registerScheduleRoutes(app: FastifyInstance, schedule: ScheduleApi): void {
+    /**
+     * `POST /schedule/enable/:slug` — atomically activates the named schedule
+     * and deactivates any other schedule that's currently active on the same
+     * site. 200 with the schedule on success; 404 when the slug is unknown.
+     */
+    app.post('/schedule/enable/:slug', async (req, reply) => {
+        const { slug } = req.params as { slug: string };
+        const result = await schedule.enable(slug);
+        if (result === null) {
+            return reply.code(404).send({ error: 'not-found', message: `Schedule '${slug}' not found.` });
+        }
+        return reply.code(200).send({
+            status: 'enabled',
+            schedule: { slug: result.slug, name: result.name, siteId: result.siteId },
+        });
+    });
+
+    /**
+     * `POST /schedule/disable/:slug` — deactivates the named schedule.
+     * Idempotent at the data layer (already-inactive returns success). 404
+     * when the slug is unknown.
+     */
+    app.post('/schedule/disable/:slug', async (req, reply) => {
+        const { slug } = req.params as { slug: string };
+        const result = await schedule.disable(slug);
+        if (result === null) {
+            return reply.code(404).send({ error: 'not-found', message: `Schedule '${slug}' not found.` });
+        }
+        return reply.code(200).send({
+            status: 'disabled',
+            schedule: { slug: result.slug, name: result.name, siteId: result.siteId },
+        });
+    });
 }
 
 function registerManualRoutes(
@@ -185,10 +237,15 @@ if (import.meta.main) {
         notifier,
         isAnyScheduledInFlight: () => daemon.getStatus().activeZones.length > 0,
     });
+    const scheduleDb = db as unknown as ScheduleManagerDb;
     const app = buildApp({
         getStatus: daemon.getStatus,
         manual,
         zoneById: zoneId => loadZoneById(db as unknown as Parameters<typeof loadZoneById>[0], zoneId),
+        schedule: {
+            enable: slug => defaultEnableSchedule(scheduleDb, slug),
+            disable: slug => defaultDisableSchedule(scheduleDb, slug),
+        },
     });
 
     const onSignal = (signal: NodeJS.Signals): void => {
