@@ -39,6 +39,7 @@ function recordingNotifier(): { notifier: Notifier; calls: RecordedNotification[
 }
 import {
     loadFutureCycles,
+    loadInFlightCycles,
     replaceZoneSchedule,
     type FutureCycleJoinedRow,
     type FutureCyclesDb,
@@ -46,6 +47,7 @@ import {
     type ScheduleWriterDb,
 } from './schedules';
 import {
+    armCloseOnly,
     armCycle,
     closeAllInFlight,
     TimerRegistry,
@@ -624,6 +626,38 @@ describe('loadFutureCycles', () => {
     });
 });
 
+describe('loadInFlightCycles', () => {
+    it('returns mapped (cycle, zone) pairs for in-flight rows', async () => {
+        const row = buildFutureCycleRow({
+            cycle: { id: 'cycle-running', firedAt: new Date('2026-05-04T11:00:00.000Z'), closedAt: null },
+            zone: { id: 'zone-running' },
+        });
+        const { db } = createFutureCyclesStub([row]);
+
+        const pairs = await loadInFlightCycles(db, NOW_DAEMON);
+
+        expect(pairs).toHaveLength(1);
+        expect(pairs[0]?.cycle.id).toBe('cycle-running');
+        expect(pairs[0]?.zone.id).toBe('zone-running');
+    });
+
+    it('returns an empty array when there are no in-flight rows', async () => {
+        const { db } = createFutureCyclesStub([]);
+
+        const result = await loadInFlightCycles(db, NOW_DAEMON);
+
+        expect(result).toEqual([]);
+    });
+
+    it('issues exactly one .where(...) call per invocation', async () => {
+        const { db, whereCalls } = createFutureCyclesStub([buildFutureCycleRow()]);
+
+        await loadInFlightCycles(db, NOW_DAEMON);
+
+        expect(whereCalls).toHaveLength(1);
+    });
+});
+
 describe('computeNextRePlanAt', () => {
     it('UTC: returns todays hour when the current time is before that hour', () => {
         const now = new Date('2026-05-04T01:30:00.000Z');
@@ -1043,6 +1077,94 @@ describe('armCycle', () => {
     });
 });
 
+describe('armCloseOnly', () => {
+    const NOW = new Date('2026-05-04T12:00:00.000Z');
+
+    it('schedules the close timer for plannedCloseAt - now and registers the cycle as in-flight', async () => {
+        const { clock, advanceTo, getPendingCount } = createFakeClock(NOW);
+        const { db, updates } = createRuntimeDbStub();
+        const registry = new TimerRegistry();
+        const zone = buildZoneModel({ id: 'zone-resume' });
+        const cycle = buildPersistedCycle({ id: 'cycle-resume', startTime: new Date('2026-05-04T11:30:00.000Z'), durationMin: 60 });
+        const closes: Zone[] = [];
+        const plannedCloseAt = new Date('2026-05-04T12:30:00.000Z');
+
+        armCloseOnly({
+            db,
+            clock,
+            registry,
+            zone,
+            cycle,
+            closeZone: async (z) => { closes.push(z); },
+            notifier: noopNotifier,
+            plannedCloseAt,
+        });
+
+        // Pre-registered immediately so getStatus.activeZones reflects the resume.
+        expect(registry.snapshotInFlight().map(({ zone }) => zone.id)).toEqual(['zone-resume']);
+        expect(getPendingCount()).toBe(1);
+        expect(closes).toHaveLength(0);
+
+        await advanceTo(new Date('2026-05-04T12:30:30.000Z'));
+
+        expect(closes).toEqual([zone]);
+        expect(updates).toContainEqual({ cycleId: 'cycle-resume', closedAt: plannedCloseAt });
+        expect(registry.snapshotInFlight()).toHaveLength(0);
+    });
+
+    it('clamps a past plannedCloseAt to a 0-ms delay and fires immediately on the next tick', async () => {
+        const { clock, advanceTo } = createFakeClock(NOW);
+        const { db, updates } = createRuntimeDbStub();
+        const registry = new TimerRegistry();
+        const zone = buildZoneModel({ id: 'zone-late' });
+        const cycle = buildPersistedCycle({ id: 'cycle-late' });
+        const closes: Zone[] = [];
+
+        armCloseOnly({
+            db,
+            clock,
+            registry,
+            zone,
+            cycle,
+            closeZone: async (z) => { closes.push(z); },
+            notifier: noopNotifier,
+            plannedCloseAt: new Date('2026-05-04T11:00:00.000Z'),
+        });
+
+        await advanceTo(NOW);
+
+        expect(closes).toHaveLength(1);
+        expect(updates).toHaveLength(1);
+        expect(updates[0]?.closedAt).toEqual(NOW);
+    });
+
+    it('clears the registry entry and emits an error notification when closeZone rejects', async () => {
+        const { clock, advanceTo } = createFakeClock(NOW);
+        const { db, updates } = createRuntimeDbStub();
+        const registry = new TimerRegistry();
+        const zone = buildZoneModel({ id: 'zone-fail', name: 'Fail Zone' });
+        const cycle = buildPersistedCycle({ id: 'cycle-fail' });
+        const { notifier, calls } = recordingNotifier();
+
+        armCloseOnly({
+            db,
+            clock,
+            registry,
+            zone,
+            cycle,
+            closeZone: async () => { throw new Error('HA timeout'); },
+            notifier,
+            plannedCloseAt: new Date('2026-05-04T12:30:00.000Z'),
+        });
+
+        await advanceTo(new Date('2026-05-04T12:30:30.000Z'));
+
+        expect(updates).toHaveLength(0);
+        expect(registry.snapshotInFlight()).toHaveLength(0);
+        const errorCall = calls.find(c => c.event === 'error');
+        expect(errorCall?.context).toEqual({ zoneName: 'Fail Zone', operation: 'close', reason: 'HA timeout' });
+    });
+});
 
 describe('closeAllInFlight', () => {
     const NOW = new Date('2026-05-04T12:00:00.000Z');

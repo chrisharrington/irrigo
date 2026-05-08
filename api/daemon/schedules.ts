@@ -1,4 +1,4 @@
-import { and, eq, gt, gte, isNull } from 'drizzle-orm';
+import { and, eq, gt, gte, isNotNull, isNull } from 'drizzle-orm';
 import {
     grassTypes,
     irrigationCycles,
@@ -205,6 +205,46 @@ export async function loadFutureCycles(db: FutureCyclesDb, now: Date): Promise<F
 
     const pairs = rows.map(row => mapFutureCycleRow(row));
     console.log(`daemon: loaded ${pairs.length} future cycle(s).`);
+    return pairs;
+}
+
+/**
+ * Reads every cycle that is in flight at boot time — `firedAt` is set but
+ * `closedAt` is still null — paired with the fully-formed zone it belongs
+ * to. Used by the startup reconciliation pass to decide whether to resume,
+ * force-close, or record a missed close for each cycle.
+ *
+ * @param db - Drizzle client (or compatible stub).
+ * @param now - Reference time (unused for filtering; reserved so callers
+ *   can plumb their `Clock`-supplied `now` symmetrically with
+ *   `loadFutureCycles`).
+ * @returns Pairs of (cycle, zone) the daemon needs to reconcile.
+ */
+export async function loadInFlightCycles(db: FutureCyclesDb, _now: Date): Promise<FutureCyclePair[]> {
+    const rows = await db
+        .select({
+            cycle: irrigationCycles,
+            scheduleEntry: scheduleEntries,
+            zone: zones,
+            grassType: grassTypes,
+            soilType: soilTypes,
+            site: sites,
+        })
+        .from(irrigationCycles)
+        .innerJoin(scheduleEntries, eq(irrigationCycles.scheduleEntryId, scheduleEntries.id))
+        .innerJoin(zones, eq(scheduleEntries.zoneId, zones.id))
+        .innerJoin(grassTypes, eq(zones.grassTypeId, grassTypes.id))
+        .innerJoin(soilTypes, eq(zones.soilTypeId, soilTypes.id))
+        .innerJoin(sites, eq(zones.siteId, sites.id))
+        .where(
+            and(
+                isNotNull(irrigationCycles.firedAt),
+                isNull(irrigationCycles.closedAt),
+            ),
+        );
+
+    const pairs = rows.map(row => mapFutureCycleRow(row));
+    console.log(`daemon: loaded ${pairs.length} in-flight cycle(s).`);
     return pairs;
 }
 

@@ -184,6 +184,47 @@ async function runOpen(inputs: ArmCycleInputs): Promise<void> {
     registry.addInFlight(cycle.id, zone, closeHandle);
 }
 
+/**
+ * Inputs to `armCloseOnly` — the boot-time reconciliation path that
+ * re-arms a close timer for a cycle that was already running when the
+ * previous daemon process died. There is no open phase: HA already has
+ * the relay energised, the DB already has `firedAt`, and we just need to
+ * land the close at the planned time (or immediately if it's past).
+ */
+export type ArmCloseOnlyInputs = {
+    db: RuntimeDb;
+    clock: Clock;
+    registry: TimerRegistry;
+    zone: Zone;
+    cycle: PersistedCycle;
+    closeZone: (zone: Zone) => Promise<void>;
+    notifier: Notifier;
+
+    /** Wall-clock time at which the close should fire. Past times fire immediately. */
+    plannedCloseAt: Date;
+};
+
+/**
+ * Schedules the close half of a cycle's lifecycle without re-running the
+ * open. Pre-registers the cycle as in-flight so `getStatus().activeZones`
+ * reflects the resumed zone before the timer fires; the close path itself
+ * reuses `runClose` so success/failure semantics match a normally-armed
+ * cycle exactly.
+ *
+ * @param inputs - Collaborators and the cycle/zone whose close is being re-armed.
+ */
+export function armCloseOnly(inputs: ArmCloseOnlyInputs): void {
+    const { db, clock, registry, zone, cycle, closeZone, notifier, plannedCloseAt } = inputs;
+    const closeDelay = Math.max(0, plannedCloseAt.getTime() - clock.now().getTime());
+
+    const closeHandle = clock.setTimeout(() => {
+        runClose({ db, clock, registry, zone, cycle, closeZone, notifier }).catch(err => {
+            console.error(`daemon: unhandled error in close-only path for cycle ${cycle.id}.`, err);
+        });
+    }, closeDelay);
+    registry.addInFlight(cycle.id, zone, closeHandle);
+}
+
 type RunCloseInputs = {
     db: RuntimeDb;
     clock: Clock;
