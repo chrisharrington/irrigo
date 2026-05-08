@@ -1,13 +1,19 @@
 import dayjs from 'dayjs';
 import utc from 'dayjs/plugin/utc';
 import timezone from 'dayjs/plugin/timezone';
-import { closeZone as defaultCloseZone, openZone as defaultOpenZone } from '@/data/home-assistant';
+import {
+    closeZone as defaultCloseZone,
+    getZoneState as defaultGetZoneState,
+    openZone as defaultOpenZone,
+    type ZoneRelayState,
+} from '@/data/home-assistant';
 import type { Zone } from '@/models';
 import { noopNotifier, type Notifier } from '@/notifications';
 import { runScheduleForZone, type RunScheduleForZoneOptions } from '@/schedules';
 import type { PlanZoneScheduleResult } from '@/schedules/dynamic';
-import { loadFutureCycles, replaceZoneSchedule, type FutureCyclesDb, type ScheduleWriterDb } from './schedules';
-import { armCycle, closeAllInFlight, realClock, TimerRegistry, type Clock, type RuntimeDb } from './runtime';
+import { reconcileCycleAndRelayState, type ReconcileSummary } from './reconcile';
+import { loadFutureCycles, loadInFlightCycles, replaceZoneSchedule, type FutureCyclesDb, type ScheduleWriterDb } from './schedules';
+import { armCloseOnly, armCycle, closeAllInFlight, realClock, TimerRegistry, type Clock, type RuntimeDb } from './runtime';
 import { loadSiteTimezone, type SiteTimezoneDb } from './sites';
 import { countZones, loadEnabledZones, type ZoneCountDb, type ZoneLoaderDb } from './zones';
 
@@ -39,6 +45,9 @@ export type DaemonOptions = {
 
     /** Override the HA close-relay primitive. */
     closeZone?: (zone: Zone) => Promise<void>;
+
+    /** Override the HA state-query primitive. Used by boot reconciliation. */
+    getZoneState?: (zone: Zone) => Promise<ZoneRelayState>;
 
     /** Override for time/timer access. */
     clock?: Clock;
@@ -98,6 +107,7 @@ export async function start(db: DaemonDb, options?: DaemonOptions): Promise<Daem
     const runPlan = options?.runPlan ?? ((zone, opts) => runScheduleForZone(zone, opts));
     const openZone = options?.openZone ?? defaultOpenZone;
     const closeZone = options?.closeZone ?? defaultCloseZone;
+    const getZoneState = options?.getZoneState ?? defaultGetZoneState;
 
     const registry = new TimerRegistry();
     const notifier = options?.notifier ?? noopNotifier;
@@ -107,6 +117,20 @@ export async function start(db: DaemonDb, options?: DaemonOptions): Promise<Daem
     const siteTimezone = options?.siteTimezone ?? await loadSiteTimezone(db);
 
     console.log(`daemon: starting (re-plan hour: ${rePlanHourLocal}:00 ${siteTimezone}).`);
+
+    const enabledZonesAtBoot = await loadEnabledZones(db);
+    const reconcileSummary: ReconcileSummary = await reconcileCycleAndRelayState({
+        db,
+        clock,
+        registry,
+        notifier,
+        closeZone,
+        getZoneState,
+        loadInFlightCycles,
+        armCloseOnly,
+        managedZones: enabledZonesAtBoot.filter(z => z.homeAssistantEntityId !== undefined),
+    });
+    console.log(`daemon: reconcile summary — resumed: ${reconcileSummary.resumed}, forcedClosed: ${reconcileSummary.forcedClosed}, missedClose: ${reconcileSummary.missedClose}, orphansClosed: ${reconcileSummary.orphansClosed}, errors: ${reconcileSummary.errors}.`);
 
     const futureCycles = await loadFutureCycles(db, clock.now());
     for (const { cycle, zone } of futureCycles) {

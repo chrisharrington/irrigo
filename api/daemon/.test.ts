@@ -1257,10 +1257,27 @@ describe('closeAllInFlight', () => {
 
 type DaemonStubInputs = {
     futureCycles?: FutureCycleJoinedRow[];
+    inFlightCycles?: FutureCycleJoinedRow[];
     enabledZones?: ZoneJoinedRow[];
     zoneCounts?: { total: number; enabled: number };
     siteTimezones?: ReadonlyArray<{ timezone: string }>;
 };
+
+function whereContainsIsNotNull(condition: unknown): boolean {
+    const seen = new WeakSet<object>();
+    function walk(node: unknown): boolean {
+        if (typeof node === 'string') return node.includes('is not null');
+        if (typeof node !== 'object' || node === null) return false;
+        if (seen.has(node)) return false;
+        seen.add(node);
+        if (Array.isArray(node)) return node.some(walk);
+        for (const value of Object.values(node)) {
+            if (walk(value)) return true;
+        }
+        return false;
+    }
+    return walk(condition);
+}
 
 function createDaemonDbStub(inputs?: DaemonStubInputs) {
     const updates: CycleUpdate[] = [];
@@ -1287,9 +1304,23 @@ function createDaemonDbStub(inputs?: DaemonStubInputs) {
                 return { from: () => Promise.resolve([...siteTimezoneRows]) } as never;
             }
             const isFutureCyclesQuery = 'cycle' in cols;
-            const rows = isFutureCyclesQuery ? (inputs?.futureCycles ?? []) : enabledZoneRows;
-            const whereSink = isFutureCyclesQuery ? whereCallsCycles : whereCallsZone;
-            return { from: () => buildJoinChainStub(whereSink, rows) };
+            if (isFutureCyclesQuery) {
+                // Differentiate loadFutureCycles (where: isNull(firedAt)) from
+                // loadInFlightCycles (where: isNotNull(firedAt)) by inspecting
+                // the where condition. Each call resolves to the right list.
+                const chain: SelectJoinChain<FutureCycleJoinedRow> = {
+                    innerJoin: () => chain,
+                    where: (conditions) => {
+                        whereCallsCycles.push({ conditions });
+                        const rows = whereContainsIsNotNull(conditions)
+                            ? (inputs?.inFlightCycles ?? [])
+                            : (inputs?.futureCycles ?? []);
+                        return Promise.resolve(rows);
+                    },
+                };
+                return { from: () => chain };
+            }
+            return { from: () => buildJoinChainStub(whereCallsZone, enabledZoneRows) };
         },
         delete(table) {
             return {
@@ -1766,6 +1797,7 @@ describe('start', () => {
             runPlan: async () => { throw new Error('forecast unavailable'); },
             openZone: async () => {},
             closeZone: async () => {},
+            getZoneState: async () => 'off',
         });
 
         await control.rePlan();
@@ -1885,6 +1917,110 @@ describe('start', () => {
             // zone-C must see only zone-A's window — not the failed zone's.
             expect(calls[2]?.busyWindows).toHaveLength(1);
             expect(calls[2]?.busyWindows[0]?.start.toISOString()).toBe('2026-05-04T05:00:00.000Z');
+        });
+    });
+
+    describe('startup reconciliation', () => {
+        it('runs reconciliation before arming any future cycles from the boot loop', async () => {
+            const futureRow = buildFutureCycleRow({
+                cycle: {
+                    id: 'cycle-future',
+                    startTime: new Date('2026-05-04T13:00:00.000Z'),
+                    durationMin: 10,
+                    firedAt: null,
+                },
+            });
+            const inFlightRow = buildFutureCycleRow({
+                cycle: {
+                    id: 'cycle-inflight',
+                    startTime: new Date('2026-05-04T11:00:00.000Z'),
+                    durationMin: 90,
+                    firedAt: new Date('2026-05-04T11:00:00.000Z'),
+                    closedAt: null,
+                },
+                zone: { id: 'zone-inflight' },
+            });
+            const { db } = createDaemonDbStub({ futureCycles: [futureRow], inFlightCycles: [inFlightRow] });
+            const { clock } = createFakeClock(NOW);
+            const events: string[] = [];
+
+            await start(db, {
+                clock,
+                rePlanHourLocal: 4,
+                runPlan: async () => ({ entries: [], projectedNextDepletionMm: 0 }),
+                openZone: async () => {},
+                closeZone: async (z) => { events.push(`close:${z.id}`); },
+                getZoneState: async (z) => {
+                    events.push(`state:${z.id}`);
+                    return 'off';
+                },
+            });
+
+            // The first event must be a state query for the in-flight zone (reconcile),
+            // not the future cycle's open. armCycle for future cycles only schedules
+            // a setTimeout, so it doesn't add events here — but the state query proves
+            // reconcile ran first.
+            expect(events[0]).toBe('state:zone-inflight');
+        });
+
+        it('logs the reconcile summary line at startup', async () => {
+            const inFlightRow = buildFutureCycleRow({
+                cycle: {
+                    id: 'cycle-running',
+                    startTime: new Date('2026-05-04T11:00:00.000Z'),
+                    durationMin: 30,
+                    firedAt: new Date('2026-05-04T11:00:00.000Z'),
+                    closedAt: null,
+                },
+                zone: { id: 'zone-running' },
+            });
+            const { db } = createDaemonDbStub({ inFlightCycles: [inFlightRow] });
+            const { clock } = createFakeClock(NOW);
+            const logSpy = spyOn(console, 'log').mockImplementation(() => {});
+
+            try {
+                await start(db, {
+                    clock,
+                    rePlanHourLocal: 4,
+                    runPlan: async () => ({ entries: [], projectedNextDepletionMm: 0 }),
+                    openZone: async () => {},
+                    closeZone: async () => {},
+                    getZoneState: async () => 'off',
+                });
+
+                const messages = logSpy.mock.calls.map(args => String((args as unknown[])[0]));
+                expect(messages.some(m => m.startsWith('daemon: reconcile summary'))).toBe(true);
+            } finally {
+                logSpy.mockRestore();
+            }
+        });
+
+        it('propagates a hard reconcile failure (loadInFlightCycles throws) so start() rejects', async () => {
+            const { db: baseDb } = createDaemonDbStub();
+            const erroringDb: DaemonDb = {
+                ...baseDb,
+                select: ((cols: Record<string, unknown>) => {
+                    if ('cycle' in cols) {
+                        return {
+                            from: () => ({
+                                innerJoin: function () { return this; },
+                                where: () => Promise.reject(new Error('db down')),
+                            }),
+                        };
+                    }
+                    return baseDb.select(cols as never);
+                }) as never,
+            };
+            const { clock } = createFakeClock(NOW);
+
+            await expect(start(erroringDb, {
+                clock,
+                rePlanHourLocal: 4,
+                runPlan: async () => ({ entries: [], projectedNextDepletionMm: 0 }),
+                openZone: async () => {},
+                closeZone: async () => {},
+                getZoneState: async () => 'off',
+            })).rejects.toThrow('db down');
         });
     });
 

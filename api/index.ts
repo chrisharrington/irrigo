@@ -5,7 +5,7 @@ import Config from '@/config';
 import { start as daemonStart, type DaemonControl, type DaemonDb, type DaemonStatus } from '@/daemon';
 import { realClock } from '@/daemon/runtime';
 import { loadZoneById } from '@/daemon/zones';
-import { closeZone, openZone } from '@/data/home-assistant';
+import { closeZone, getZoneState, openZone } from '@/data/home-assistant';
 import { queryLatestMigrationViaDrizzle, readJournalFile, verifyMigrations } from '@/db/verify-migrations';
 import { BusyError, createManualController, type ManualController } from '@/manual';
 import type { Zone } from '@/models';
@@ -176,7 +176,7 @@ if (import.meta.main) {
     console.log('startup: database schema verified.');
 
     const notifier = createNotifier();
-    const daemon = await daemonStart(db as unknown as DaemonDb, { notifier });
+    const daemon = await daemonStart(db as unknown as DaemonDb, { notifier, getZoneState });
     const manual = createManualController({
         db: db as unknown as Parameters<typeof createManualController>[0]['db'],
         clock: realClock,
