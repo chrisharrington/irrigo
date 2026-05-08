@@ -29,10 +29,19 @@ export type BuildAppOptions = {
 export function buildApp(opts: BuildAppOptions): FastifyInstance {
     const app = Fastify();
 
+    /**
+     * `GET /` — placeholder root-of-host probe. Always 200; useful for
+     * confirming the api process is up before pointing tooling at it.
+     */
     app.get('/', async () => {
         return { message: 'Hello, world!' };
     });
 
+    /**
+     * `GET /health` — daemon liveness snapshot for ops surfaces. Re-evaluates
+     * `getStatus()` per request so a long-lived monitor sees state changes
+     * (re-plan timestamp updates, in-flight zones changing) without restarts.
+     */
     app.get('/health', async () => {
         return opts.getStatus();
     });
@@ -49,6 +58,12 @@ function registerManualRoutes(
     manual: ManualController,
     zoneById: (zoneId: string) => Promise<Zone | null>,
 ): void {
+    /**
+     * `POST /zones/:id/open` — opens the zone's relay via Home Assistant.
+     * Returns 200 with the open timestamp on success, 404 if the zone id is
+     * unknown, 409 if another fire (manual or scheduled) is already in
+     * flight, or 502 if HA itself rejected the call.
+     */
     app.post('/zones/:id/open', async (req, reply) => {
         const { id } = req.params as { id: string };
         const zone = await zoneById(id);
@@ -62,6 +77,12 @@ function registerManualRoutes(
         }
     });
 
+    /**
+     * `POST /zones/:id/close` — closes the zone's relay. Idempotent: closing
+     * a relay that the controller doesn't track still issues HA's `turn_off`
+     * (itself idempotent) and returns 200. 404 only when the zone id is
+     * unknown; 502 when HA rejects.
+     */
     app.post('/zones/:id/close', async (req, reply) => {
         const { id } = req.params as { id: string };
         const zone = await zoneById(id);
@@ -75,6 +96,13 @@ function registerManualRoutes(
         }
     });
 
+    /**
+     * `POST /zones/:id/run` — opens the zone now and schedules an automatic
+     * close after `durationMin` minutes. Body must contain a positive finite
+     * `durationMin`; the controller additionally caps it at
+     * `MAX_RUN_DURATION_MIN`. Maps controller errors: `BusyError` → 409,
+     * duration out-of-range → 400, anything else (HA failure) → 502.
+     */
     app.post('/zones/:id/run', async (req, reply) => {
         const { id } = req.params as { id: string };
         const body = req.body as Record<string, unknown> | undefined;
@@ -94,8 +122,8 @@ function registerManualRoutes(
                 willCloseAt: willCloseAt.toISOString(),
             });
         } catch (err) {
-            // Validation errors thrown by `run` (durationMin out of range) → 400.
-            // Concurrency rejections → 409. HA / IO errors → 502.
+            // Map controller-side durationMin validation (e.g. "exceeds maximum") back to 400
+            // so the client sees the same status class as the route's own pre-check above.
             if (err instanceof Error && /durationMin/.test(err.message)) {
                 return reply.code(400).send({ error: 'bad-request', message: err.message });
             }
