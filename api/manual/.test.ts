@@ -234,6 +234,7 @@ describe('manual controller — close', () => {
         expect(scheduleInserts).toHaveLength(1);
         expect(scheduleInserts[0]?.rows[0]).toMatchObject({
             zoneId: 'zone-001',
+            scheduleId: null,
             date: '2026-05-04',
             source: 'manual',
         });
