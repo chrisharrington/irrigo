@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, mock, spyOn } from 'bun:test';
 import { createTestZone } from '@/mock/zone';
-import { closeZone, openZone } from '.';
+import { closeZone, getZoneState, openZone } from '.';
 import { HttpResponseError, computeBackoffMs, retry } from './retry';
 
 const mockFetch = mock(() => Promise.resolve({} as Response));
@@ -237,6 +237,89 @@ describe('Home Assistant client', () => {
 
             await expect(openZone(zone)).rejects.toThrow(/turn_on on switch\.sonoff_4chpro_relay_1 failed: 502 Bad Gateway/);
             expect(mockFetch).toHaveBeenCalledTimes(3);
+        });
+    });
+
+    describe('getZoneState', () => {
+        const stateResponse = (state: string) => ({
+            ok: true,
+            status: 200,
+            statusText: 'OK',
+            json: async () => ({ entity_id: ENTITY_ID, state }),
+        }) as unknown as Response;
+
+        it(`returns 'on' when HA reports state='on'`, async () => {
+            mockFetch.mockResolvedValueOnce(stateResponse('on'));
+            const zone = createTestZone({ homeAssistantEntityId: ENTITY_ID });
+
+            const state = await getZoneState(zone);
+
+            expect(state).toBe('on');
+        });
+
+        it(`returns 'off' when HA reports state='off'`, async () => {
+            mockFetch.mockResolvedValueOnce(stateResponse('off'));
+            const zone = createTestZone({ homeAssistantEntityId: ENTITY_ID });
+
+            const state = await getZoneState(zone);
+
+            expect(state).toBe('off');
+        });
+
+        it(`returns 'unknown' for any other state string`, async () => {
+            mockFetch.mockResolvedValueOnce(stateResponse('unavailable'));
+            const zone = createTestZone({ homeAssistantEntityId: ENTITY_ID });
+
+            const state = await getZoneState(zone);
+
+            expect(state).toBe('unknown');
+        });
+
+        it(`returns 'unknown' when HA returns 404`, async () => {
+            mockFetch.mockResolvedValueOnce({
+                ok: false,
+                status: 404,
+                statusText: 'Not Found',
+            } as Response);
+            const zone = createTestZone({ homeAssistantEntityId: ENTITY_ID });
+
+            const state = await getZoneState(zone);
+
+            expect(state).toBe('unknown');
+            expect(mockFetch).toHaveBeenCalledTimes(1);
+        });
+
+        it(`returns 'unknown' when the zone has no homeAssistantEntityId and does not call fetch`, async () => {
+            const zone = createTestZone({ homeAssistantEntityId: undefined });
+
+            const state = await getZoneState(zone);
+
+            expect(state).toBe('unknown');
+            expect(mockFetch).not.toHaveBeenCalled();
+        });
+
+        it('throws after retry exhaustion when HA returns 500', async () => {
+            mockFetch.mockResolvedValue({
+                ok: false,
+                status: 500,
+                statusText: 'Internal Server Error',
+            } as Response);
+            const zone = createTestZone({ homeAssistantEntityId: ENTITY_ID });
+
+            await expect(getZoneState(zone)).rejects.toThrow(/get_state on switch\.sonoff_4chpro_relay_1 failed: 500/);
+        });
+
+        it('GETs /api/states/<entity_id> with the bearer token and no body', async () => {
+            mockFetch.mockResolvedValueOnce(stateResponse('off'));
+            const zone = createTestZone({ homeAssistantEntityId: ENTITY_ID });
+
+            await getZoneState(zone);
+
+            const [calledUrl, init] = mockFetch.mock.calls[0] as [string, RequestInit];
+            expect(calledUrl).toBe(`${HA_URL}/api/states/${encodeURIComponent(ENTITY_ID)}`);
+            expect(init.method).toBe('GET');
+            expect((init.headers as Record<string, string>)['Authorization']).toBe(`Bearer ${HA_TOKEN}`);
+            expect(init.body).toBeUndefined();
         });
     });
 });
