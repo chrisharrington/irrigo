@@ -1,9 +1,12 @@
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import Fastify, { type FastifyInstance, type FastifyReply } from 'fastify';
 import Config from '@/config';
 import { start as daemonStart, type DaemonControl, type DaemonDb, type DaemonStatus } from '@/daemon';
 import { realClock } from '@/daemon/runtime';
 import { loadZoneById } from '@/daemon/zones';
 import { closeZone, openZone } from '@/data/home-assistant';
+import { queryLatestMigrationViaDrizzle, readJournalFile, verifyMigrations } from '@/db/verify-migrations';
 import { BusyError, createManualController, type ManualController } from '@/manual';
 import type { Zone } from '@/models';
 import { createNotifier } from '@/notifications';
@@ -161,6 +164,17 @@ export async function gracefulShutdown(
 
 if (import.meta.main) {
     const { db } = await import('@/db');
+
+    const verification = await verifyMigrations({
+        queryLatestMigration: () => queryLatestMigrationViaDrizzle(query => db.execute(query)),
+        readJournal: () => readJournalFile(path.resolve(path.dirname(fileURLToPath(import.meta.url)), 'drizzle')),
+    });
+    if (!verification.ok) {
+        console.error(`startup: ${verification.message}`);
+        process.exit(1);
+    }
+    console.log('startup: database schema verified.');
+
     const notifier = createNotifier();
     const daemon = await daemonStart(db as unknown as DaemonDb, { notifier });
     const manual = createManualController({
