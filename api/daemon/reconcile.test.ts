@@ -24,6 +24,7 @@ function buildZone(overrides?: Partial<Zone>): Zone {
         areaM2: 100,
         precipitationRateMmPerHr: 9,
         currentDepletionMm: 0,
+        siteId: 'site-A',
         siteTimezone: 'America/Edmonton',
         isEnabled: true,
         homeAssistantEntityId: 'switch.zone_001',

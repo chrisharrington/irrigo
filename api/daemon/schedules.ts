@@ -63,6 +63,9 @@ export type ScheduleWriterDb = {
  *   later are deleted before re-insert.
  * @param projectedNextDepletionMm - Depletion value to write to
  *   `zones.current_depletion_mm` (per-zone atomic with the schedule write).
+ * @param scheduleId - The active schedule's id stamped on each inserted
+ *   `schedule_entries` row so downstream consumers can group entries by
+ *   the schedule they came from.
  * @returns The inserted cycles in input order, ready for arming.
  */
 export async function replaceZoneSchedule(
@@ -71,6 +74,7 @@ export async function replaceZoneSchedule(
     entries: ReadonlyArray<IrrigationScheduleEntry>,
     today: string,
     projectedNextDepletionMm: number,
+    scheduleId: string,
 ): Promise<PersistedScheduleResult> {
     console.log(`daemon: replacing schedule for zone ${zoneId} from ${today} (${entries.length} entry/entries).`);
 
@@ -86,6 +90,7 @@ export async function replaceZoneSchedule(
             .values([
                 {
                     zoneId,
+                    scheduleId,
                     date: entry.date.format('YYYY-MM-DD'),
                     appliedDepthMm: entry.appliedDepthMm,
                     depletionBeforeMm: entry.depletionBeforeMm,
