@@ -121,6 +121,7 @@ function buildZone(overrides?: Partial<Zone>): Zone {
         areaM2: 100,
         precipitationRateMmPerHr: 9,
         currentDepletionMm: 12,
+        siteId: 'site-A',
         siteTimezone: 'America/Edmonton',
         isEnabled: true,
         homeAssistantEntityId: 'switch.zone_001',
@@ -234,6 +235,7 @@ describe('manual controller — close', () => {
         expect(scheduleInserts).toHaveLength(1);
         expect(scheduleInserts[0]?.rows[0]).toMatchObject({
             zoneId: 'zone-001',
+            scheduleId: null,
             date: '2026-05-04',
             source: 'manual',
         });

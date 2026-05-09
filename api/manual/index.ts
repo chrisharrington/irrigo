@@ -142,6 +142,7 @@ export function createManualController(deps: ManualControllerDeps): ManualContro
             .values([
                 {
                     zoneId: zone.id,
+                    scheduleId: null,
                     date: today,
                     appliedDepthMm: roundTo1Decimal(appliedDepth),
                     depletionBeforeMm: roundTo1Decimal(depletionBefore),

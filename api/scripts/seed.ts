@@ -1,6 +1,6 @@
 import path from 'node:path';
 import { sql } from 'drizzle-orm';
-import { grassTypes, sites, soilTypes, zones } from '@/db/schema';
+import { grassTypes, schedules, sites, soilTypes, zones } from '@/db/schema';
 import {
     parseGrassTypes,
     parseSites,
@@ -25,7 +25,8 @@ type SeedTable =
     | typeof grassTypes
     | typeof soilTypes
     | typeof sites
-    | typeof zones;
+    | typeof zones
+    | typeof schedules;
 
 type SeedInsertBuilder = {
     values: (rows: ReadonlyArray<Record<string, unknown>>) => SeedConflictBuilder;
@@ -55,6 +56,7 @@ export type SeedSummary = {
     soilTypes: number;
     sites: number;
     zones: number;
+    schedules: number;
 };
 
 const DEFAULT_DATA_DIR = path.resolve(import.meta.dir, '../data/seeds');
@@ -91,6 +93,7 @@ export async function seed(options?: SeedOptions): Promise<SeedSummary> {
     const soilMap = await upsertSoilTypes(db, soilRows);
     const siteMap = await upsertSites(db, siteRows);
     await upsertZones(db, zoneRows, { grassMap, soilMap, siteMap });
+    const scheduleCount = await upsertDefaultSchedules(db, siteMap);
 
     console.log('seed: complete.');
 
@@ -99,6 +102,7 @@ export async function seed(options?: SeedOptions): Promise<SeedSummary> {
         soilTypes: soilRows.length,
         sites: siteRows.length,
         zones: zoneRows.length,
+        schedules: scheduleCount,
     };
 }
 
@@ -216,6 +220,32 @@ async function upsertZones(db: SeedDb, rows: ZoneSeed[], lookups: ZoneLookups): 
             },
         })
         .returning({ id: zones.id, slug: zones.slug });
+}
+
+async function upsertDefaultSchedules(db: SeedDb, siteMap: Map<string, string>): Promise<number> {
+    if (siteMap.size === 0) return 0;
+
+    const valueRows = [...siteMap.values()].map(siteId => ({
+        siteId,
+        slug: 'maintenance',
+        name: 'Maintenance',
+        isActive: true,
+    }));
+
+    // Conflict target: composite (siteId, slug). On conflict only refresh `name` —
+    // leave `isActive` alone so re-seeding doesn't clobber a runtime activation.
+    await db
+        .insert(schedules)
+        .values(valueRows)
+        .onConflictDoUpdate({
+            target: [schedules.siteId, schedules.slug],
+            set: {
+                name: sql`excluded.name`,
+            },
+        })
+        .returning({ id: schedules.id, slug: schedules.slug });
+
+    return valueRows.length;
 }
 
 function resolveZone(row: ZoneSeed, lookups: ZoneLookups) {

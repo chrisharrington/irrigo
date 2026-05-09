@@ -12,6 +12,7 @@ import { noopNotifier, type Notifier } from '@/notifications';
 import { runScheduleForZone, type RunScheduleForZoneOptions } from '@/schedules';
 import type { PlanZoneScheduleResult } from '@/schedules/dynamic';
 import { reconcileCycleAndRelayState, type ReconcileSummary } from './reconcile';
+import { loadActiveSchedulesBySite, type Schedule, type ScheduleManagerDb } from './schedule-manager';
 import { loadFutureCycles, loadInFlightCycles, replaceZoneSchedule, type FutureCyclesDb, type ScheduleWriterDb } from './schedules';
 import { armCloseOnly, armCycle, closeAllInFlight, realClock, TimerRegistry, type Clock, type RuntimeDb } from './runtime';
 import { loadSiteTimezone, type SiteTimezoneDb } from './sites';
@@ -27,7 +28,7 @@ const DEFAULT_REPLAN_HOUR_LOCAL = 4;
  * pass the eager `db` export from `@/db`; tests pass a recording stub that
  * implements the union of the smaller per-helper interfaces.
  */
-export type DaemonDb = ZoneLoaderDb & ScheduleWriterDb & FutureCyclesDb & RuntimeDb & ZoneCountDb & SiteTimezoneDb;
+export type DaemonDb = ZoneLoaderDb & ScheduleWriterDb & FutureCyclesDb & RuntimeDb & ZoneCountDb & SiteTimezoneDb & ScheduleManagerDb;
 
 /**
  * Caller-overridable hooks. Defaults wire to the real planning function and
@@ -161,13 +162,20 @@ export async function start(db: DaemonDb, options?: DaemonOptions): Promise<Daem
         registry.cancelOpenTimers(clock);
 
         const enabledZones = await loadEnabledZones(db);
+        const activeSchedulesBySite: Map<string, Schedule> = await loadActiveSchedulesBySite(db);
         const today = dayjs(clock.now()).format('YYYY-MM-DD');
         const busyWindows: Array<{ start: Date; end: Date }> = [];
 
         for (const zone of enabledZones) {
+            const activeSchedule = activeSchedulesBySite.get(zone.siteId);
+            if (!activeSchedule) {
+                console.warn(`daemon: no active schedule for site ${zone.siteId} — skipping zone ${zone.id} (${zone.name}).`);
+                continue;
+            }
+
             try {
                 const { entries, projectedNextDepletionMm } = await runPlan(zone, { busyWindows });
-                const { cycles } = await replaceZoneSchedule(db, zone.id, entries, today, projectedNextDepletionMm);
+                const { cycles } = await replaceZoneSchedule(db, zone.id, entries, today, projectedNextDepletionMm, activeSchedule.id);
                 for (const cycle of cycles) {
                     armCycle({ db, clock, registry, zone, cycle, openZone, closeZone, notifier });
                     busyWindows.push({

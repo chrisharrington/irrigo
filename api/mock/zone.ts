@@ -27,6 +27,7 @@ export function createTestZone(overrides?: Partial<Zone>): Zone {
         areaM2: 100,
         precipitationRateMmPerHr: 9,
         currentDepletionMm: 0,
+        siteId: 'test-site-001',
         siteTimezone: 'America/Edmonton',
         isEnabled: true,
         location: {

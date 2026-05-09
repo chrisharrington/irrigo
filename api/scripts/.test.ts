@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'bun:test';
 import { mkdtemp, rm } from 'node:fs/promises';
 import path from 'node:path';
 import os from 'node:os';
-import { grassTypes, sites, soilTypes, zones } from '@/db/schema';
+import { grassTypes, schedules, sites, soilTypes, zones } from '@/db/schema';
 import { seed, type SeedDb } from './seed';
 
 type InsertCall = {
@@ -89,7 +89,7 @@ describe('seed orchestrator', () => {
 
         await seed({ db, dataDir });
 
-        expect(calls.map(c => c.table)).toEqual([grassTypes, soilTypes, sites, zones]);
+        expect(calls.map(c => c.table)).toEqual([grassTypes, soilTypes, sites, zones, schedules]);
     });
 
     it('resolves zone slug references to FK ids using maps from prior upserts', async () => {
@@ -166,7 +166,7 @@ describe('seed orchestrator', () => {
         const summary = await seed({ db, dataDir });
 
         expect(calls).toHaveLength(0);
-        expect(summary).toEqual({ grassTypes: 0, soilTypes: 0, sites: 0, zones: 0 });
+        expect(summary).toEqual({ grassTypes: 0, soilTypes: 0, sites: 0, zones: 0, schedules: 0 });
     });
 
     it('reads from the dataDir argument rather than the default location', async () => {
@@ -264,7 +264,7 @@ describe('seed orchestrator', () => {
 
         const summary = await seed({ db, dataDir });
 
-        expect(summary).toEqual({ grassTypes: 2, soilTypes: 1, sites: 3, zones: 0 });
+        expect(summary).toEqual({ grassTypes: 2, soilTypes: 1, sites: 3, zones: 0, schedules: 3 });
     });
 
     it('throws a clear error when a seed file is missing from dataDir', async () => {
@@ -275,6 +275,60 @@ describe('seed orchestrator', () => {
         const { db } = createStubDb();
 
         await expect(seed({ db, dataDir })).rejects.toThrow(/missing seed file .+zones\.json/);
+    });
+
+    it('upserts a Maintenance/maintenance schedule for every seeded site with isActive=true', async () => {
+        await writeJson(dataDir, 'grass-types.json', []);
+        await writeJson(dataDir, 'soil-types.json', []);
+        await writeJson(dataDir, 'sites.json', [
+            { slug: 'home', name: 'Home', timezone: 'America/Edmonton', latitude: 51.05, longitude: -114.07 },
+            { slug: 'cabin', name: 'Cabin', timezone: 'America/Edmonton', latitude: 52.0, longitude: -114.0 },
+        ]);
+        await writeJson(dataDir, 'zones.json', []);
+        const { db, calls } = createStubDb();
+
+        const summary = await seed({ db, dataDir });
+
+        expect(summary.schedules).toBe(2);
+        const scheduleCall = calls.find(c => c.table === schedules);
+        expect(scheduleCall).toBeDefined();
+        expect(scheduleCall!.rows).toHaveLength(2);
+        for (const row of scheduleCall!.rows) {
+            expect(row['slug']).toBe('maintenance');
+            expect(row['name']).toBe('Maintenance');
+            expect(row['isActive']).toBe(true);
+            expect(typeof row['siteId']).toBe('string');
+        }
+    });
+
+    it('omits isActive from the conflict-update set so re-seeding does not flip a deactivated schedule', async () => {
+        await writeJson(dataDir, 'grass-types.json', []);
+        await writeJson(dataDir, 'soil-types.json', []);
+        await writeJson(dataDir, 'sites.json', [
+            { slug: 'home', name: 'Home', timezone: 'America/Edmonton', latitude: 51.05, longitude: -114.07 },
+        ]);
+        await writeJson(dataDir, 'zones.json', []);
+        const { db, calls } = createStubDb();
+
+        await seed({ db, dataDir });
+
+        const scheduleCall = calls.find(c => c.table === schedules);
+        expect(scheduleCall).toBeDefined();
+        expect(Object.keys(scheduleCall!.conflictSet)).toEqual(['name']);
+        expect('isActive' in scheduleCall!.conflictSet).toBe(false);
+    });
+
+    it('skips schedules upsert when no sites are seeded', async () => {
+        await writeJson(dataDir, 'grass-types.json', []);
+        await writeJson(dataDir, 'soil-types.json', []);
+        await writeJson(dataDir, 'sites.json', []);
+        await writeJson(dataDir, 'zones.json', []);
+        const { db, calls } = createStubDb();
+
+        const summary = await seed({ db, dataDir });
+
+        expect(summary.schedules).toBe(0);
+        expect(calls.find(c => c.table === schedules)).toBeUndefined();
     });
 });
 

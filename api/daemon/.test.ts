@@ -407,11 +407,27 @@ describe('replaceZoneSchedule', () => {
         const { db, deleteCalls, insertCalls } = createScheduleWriterStub();
         const entry = buildEntry('2026-05-04', [{ startTime: '2026-05-04T05:00:00Z', durationMin: 20 }]);
 
-        await replaceZoneSchedule(db, 'zone-001', [entry], '2026-05-04', 0);
+        await replaceZoneSchedule(db, 'zone-001', [entry], '2026-05-04', 0, 'sched-default');
 
         expect(deleteCalls).toHaveLength(1);
         expect(deleteCalls[0]?.table).toBe(scheduleEntries);
         expect(insertCalls.length).toBeGreaterThan(0);
+    });
+
+    it('stamps the supplied scheduleId on each inserted schedule_entries row', async () => {
+        const { db, insertCalls } = createScheduleWriterStub({ entries: ['entry-A', 'entry-B'] });
+        const entries = [
+            buildEntry('2026-05-04', [{ startTime: '2026-05-04T05:00:00Z', durationMin: 20 }]),
+            buildEntry('2026-05-06', [{ startTime: '2026-05-06T05:00:00Z', durationMin: 25 }]),
+        ];
+
+        await replaceZoneSchedule(db, 'zone-001', entries, '2026-05-04', 0, 'sched-overseed');
+
+        const entryInserts = insertCalls.filter(c => c.table === scheduleEntries);
+        expect(entryInserts).toHaveLength(2);
+        for (const call of entryInserts) {
+            expect(call.rows[0]?.['scheduleId']).toBe('sched-overseed');
+        }
     });
 
     it('inserts one schedule_entries row per planner entry with the right zoneId, date, and depletion fields', async () => {
@@ -421,7 +437,7 @@ describe('replaceZoneSchedule', () => {
             buildEntry('2026-05-06', [{ startTime: '2026-05-06T05:00:00Z', durationMin: 25 }]),
         ];
 
-        await replaceZoneSchedule(db, 'zone-001', entries, '2026-05-04', 0);
+        await replaceZoneSchedule(db, 'zone-001', entries, '2026-05-04', 0, 'sched-default');
 
         const entryInserts = insertCalls.filter(c => c.table === scheduleEntries);
         expect(entryInserts).toHaveLength(2);
@@ -442,7 +458,7 @@ describe('replaceZoneSchedule', () => {
             { startTime: '2026-05-04T05:30:00Z', durationMin: 15 },
         ]);
 
-        await replaceZoneSchedule(db, 'zone-001', [entry], '2026-05-04', 0);
+        await replaceZoneSchedule(db, 'zone-001', [entry], '2026-05-04', 0, 'sched-default');
 
         const cycleInserts = insertCalls.filter(c => c.table === irrigationCycles);
         expect(cycleInserts).toHaveLength(1);
@@ -464,7 +480,7 @@ describe('replaceZoneSchedule', () => {
             { startTime: '2026-05-04T05:30:00Z', durationMin: 15 },
         ]);
 
-        const result = await replaceZoneSchedule(db, 'zone-001', [entry], '2026-05-04', 0);
+        const result = await replaceZoneSchedule(db, 'zone-001', [entry], '2026-05-04', 0, 'sched-default');
 
         expect(result.cycles).toHaveLength(2);
         expect(result.cycles[0]?.id).toBe('cycle-A1');
@@ -476,7 +492,7 @@ describe('replaceZoneSchedule', () => {
     it('still issues the delete and inserts no rows when given an empty entries array', async () => {
         const { db, deleteCalls, insertCalls } = createScheduleWriterStub();
 
-        const result = await replaceZoneSchedule(db, 'zone-001', [], '2026-05-04', 0);
+        const result = await replaceZoneSchedule(db, 'zone-001', [], '2026-05-04', 0, 'sched-default');
 
         expect(deleteCalls).toHaveLength(1);
         expect(insertCalls).toHaveLength(0);
@@ -487,7 +503,7 @@ describe('replaceZoneSchedule', () => {
         const { db, insertCalls } = createScheduleWriterStub({ entries: ['entry-A'] });
         const entry = buildEntry('2026-05-04', []);
 
-        const result = await replaceZoneSchedule(db, 'zone-001', [entry], '2026-05-04', 0);
+        const result = await replaceZoneSchedule(db, 'zone-001', [entry], '2026-05-04', 0, 'sched-default');
 
         expect(insertCalls.filter(c => c.table === scheduleEntries)).toHaveLength(1);
         expect(insertCalls.filter(c => c.table === irrigationCycles)).toHaveLength(0);
@@ -498,7 +514,7 @@ describe('replaceZoneSchedule', () => {
         const { db, updateCalls } = createScheduleWriterStub();
         const entry = buildEntry('2026-05-04', [{ startTime: '2026-05-04T05:00:00Z', durationMin: 20 }]);
 
-        await replaceZoneSchedule(db, 'zone-001', [entry], '2026-05-04', 7.5);
+        await replaceZoneSchedule(db, 'zone-001', [entry], '2026-05-04', 7.5, 'sched-default');
 
         expect(updateCalls).toHaveLength(1);
         expect(updateCalls[0]?.table).toBe(zones);
@@ -508,7 +524,7 @@ describe('replaceZoneSchedule', () => {
     it('writes the depletion update even when the entries array is empty', async () => {
         const { db, updateCalls } = createScheduleWriterStub();
 
-        await replaceZoneSchedule(db, 'zone-002', [], '2026-05-04', 12.3);
+        await replaceZoneSchedule(db, 'zone-002', [], '2026-05-04', 12.3, 'sched-default');
 
         expect(updateCalls).toHaveLength(1);
         expect(updateCalls[0]?.values).toEqual({ currentDepletionMm: 12.3 });
@@ -886,6 +902,8 @@ function buildZoneModel(overrides?: Partial<Zone>): Zone {
         areaM2: 100,
         precipitationRateMmPerHr: 9,
         currentDepletionMm: 0,
+        siteId: 'site-A',
+        siteTimezone: 'America/Edmonton',
         isEnabled: true,
         location: { lat: 51.0447, lon: -114.0719 },
         homeAssistantEntityId: 'switch.zone_1',
@@ -1261,6 +1279,7 @@ type DaemonStubInputs = {
     enabledZones?: ZoneJoinedRow[];
     zoneCounts?: { total: number; enabled: number };
     siteTimezones?: ReadonlyArray<{ timezone: string }>;
+    activeSchedules?: ReadonlyArray<{ schedule: { id: string; siteId: string; slug: string; name: string; isActive: boolean; createdAt: Date; updatedAt: Date } }>;
 };
 
 function whereContainsIsNotNull(condition: unknown): boolean {
@@ -1293,6 +1312,22 @@ function createDaemonDbStub(inputs?: DaemonStubInputs) {
 
     const siteTimezoneRows = inputs?.siteTimezones ?? [{ timezone: 'America/Edmonton' }];
 
+    // Default: one active schedule for site-A (matches the default `siteId`
+    // on `buildJoinedRow` / `buildZoneModel`). Tests that need different
+    // configurations override.
+    const NOW_FOR_SCHEDULES = new Date('2026-05-04T12:00:00.000Z');
+    const activeScheduleRows = inputs?.activeSchedules ?? [{
+        schedule: {
+            id: 'sched-default',
+            siteId: 'site-001',
+            slug: 'maintenance',
+            name: 'Maintenance',
+            isActive: true,
+            createdAt: NOW_FOR_SCHEDULES,
+            updatedAt: NOW_FOR_SCHEDULES,
+        },
+    }];
+
     const db: DaemonDb = {
         select(columns) {
             const cols = columns as Record<string, unknown>;
@@ -1302,6 +1337,14 @@ function createDaemonDbStub(inputs?: DaemonStubInputs) {
             // SiteTimezoneDb shape: a single `timezone` column, no other keys.
             if ('timezone' in cols && Object.keys(cols).length === 1) {
                 return { from: () => Promise.resolve([...siteTimezoneRows]) } as never;
+            }
+            // Schedule manager shape: a single `schedule` column.
+            if ('schedule' in cols && Object.keys(cols).length === 1) {
+                return {
+                    from: () => ({
+                        where: () => Promise.resolve([...activeScheduleRows]),
+                    }),
+                } as never;
             }
             const isFutureCyclesQuery = 'cycle' in cols;
             if (isFutureCyclesQuery) {
@@ -1917,6 +1960,113 @@ describe('start', () => {
             // zone-C must see only zone-A's window — not the failed zone's.
             expect(calls[2]?.busyWindows).toHaveLength(1);
             expect(calls[2]?.busyWindows[0]?.start.toISOString()).toBe('2026-05-04T05:00:00.000Z');
+        });
+    });
+
+    describe('schedule integration', () => {
+        it('stamps the active schedule id on each schedule_entries insert during rePlan', async () => {
+            const enabledRow = buildJoinedRow({ zone: { id: 'zone-loaded', siteId: 'site-A' } });
+            const { db, inserts } = createDaemonDbStub({
+                enabledZones: [enabledRow],
+                activeSchedules: [{
+                    schedule: {
+                        id: 'sched-active', siteId: 'site-A', slug: 'maintenance', name: 'Maintenance',
+                        isActive: true, createdAt: NOW, updatedAt: NOW,
+                    },
+                }],
+            });
+            const { clock } = createFakeClock(NOW);
+            const planned = buildEntry('2026-05-04', [{ startTime: '2026-05-04T13:00:00Z', durationMin: 20 }]);
+
+            const control = await start(db, {
+                clock,
+                rePlanHourLocal: 4,
+                runPlan: async () => ({ entries: [planned], projectedNextDepletionMm: 0 }),
+                openZone: async () => {},
+                closeZone: async () => {},
+                getZoneState: async () => 'off',
+            });
+
+            await control.rePlan();
+
+            const entryInserts = inserts.filter(c => c.table === scheduleEntries);
+            expect(entryInserts).toHaveLength(1);
+            expect(entryInserts[0]?.rows[0]?.['scheduleId']).toBe('sched-active');
+        });
+
+        it('skips a zone whose site has no active schedule and logs a warning', async () => {
+            const warnSpy = spyOn(console, 'warn').mockImplementation(() => {});
+            try {
+                const enabledRow = buildJoinedRow({ zone: { id: 'zone-orphan', siteId: 'site-no-schedule' } });
+                const { db, inserts } = createDaemonDbStub({
+                    enabledZones: [enabledRow],
+                    activeSchedules: [], // no active schedules anywhere
+                });
+                const { clock } = createFakeClock(NOW);
+                const planCalls: string[] = [];
+
+                const control = await start(db, {
+                    clock,
+                    rePlanHourLocal: 4,
+                    runPlan: async (z) => {
+                        planCalls.push(z.id);
+                        return { entries: [], projectedNextDepletionMm: 0 };
+                    },
+                    openZone: async () => {},
+                    closeZone: async () => {},
+                    getZoneState: async () => 'off',
+                });
+
+                await control.rePlan();
+
+                expect(planCalls).toEqual([]);
+                expect(inserts.filter(c => c.table === scheduleEntries)).toHaveLength(0);
+                const messages = warnSpy.mock.calls.map(args => String((args as unknown[])[0]));
+                expect(messages.some(m => m.includes('no active schedule for site site-no-schedule'))).toBe(true);
+            } finally {
+                warnSpy.mockRestore();
+            }
+        });
+
+        it('plans the zones whose sites have an active schedule even when other zones are skipped', async () => {
+            const warnSpy = spyOn(console, 'warn').mockImplementation(() => {});
+            try {
+                const planned = buildJoinedRow({ zone: { id: 'zone-planned', siteId: 'site-active' } });
+                const skipped = buildJoinedRow({ zone: { id: 'zone-skipped', siteId: 'site-empty' } });
+                const { db, inserts } = createDaemonDbStub({
+                    enabledZones: [skipped, planned],
+                    activeSchedules: [{
+                        schedule: {
+                            id: 'sched-A', siteId: 'site-active', slug: 'maintenance', name: 'Maintenance',
+                            isActive: true, createdAt: NOW, updatedAt: NOW,
+                        },
+                    }],
+                });
+                const { clock } = createFakeClock(NOW);
+                const planCalls: string[] = [];
+                const entry = buildEntry('2026-05-04', [{ startTime: '2026-05-04T13:00:00Z', durationMin: 10 }]);
+
+                const control = await start(db, {
+                    clock,
+                    rePlanHourLocal: 4,
+                    runPlan: async (z) => {
+                        planCalls.push(z.id);
+                        return { entries: [entry], projectedNextDepletionMm: 0 };
+                    },
+                    openZone: async () => {},
+                    closeZone: async () => {},
+                    getZoneState: async () => 'off',
+                });
+
+                await control.rePlan();
+
+                expect(planCalls).toEqual(['zone-planned']);
+                const entryInserts = inserts.filter(c => c.table === scheduleEntries);
+                expect(entryInserts).toHaveLength(1);
+                expect(entryInserts[0]?.rows[0]?.['scheduleId']).toBe('sched-A');
+            } finally {
+                warnSpy.mockRestore();
+            }
         });
     });
 
