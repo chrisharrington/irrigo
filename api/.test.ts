@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'bun:test';
-import { buildApp, gracefulShutdown } from '@/index';
+import { buildApp, gracefulShutdown, wrapScheduleWithReplan, type ScheduleApi } from '@/index';
 import type { DaemonControl, DaemonStatus } from '@/daemon';
 import { BusyError, type ManualController } from '@/manual';
 import type { Zone } from '@/models';
@@ -451,6 +451,168 @@ describe('buildApp schedule routes', () => {
         const app = buildApp({ getStatus: () => buildStatus() });
 
         const res = await app.inject({ method: 'POST', url: '/schedule/enable/maintenance' });
+
+        expect(res.statusCode).toBe(404);
+        await app.close();
+    });
+
+    describe('wrapped with replan', () => {
+        it('returns 502 when the wrapped enable closure rejects (re-plan failed)', async () => {
+            // Simulate the production wiring: enable throws because replan threw.
+            const base: ScheduleApi = {
+                enable: async slug => buildSchedule({ slug }),
+                disable: async () => null,
+            };
+            const wrapped = wrapScheduleWithReplan(base, async () => { throw new Error('HA 503'); });
+            const app = buildApp({ getStatus: () => buildStatus(), schedule: wrapped });
+
+            const res = await app.inject({ method: 'POST', url: '/schedule/enable/maintenance' });
+
+            expect(res.statusCode).toBe(502);
+            expect(res.json()).toMatchObject({ error: 'replan-failed', message: 'HA 503' });
+            await app.close();
+        });
+
+        it('returns 502 when the wrapped disable closure rejects', async () => {
+            const base: ScheduleApi = {
+                enable: async () => null,
+                disable: async slug => buildSchedule({ slug, isActive: false }),
+            };
+            const wrapped = wrapScheduleWithReplan(base, async () => { throw new Error('HA 504'); });
+            const app = buildApp({ getStatus: () => buildStatus(), schedule: wrapped });
+
+            const res = await app.inject({ method: 'POST', url: '/schedule/disable/maintenance' });
+
+            expect(res.statusCode).toBe(502);
+            expect(res.json()).toMatchObject({ error: 'replan-failed', message: 'HA 504' });
+            await app.close();
+        });
+    });
+});
+
+describe('wrapScheduleWithReplan', () => {
+    const buildSchedule = (overrides?: Partial<{ slug: string; name: string; siteId: string; isActive: boolean }>) => ({
+        id: 'sched-1',
+        siteId: 'site-A',
+        slug: 'maintenance',
+        name: 'Maintenance',
+        isActive: true,
+        allowedDays: null,
+        allowedTimeWindows: null,
+        rootDepthMOverride: null,
+        allowableDepletionFractionOverride: null,
+        createdAt: new Date('2026-05-11T18:00:00.000Z'),
+        updatedAt: new Date('2026-05-11T18:00:00.000Z'),
+        ...overrides,
+    });
+
+    it('calls replan after a non-null enable result, awaiting it before returning', async () => {
+        const callOrder: string[] = [];
+        const base: ScheduleApi = {
+            enable: async (slug) => { callOrder.push('enable'); return buildSchedule({ slug }); },
+            disable: async () => null,
+        };
+        const replan = async () => {
+            await Promise.resolve();
+            callOrder.push('replan');
+        };
+        const wrapped = wrapScheduleWithReplan(base, replan);
+
+        const result = await wrapped.enable('maintenance');
+        callOrder.push('returned');
+
+        expect(result?.slug).toBe('maintenance');
+        expect(callOrder).toEqual(['enable', 'replan', 'returned']);
+    });
+
+    it('skips replan when enable returns null (unknown slug)', async () => {
+        let replanCalls = 0;
+        const base: ScheduleApi = {
+            enable: async () => null,
+            disable: async () => null,
+        };
+        const wrapped = wrapScheduleWithReplan(base, async () => { replanCalls += 1; });
+
+        const result = await wrapped.enable('no-such');
+
+        expect(result).toBeNull();
+        expect(replanCalls).toBe(0);
+    });
+
+    it('calls replan after a non-null disable result', async () => {
+        const callOrder: string[] = [];
+        const base: ScheduleApi = {
+            enable: async () => null,
+            disable: async (slug) => { callOrder.push('disable'); return buildSchedule({ slug, isActive: false }); },
+        };
+        const wrapped = wrapScheduleWithReplan(base, async () => { callOrder.push('replan'); });
+
+        await wrapped.disable('maintenance');
+
+        expect(callOrder).toEqual(['disable', 'replan']);
+    });
+
+    it('skips replan when disable returns null', async () => {
+        let replanCalls = 0;
+        const base: ScheduleApi = {
+            enable: async () => null,
+            disable: async () => null,
+        };
+        const wrapped = wrapScheduleWithReplan(base, async () => { replanCalls += 1; });
+
+        await wrapped.disable('no-such');
+
+        expect(replanCalls).toBe(0);
+    });
+
+    it('propagates rejections from replan so the route handler can map them to 502', async () => {
+        const base: ScheduleApi = {
+            enable: async (slug) => buildSchedule({ slug }),
+            disable: async () => null,
+        };
+        const wrapped = wrapScheduleWithReplan(base, async () => { throw new Error('replan failed'); });
+
+        await expect(wrapped.enable('maintenance')).rejects.toThrow('replan failed');
+    });
+});
+
+describe('buildApp /replan route', () => {
+    const NOW_ISO = '2026-05-11T18:00:00.000Z';
+
+    it('returns 200 with lastRePlanAt from getStatus after the replan resolves', async () => {
+        let replanCalls = 0;
+        const replan = async () => { replanCalls += 1; };
+        const app = buildApp({
+            getStatus: () => buildStatus({ lastRePlanAt: NOW_ISO }),
+            replan,
+        });
+
+        const res = await app.inject({ method: 'POST', url: '/replan' });
+
+        expect(res.statusCode).toBe(200);
+        expect(res.json()).toEqual({ status: 'replanned', lastRePlanAt: NOW_ISO });
+        expect(replanCalls).toBe(1);
+        await app.close();
+    });
+
+    it('returns 502 with error: replan-failed when the supplied replan rejects', async () => {
+        const replan = async () => { throw new Error('weather API timeout'); };
+        const app = buildApp({
+            getStatus: () => buildStatus(),
+            replan,
+        });
+
+        const res = await app.inject({ method: 'POST', url: '/replan' });
+
+        expect(res.statusCode).toBe(502);
+        expect(res.json()).toMatchObject({ error: 'replan-failed', message: 'weather API timeout' });
+        await app.close();
+    });
+
+    it('does not register /replan when the option is absent', async () => {
+        const app = buildApp({ getStatus: () => buildStatus() });
+
+        const res = await app.inject({ method: 'POST', url: '/replan' });
 
         expect(res.statusCode).toBe(404);
         await app.close();
