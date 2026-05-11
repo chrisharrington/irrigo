@@ -21,6 +21,8 @@ function buildSchedule(overrides?: Partial<Schedule>): Schedule {
         slug: 'maintenance',
         name: 'Maintenance',
         isActive: true,
+        allowedDays: null,
+        allowedTimeWindows: null,
         createdAt: NOW,
         updatedAt: NOW,
         ...overrides,
