@@ -1279,7 +1279,17 @@ type DaemonStubInputs = {
     enabledZones?: ZoneJoinedRow[];
     zoneCounts?: { total: number; enabled: number };
     siteTimezones?: ReadonlyArray<{ timezone: string }>;
-    activeSchedules?: ReadonlyArray<{ schedule: { id: string; siteId: string; slug: string; name: string; isActive: boolean; createdAt: Date; updatedAt: Date } }>;
+    activeSchedules?: ReadonlyArray<{ schedule: {
+        id: string;
+        siteId: string;
+        slug: string;
+        name: string;
+        isActive: boolean;
+        allowedDays: number[] | null;
+        allowedTimeWindows: Array<{ start: string; end: string }> | null;
+        createdAt: Date;
+        updatedAt: Date;
+    } }>;
 };
 
 function whereContainsIsNotNull(condition: unknown): boolean {
@@ -1323,6 +1333,8 @@ function createDaemonDbStub(inputs?: DaemonStubInputs) {
             slug: 'maintenance',
             name: 'Maintenance',
             isActive: true,
+            allowedDays: null,
+            allowedTimeWindows: null,
             createdAt: NOW_FOR_SCHEDULES,
             updatedAt: NOW_FOR_SCHEDULES,
         },
@@ -1964,6 +1976,51 @@ describe('start', () => {
     });
 
     describe('schedule integration', () => {
+        it('forwards the active schedule\'s allowedDays and allowedTimeWindows to runPlan', async () => {
+            const enabledRow = buildJoinedRow({ zone: { id: 'zone-r', siteId: 'site-R' } });
+            const { db } = createDaemonDbStub({
+                enabledZones: [enabledRow],
+                activeSchedules: [{
+                    schedule: {
+                        id: 'sched-r', siteId: 'site-R', slug: 'maintenance', name: 'Maintenance',
+                        isActive: true,
+                        allowedDays: [3, 5, 7],
+                        allowedTimeWindows: [
+                            { start: '00:00', end: '10:00' },
+                            { start: '19:00', end: '23:59' },
+                        ],
+                        createdAt: NOW, updatedAt: NOW,
+                    },
+                }],
+            });
+            const { clock } = createFakeClock(NOW);
+            const planCalls: Array<{ allowedDays: number[] | null | undefined; allowedTimeWindows: unknown }> = [];
+
+            const control = await start(db, {
+                clock,
+                rePlanHourLocal: 4,
+                runPlan: async (_z, opts) => {
+                    planCalls.push({
+                        allowedDays: opts?.restrictions?.allowedDays,
+                        allowedTimeWindows: opts?.restrictions?.allowedTimeWindows,
+                    });
+                    return { entries: [], projectedNextDepletionMm: 0 };
+                },
+                openZone: async () => {},
+                closeZone: async () => {},
+                getZoneState: async () => 'off',
+            });
+
+            await control.rePlan();
+
+            expect(planCalls).toHaveLength(1);
+            expect(planCalls[0]?.allowedDays).toEqual([3, 5, 7]);
+            expect(planCalls[0]?.allowedTimeWindows).toEqual([
+                { start: '00:00', end: '10:00' },
+                { start: '19:00', end: '23:59' },
+            ]);
+        });
+
         it('stamps the active schedule id on each schedule_entries insert during rePlan', async () => {
             const enabledRow = buildJoinedRow({ zone: { id: 'zone-loaded', siteId: 'site-A' } });
             const { db, inserts } = createDaemonDbStub({
@@ -1971,7 +2028,7 @@ describe('start', () => {
                 activeSchedules: [{
                     schedule: {
                         id: 'sched-active', siteId: 'site-A', slug: 'maintenance', name: 'Maintenance',
-                        isActive: true, createdAt: NOW, updatedAt: NOW,
+                        isActive: true, allowedDays: null, allowedTimeWindows: null, createdAt: NOW, updatedAt: NOW,
                     },
                 }],
             });
@@ -2038,7 +2095,7 @@ describe('start', () => {
                     activeSchedules: [{
                         schedule: {
                             id: 'sched-A', siteId: 'site-active', slug: 'maintenance', name: 'Maintenance',
-                            isActive: true, createdAt: NOW, updatedAt: NOW,
+                            isActive: true, allowedDays: null, allowedTimeWindows: null, createdAt: NOW, updatedAt: NOW,
                         },
                     }],
                 });

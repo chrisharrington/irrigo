@@ -132,6 +132,28 @@ describe('runScheduleForZone', () => {
         expect(shifted.startTime.toDate().getTime()).toBe(busyEnd.getTime());
     });
 
+    it('forwards schedule restrictions to the planner so disallowed days drop their cycles', async () => {
+        stubSuccess();
+        const zone = createTestZone({
+            currentDepletionMm: 22,
+            soil: { name: 'TestSoil', availableWaterHoldingCapacityMmPerM: 150, infiltrationRateMmPerHr: 100 },
+            precipitationRateMmPerHr: 50,
+            location: { lat: 51.0447, lon: -114.0719 },
+        });
+
+        // The weather stub has dates 2025-10-20 / 21 / 22 (Mon / Tue / Wed).
+        // Allow only Wednesday (isoWeekday 3) — Mon and Tue should produce no entries.
+        const result = await runScheduleForZone(zone, {
+            restrictions: { allowedDays: [3], allowedTimeWindows: null },
+        });
+
+        for (const entry of result.entries) {
+            expect(entry.date.isoWeekday()).toBe(3);
+        }
+        expect(result.entries.some(e => e.date.format('YYYY-MM-DD') === '2025-10-22')).toBe(true);
+        expect(result.entries.some(e => e.date.format('YYYY-MM-DD') === '2025-10-20')).toBe(false);
+    });
+
     it('returns an empty schedule when the weather API returns no days', async () => {
         mockFetch.mockResolvedValueOnce({
             ok: true,

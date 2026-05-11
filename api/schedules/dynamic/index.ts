@@ -1,5 +1,15 @@
 import dayjs from 'dayjs';
 import type { Zone, DailyWeather, IrrigationScheduleEntry, IrrigationCycle } from '../../models';
+import {
+    computeAllowedIntervalsForDay,
+    computeForbiddenIntervalsForDay,
+    isDayAllowed,
+    pickAnchorForCycles,
+    type AllowedInterval,
+    type ScheduleRestrictions,
+} from './restrictions';
+
+const NO_RESTRICTIONS: ScheduleRestrictions = { allowedDays: null, allowedTimeWindows: null };
 
 /**
  * A time interval the planner must avoid placing cycles inside. Used by the
@@ -33,12 +43,17 @@ export type PlanZoneScheduleResult = {
  *   cycles. Cycles whose preferred placement (per `buildCyclePlan`) would
  *   overlap a busy window are shifted forward until they fit. Defaults to
  *   empty for first-zone-in-the-batch / standalone planning calls.
+ * @param restrictions - Per-schedule day/time-window constraints. When a
+ *   day is disallowed or the planned irrigation block can't fit any allowed
+ *   window, the day's cycles are dropped (with a warning) and depletion
+ *   carries forward into the next allowed day. Defaults to "no restriction".
  * @returns Per-day entries plus the projected next-day starting depletion.
  */
 export function planZoneSchedule(
     zone: Zone,
     weatherHistory: DailyWeather[],
     busyWindows: ReadonlyArray<BusyWindow> = [],
+    restrictions: ScheduleRestrictions = NO_RESTRICTIONS,
 ): PlanZoneScheduleResult {
     const totalAvailableWaterMillimetersForClamp = zone.soil.availableWaterHoldingCapacityMmPerM * zone.rootDepthM,
         clampedStartingDepletion = clampValue(zone.currentDepletionMm ?? 0, 0, totalAvailableWaterMillimetersForClamp);
@@ -90,66 +105,42 @@ export function planZoneSchedule(
 
         // Check if irrigation is needed.
         if (currentDepletionMillimeters >= readilyAvailableWaterMillimeters) {
-            const depletionBeforeIrrigation = currentDepletionMillimeters;
-
-            // Calculate net irrigation depth needed to fully replenish soil.
-            const netIrrigationDepthMillimeters = currentDepletionMillimeters;
-
-            // Adjust for irrigation efficiency to get gross depth applied.
-            const irrigationEfficiency = zone.irrigationEfficiency,
-                grossIrrigationDepthMillimeters = Math.min(
-                    netIrrigationDepthMillimeters / irrigationEfficiency,
-                    totalAvailableWaterMillimeters
-                );
-
-            // Calculate total runtime without cycle splitting.
-            const totalRunTimeMinutes = (grossIrrigationDepthMillimeters / precipitationRateMillimetersPerHour) * 60;
-
-            // Determine maximum cycle duration based on infiltration rate.
-            const maximumCycleMinutes =
-                infiltrationRateMillimetersPerHour > 0
-                    ? (infiltrationRateMillimetersPerHour / precipitationRateMillimetersPerHour) * 60
-                    : totalRunTimeMinutes;
-
-            // Build cycle plan ending before sunrise.
-            const plannedCycles = buildCyclePlan(
-                totalRunTimeMinutes,
-                maximumCycleMinutes,
+            const irrigationOutcome = tryPlaceIrrigationForDay({
+                date,
                 sunrise,
-                soakTimeMinutes
-            );
-
-            // Shift cycles forward as needed to avoid any already-occupied
-            // window (cross-zone or within this zone's earlier days).
-            const placedCycles = deconflictCycles(plannedCycles, busyWindowsSoFar, soakTimeMinutes);
-
-            // Each placed cycle becomes a busy window for the rest of the
-            // planning horizon (this zone's later days and any later zones).
-            for (const cycle of placedCycles) {
-                busyWindowsSoFar.push({
-                    start: cycle.startTime,
-                    end: cycle.startTime.add(cycle.durationMin, 'minute'),
-                });
-            }
-
-            // Reset depletion to zero after irrigation (soil fully replenished).
-            const depletionAfterIrrigation = 0;
-
-            irrigationSchedule.push({
-                date: date,
-                zoneId: zone.id,
-                cycles: placedCycles,
-                appliedDepthMm: roundTo1Decimal(grossIrrigationDepthMillimeters),
-                depletionBeforeMm: roundTo1Decimal(depletionBeforeIrrigation),
-                depletionAfterMm: roundTo1Decimal(depletionAfterIrrigation),
+                zone,
+                currentDepletionMillimeters,
+                totalAvailableWaterMillimeters,
+                precipitationRateMillimetersPerHour,
+                infiltrationRateMillimetersPerHour,
+                soakTimeMinutes,
+                busyWindowsSoFar,
+                restrictions,
             });
 
-            // Continue accumulating depletion for the rest of the day after irrigation.
-            currentDepletionMillimeters = clampValue(
-                depletionAfterIrrigation + cropEvapotranspiration - effectiveRainfallMillimeters,
-                0,
-                totalAvailableWaterMillimeters
-            );
+            if (irrigationOutcome !== null) {
+                // Each placed cycle becomes a busy window for the rest of
+                // the planning horizon.
+                for (const cycle of irrigationOutcome.cycles) {
+                    busyWindowsSoFar.push({
+                        start: cycle.startTime,
+                        end: cycle.startTime.add(cycle.durationMin, 'minute'),
+                    });
+                }
+
+                irrigationSchedule.push(irrigationOutcome.entry);
+
+                // Reset depletion to zero after irrigation, then re-apply
+                // the day's net ET for the post-irrigation portion.
+                currentDepletionMillimeters = clampValue(
+                    cropEvapotranspiration - effectiveRainfallMillimeters,
+                    0,
+                    totalAvailableWaterMillimeters
+                );
+            }
+            // When `irrigationOutcome === null`, the day was skipped due to
+            // restrictions. Depletion carries forward unchanged — the next
+            // allowed day will see the larger accumulated value.
         }
 
         // Ensure depletion stays within valid bounds.
@@ -161,6 +152,120 @@ export function planZoneSchedule(
     }
 
     return { entries: irrigationSchedule, projectedNextDepletionMm };
+}
+
+type PlaceIrrigationInputs = {
+    date: dayjs.Dayjs;
+    sunrise: dayjs.Dayjs;
+    zone: Zone;
+    currentDepletionMillimeters: number;
+    totalAvailableWaterMillimeters: number;
+    precipitationRateMillimetersPerHour: number;
+    infiltrationRateMillimetersPerHour: number;
+    soakTimeMinutes: number;
+    busyWindowsSoFar: ReadonlyArray<BusyWindow>;
+    restrictions: ScheduleRestrictions;
+};
+
+type PlaceIrrigationOutcome = {
+    cycles: IrrigationCycle[];
+    entry: IrrigationScheduleEntry;
+};
+
+/**
+ * Computes the day's irrigation block and places it within the day's
+ * allowed time windows (if any). Returns `null` when the day is fully
+ * disallowed or no allowed window can hold the requested runtime —
+ * callers should treat that as "skip, carry depletion forward."
+ */
+function tryPlaceIrrigationForDay(inputs: PlaceIrrigationInputs): PlaceIrrigationOutcome | null {
+    const {
+        date, sunrise, zone, currentDepletionMillimeters, totalAvailableWaterMillimeters,
+        precipitationRateMillimetersPerHour, infiltrationRateMillimetersPerHour, soakTimeMinutes,
+        busyWindowsSoFar, restrictions,
+    } = inputs;
+
+    if (!isDayAllowed(restrictions, date.isoWeekday())) {
+        console.warn(`planner: zone ${zone.id} (${zone.name}): day ${date.format('YYYY-MM-DD')} (isoWeekday ${date.isoWeekday()}) disallowed by schedule restrictions — skipping irrigation.`);
+        return null;
+    }
+
+    const depletionBeforeIrrigation = currentDepletionMillimeters;
+    const grossIrrigationDepthMillimeters = Math.min(
+        currentDepletionMillimeters / zone.irrigationEfficiency,
+        totalAvailableWaterMillimeters,
+    );
+    const totalRunTimeMinutes = (grossIrrigationDepthMillimeters / precipitationRateMillimetersPerHour) * 60;
+    const maximumCycleMinutes = infiltrationRateMillimetersPerHour > 0
+        ? (infiltrationRateMillimetersPerHour / precipitationRateMillimetersPerHour) * 60
+        : totalRunTimeMinutes;
+
+    const numberOfCycles = totalRunTimeMinutes <= maximumCycleMinutes || maximumCycleMinutes <= 0
+        ? 1
+        : Math.ceil(totalRunTimeMinutes / maximumCycleMinutes);
+    const requiredSpanMinutes = totalRunTimeMinutes + (numberOfCycles - 1) * soakTimeMinutes;
+
+    const allowedIntervals = computeAllowedIntervalsForDay(date, restrictions);
+    const hasTimeWindows = restrictions.allowedTimeWindows !== null && restrictions.allowedTimeWindows.length > 0;
+    const forbiddenForDay = hasTimeWindows ? computeForbiddenIntervalsForDay(date, restrictions) : [];
+
+    // Pick an anchor:
+    //  - No time-window restriction: the existing sunrise anchor.
+    //  - Time-window restriction: latest allowed interval that fits, preferring
+    //    one whose end is ≤ sunrise (preserves pre-dawn placement when feasible).
+    const anchor = hasTimeWindows
+        ? pickAnchorForCycles(allowedIntervals, sunrise, requiredSpanMinutes)
+        : sunrise;
+    if (anchor === null) {
+        console.warn(`planner: zone ${zone.id} (${zone.name}): requested runtime ${requiredSpanMinutes.toFixed(1)} min cannot fit any allowed window on ${date.format('YYYY-MM-DD')} — skipping irrigation.`);
+        return null;
+    }
+
+    const plannedCycles = buildCyclePlan(
+        totalRunTimeMinutes,
+        maximumCycleMinutes,
+        anchor,
+        soakTimeMinutes,
+    );
+
+    const combinedBusy = forbiddenForDay.length === 0
+        ? busyWindowsSoFar
+        : [...busyWindowsSoFar, ...forbiddenForDay];
+    const placedCycles = deconflictCycles(plannedCycles, combinedBusy, soakTimeMinutes);
+
+    // After deconflict, verify each cycle still lies wholly within an allowed
+    // interval. A cycle pushed into a forbidden gap or beyond today's last
+    // allowed interval means the placement failed.
+    if (hasTimeWindows && !cyclesFitAllowed(placedCycles, allowedIntervals)) {
+        console.warn(`planner: zone ${zone.id} (${zone.name}): cycles could not be placed within allowed windows on ${date.format('YYYY-MM-DD')} (cross-zone or window-gap conflict) — skipping irrigation.`);
+        return null;
+    }
+
+    const entry: IrrigationScheduleEntry = {
+        date,
+        zoneId: zone.id,
+        cycles: placedCycles,
+        appliedDepthMm: roundTo1Decimal(grossIrrigationDepthMillimeters),
+        depletionBeforeMm: roundTo1Decimal(depletionBeforeIrrigation),
+        depletionAfterMm: 0,
+    };
+    return { cycles: placedCycles, entry };
+}
+
+function cyclesFitAllowed(cycles: ReadonlyArray<IrrigationCycle>, allowedIntervals: ReadonlyArray<AllowedInterval>): boolean {
+    // 1-second tolerance absorbs floating-point creep from non-integer
+    // durations (e.g. 34.4-minute cycles where the ms arithmetic doesn't
+    // round-trip exactly through Dayjs).
+    const toleranceMs = 1000;
+    for (const cycle of cycles) {
+        const startMs = cycle.startTime.valueOf();
+        const endMs = startMs + cycle.durationMin * 60_000;
+        const inside = allowedIntervals.some(interval =>
+            startMs + toleranceMs >= interval.start.valueOf()
+                && endMs <= interval.end.valueOf() + toleranceMs);
+        if (!inside) return false;
+    }
+    return true;
 }
 
 /**
@@ -183,13 +288,15 @@ function buildCyclePlan(
 
     // Use single cycle if total time fits within infiltration constraint.
     if (maximumCycleMinutes <= 0 || totalRunTimeMinutes <= maximumCycleMinutes) {
-        const startTime = sunrise.subtract(totalRunTimeMinutes, 'minute');
-        return [{ startTime, durationMin: roundTo1Decimal(totalRunTimeMinutes) }];
+        const durationMin = roundTo1Decimal(totalRunTimeMinutes);
+        const startTime = sunrise.subtract(durationMin, 'minute');
+        return [{ startTime, durationMin }];
     }
 
     // Split into multiple cycles with soak time between.
     const numberOfCycles = Math.ceil(totalRunTimeMinutes / maximumCycleMinutes),
-        perCycleMinutes = totalRunTimeMinutes / numberOfCycles;
+        perCycleMinutesRaw = totalRunTimeMinutes / numberOfCycles,
+        perCycleMinutes = roundTo1Decimal(perCycleMinutesRaw);
 
     const cyclesInReverse: IrrigationCycle[] = [];
     let totalMinutesBeforeSunrise = 0;
@@ -200,7 +307,7 @@ function buildCyclePlan(
 
         cyclesInReverse.push({
             startTime: cycleStart,
-            durationMin: roundTo1Decimal(perCycleMinutes),
+            durationMin: perCycleMinutes,
         });
 
         // Add soak time before next earlier cycle.

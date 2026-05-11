@@ -174,7 +174,11 @@ export async function start(db: DaemonDb, options?: DaemonOptions): Promise<Daem
             }
 
             try {
-                const { entries, projectedNextDepletionMm } = await runPlan(zone, { busyWindows });
+                const restrictions = {
+                    allowedDays: activeSchedule.allowedDays,
+                    allowedTimeWindows: activeSchedule.allowedTimeWindows,
+                };
+                const { entries, projectedNextDepletionMm } = await runPlan(zone, { busyWindows, restrictions });
                 const { cycles } = await replaceZoneSchedule(db, zone.id, entries, today, projectedNextDepletionMm, activeSchedule.id);
                 for (const cycle of cycles) {
                     armCycle({ db, clock, registry, zone, cycle, openZone, closeZone, notifier });

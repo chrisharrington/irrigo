@@ -1151,4 +1151,231 @@ describe('planZoneSchedule', () => {
             }
         });
     });
+
+    describe('schedule restrictions', () => {
+        // Single-cycle scenario reused from the busy-window tests: high
+        // infiltration + matching precip keeps totalRunTime ≤ maxCycle.
+        const singleCycleZone = () => createTestZone({
+            currentDepletionMm: 22,
+            soil: { name: 'TestSoil', availableWaterHoldingCapacityMmPerM: 150, infiltrationRateMmPerHr: 100 },
+            precipitationRateMmPerHr: 50,
+        });
+
+        function weatherFromDates(startDate: string, days: number, sunriseHour = 6) {
+            return createWeatherDays(
+                Array.from({ length: days }, () => ({ evapotranspirationMmPerDay: 1.0, rainfallMm: 0 })),
+                dayjs(startDate),
+            ).map((day, idx) => ({
+                ...day,
+                sunrise: dayjs(startDate).add(idx, 'day').hour(sunriseHour).minute(0).second(0).millisecond(0),
+            }));
+        }
+
+        it('treats both columns null as no restriction — output identical to today (regression)', () => {
+            const zone = singleCycleZone();
+            const weather = weatherFromDates('2026-05-04', 1); // Monday
+
+            const baseline = planZoneSchedule(zone, weather);
+            const withNoRestrictions = planZoneSchedule(zone, weather, [], {
+                allowedDays: null,
+                allowedTimeWindows: null,
+            });
+
+            expect(withNoRestrictions.entries).toHaveLength(baseline.entries.length);
+            expect(withNoRestrictions.entries[0]?.cycles[0]?.startTime.isSame(baseline.entries[0]?.cycles[0]?.startTime)).toBe(true);
+            expect(withNoRestrictions.projectedNextDepletionMm).toBeCloseTo(baseline.projectedNextDepletionMm, 5);
+        });
+
+        it('treats empty arrays the same as null', () => {
+            const zone = singleCycleZone();
+            const weather = weatherFromDates('2026-05-04', 1);
+
+            const empty = planZoneSchedule(zone, weather, [], {
+                allowedDays: [],
+                allowedTimeWindows: [],
+            });
+            const nulls = planZoneSchedule(zone, weather, [], {
+                allowedDays: null,
+                allowedTimeWindows: null,
+            });
+
+            expect(empty.entries).toHaveLength(nulls.entries.length);
+            const a = empty.entries[0]?.cycles[0]!;
+            const b = nulls.entries[0]?.cycles[0]!;
+            expect(a.startTime.isSame(b.startTime)).toBe(true);
+        });
+
+        it('skips a disallowed weekday and lets depletion accumulate into the next allowed day', () => {
+            // Monday 2026-05-04 → isoWeekday 1 (disallowed for Wed/Fri/Sun).
+            // Wednesday 2026-05-06 → isoWeekday 3 (allowed).
+            const zone = singleCycleZone();
+            const weather = weatherFromDates('2026-05-04', 3); // Mon, Tue, Wed
+
+            const result = planZoneSchedule(zone, weather, [], {
+                allowedDays: [3, 5, 7],
+                allowedTimeWindows: null,
+            });
+
+            // No entries for Monday or Tuesday (the only disallowed days that
+            // would have otherwise triggered).
+            expect(result.entries.find(e => e.date.format('YYYY-MM-DD') === '2026-05-04')).toBeUndefined();
+            expect(result.entries.find(e => e.date.format('YYYY-MM-DD') === '2026-05-05')).toBeUndefined();
+            // Wednesday — depletion has accumulated more than the no-restriction case.
+            const wedEntry = result.entries.find(e => e.date.format('YYYY-MM-DD') === '2026-05-06');
+            expect(wedEntry).toBeDefined();
+            // The Monday depletion (22.85 mm) + Tue/Wed net ET (~0.95 each)
+            // accumulates into Wednesday's irrigation pre-depletion. Sanity:
+            // depletionBeforeMm must be greater than the single-day case.
+            expect(wedEntry?.depletionBeforeMm).toBeGreaterThan(22.85);
+        });
+
+        it('keeps short pre-sunrise cycles inside the morning window when sunrise is 06:00', () => {
+            const zone = singleCycleZone();
+            const weather = weatherFromDates('2026-05-06', 1, 6); // Wed at 06:00
+
+            const result = planZoneSchedule(zone, weather, [], {
+                allowedDays: null,
+                allowedTimeWindows: [
+                    { start: '00:00', end: '10:00' },
+                    { start: '19:00', end: '23:59' },
+                ],
+            });
+
+            const cycle = result.entries[0]?.cycles[0];
+            expect(cycle).toBeDefined();
+            const start = cycle!.startTime;
+            const end = start.add(cycle!.durationMin, 'minute');
+            expect(start.hour()).toBeGreaterThanOrEqual(0);
+            expect(end.isBefore(start.startOf('day').hour(10))).toBe(true);
+        });
+
+        it('re-anchors a cycle into the morning window when sunrise falls in the disallowed gap', () => {
+            const zone = singleCycleZone();
+            // Sunrise 12:00 — falls inside the forbidden 10:00–19:00 gap.
+            const weather = weatherFromDates('2026-05-06', 1, 12);
+
+            const result = planZoneSchedule(zone, weather, [], {
+                allowedDays: null,
+                allowedTimeWindows: [
+                    { start: '00:00', end: '10:00' },
+                    { start: '19:00', end: '23:59' },
+                ],
+            });
+
+            const cycle = result.entries[0]?.cycles[0]!;
+            const end = cycle.startTime.add(cycle.durationMin, 'minute');
+            // Cycle should end at or before 10:00 (re-anchored to morning window).
+            expect(end.isAfter(cycle.startTime.startOf('day').hour(10))).toBe(false);
+        });
+
+        it('skips the day when totalRunTime exceeds every allowed window', () => {
+            // Crank up the depletion so the planner wants a long run, and shrink
+            // the allowed windows so they cannot fit.
+            const zone = createTestZone({
+                currentDepletionMm: 22,
+                soil: { name: 'TestSoil', availableWaterHoldingCapacityMmPerM: 150, infiltrationRateMmPerHr: 100 },
+                precipitationRateMmPerHr: 50,
+            });
+            const weather = weatherFromDates('2026-05-06', 1, 6);
+
+            const result = planZoneSchedule(zone, weather, [], {
+                allowedDays: null,
+                // Two tiny 5-minute windows — total runtime (~34 min) cannot fit either.
+                allowedTimeWindows: [
+                    { start: '03:00', end: '03:05' },
+                    { start: '22:00', end: '22:05' },
+                ],
+            });
+
+            expect(result.entries).toHaveLength(0);
+        });
+
+        it('Calgary case: cycles only ever land on Wed/Fri/Sun within the two allowed windows', () => {
+            // 7-day window starting Monday 2026-05-04.
+            const zone = singleCycleZone();
+            const weather = weatherFromDates('2026-05-04', 7, 6);
+
+            const result = planZoneSchedule(zone, weather, [], {
+                allowedDays: [3, 5, 7],
+                allowedTimeWindows: [
+                    { start: '00:00', end: '10:00' },
+                    { start: '19:00', end: '23:59' },
+                ],
+            });
+
+            for (const entry of result.entries) {
+                const isoWd = entry.date.isoWeekday();
+                expect([3, 5, 7]).toContain(isoWd);
+                for (const cycle of entry.cycles) {
+                    const dayStart = cycle.startTime.startOf('day');
+                    const cycleEnd = cycle.startTime.add(cycle.durationMin, 'minute');
+                    const morningStart = dayStart;
+                    const morningEnd = dayStart.hour(10);
+                    const eveningStart = dayStart.hour(19);
+                    const eveningEnd = dayStart.hour(23).minute(59);
+                    const inMorning = !cycle.startTime.isBefore(morningStart) && !cycleEnd.isAfter(morningEnd);
+                    const inEvening = !cycle.startTime.isBefore(eveningStart) && !cycleEnd.isAfter(eveningEnd);
+                    expect(inMorning || inEvening).toBe(true);
+                }
+            }
+        });
+
+        it('pushes a cycle into the evening window when a busy interval blocks the morning window', () => {
+            const zone = singleCycleZone();
+            const weather = weatherFromDates('2026-05-06', 1, 6);
+
+            // Cross-zone busy block covers the entire morning window.
+            const busyWindows = [{
+                start: dayjs('2026-05-06').hour(0).minute(0).second(0).millisecond(0),
+                end: dayjs('2026-05-06').hour(11).minute(0).second(0).millisecond(0),
+            }];
+
+            const result = planZoneSchedule(zone, weather, busyWindows, {
+                allowedDays: null,
+                allowedTimeWindows: [
+                    { start: '00:00', end: '10:00' },
+                    { start: '19:00', end: '23:59' },
+                ],
+            });
+
+            const cycle = result.entries[0]?.cycles[0];
+            expect(cycle).toBeDefined();
+            const start = cycle!.startTime;
+            const end = start.add(cycle!.durationMin, 'minute');
+            // Cycle is in the 19:00–23:59 window.
+            expect(start.hour()).toBeGreaterThanOrEqual(19);
+            expect(end.isAfter(start.startOf('day').hour(19))).toBe(true);
+            expect(end.isAfter(start.startOf('day').hour(23).minute(59))).toBe(false);
+        });
+
+        it('multi-zone: deconfliction still produces non-overlapping cycles within allowed windows', () => {
+            const zone = singleCycleZone();
+            const weather = weatherFromDates('2026-05-06', 1, 6);
+
+            // First zone has already grabbed 05:00–05:30 (typical pre-sunrise).
+            const zoneABusy = [{
+                start: dayjs('2026-05-06').hour(5).minute(0).second(0).millisecond(0),
+                end: dayjs('2026-05-06').hour(5).minute(30).second(0).millisecond(0),
+            }];
+
+            const result = planZoneSchedule(zone, weather, zoneABusy, {
+                allowedDays: null,
+                allowedTimeWindows: [
+                    { start: '00:00', end: '10:00' },
+                    { start: '19:00', end: '23:59' },
+                ],
+            });
+
+            const cycle = result.entries[0]?.cycles[0]!;
+            const cycleEnd = cycle.startTime.add(cycle.durationMin, 'minute');
+            // No overlap with zone A's window.
+            const overlapsA = cycle.startTime.isBefore(zoneABusy[0]!.end) && cycleEnd.isAfter(zoneABusy[0]!.start);
+            expect(overlapsA).toBe(false);
+            // Still inside one of the allowed windows.
+            const dayStart = cycle.startTime.startOf('day');
+            const inMorning = !cycle.startTime.isBefore(dayStart) && !cycleEnd.isAfter(dayStart.hour(10));
+            const inEvening = !cycle.startTime.isBefore(dayStart.hour(19)) && !cycleEnd.isAfter(dayStart.hour(23).minute(59));
+            expect(inMorning || inEvening).toBe(true);
+        });
+    });
 });
