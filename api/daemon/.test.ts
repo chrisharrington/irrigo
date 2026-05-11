@@ -1287,6 +1287,8 @@ type DaemonStubInputs = {
         isActive: boolean;
         allowedDays: number[] | null;
         allowedTimeWindows: Array<{ start: string; end: string }> | null;
+        rootDepthMOverride: number | null;
+        allowableDepletionFractionOverride: number | null;
         createdAt: Date;
         updatedAt: Date;
     } }>;
@@ -1335,6 +1337,8 @@ function createDaemonDbStub(inputs?: DaemonStubInputs) {
             isActive: true,
             allowedDays: null,
             allowedTimeWindows: null,
+            rootDepthMOverride: null,
+            allowableDepletionFractionOverride: null,
             createdAt: NOW_FOR_SCHEDULES,
             updatedAt: NOW_FOR_SCHEDULES,
         },
@@ -1989,6 +1993,8 @@ describe('start', () => {
                             { start: '00:00', end: '10:00' },
                             { start: '19:00', end: '23:59' },
                         ],
+                        rootDepthMOverride: null,
+                        allowableDepletionFractionOverride: null,
                         createdAt: NOW, updatedAt: NOW,
                     },
                 }],
@@ -2028,7 +2034,7 @@ describe('start', () => {
                 activeSchedules: [{
                     schedule: {
                         id: 'sched-active', siteId: 'site-A', slug: 'maintenance', name: 'Maintenance',
-                        isActive: true, allowedDays: null, allowedTimeWindows: null, createdAt: NOW, updatedAt: NOW,
+                        isActive: true, allowedDays: null, allowedTimeWindows: null, rootDepthMOverride: null, allowableDepletionFractionOverride: null, createdAt: NOW, updatedAt: NOW,
                     },
                 }],
             });
@@ -2095,7 +2101,7 @@ describe('start', () => {
                     activeSchedules: [{
                         schedule: {
                             id: 'sched-A', siteId: 'site-active', slug: 'maintenance', name: 'Maintenance',
-                            isActive: true, allowedDays: null, allowedTimeWindows: null, createdAt: NOW, updatedAt: NOW,
+                            isActive: true, allowedDays: null, allowedTimeWindows: null, rootDepthMOverride: null, allowableDepletionFractionOverride: null, createdAt: NOW, updatedAt: NOW,
                         },
                     }],
                 });
