@@ -2,8 +2,9 @@ import path from 'node:path';
 import { describe, it, expect } from 'bun:test';
 import {
     parseGrassTypes,
-    parseSoilTypes,
+    parseSchedules,
     parseSites,
+    parseSoilTypes,
     parseZones,
 } from '.';
 
@@ -170,6 +171,91 @@ describe('sites.json fixture', () => {
         const home = rows.find(row => row.slug === 'home');
         expect(home).toBeDefined();
         expect(home?.timezone).toMatch(/\//);
+    });
+});
+
+describe('parseSchedules', () => {
+    it('parses a well-formed entry with all fields set', () => {
+        const rows = parseSchedules([
+            {
+                slug: 'maintenance',
+                siteSlug: 'home',
+                name: 'Maintenance',
+                isActive: true,
+                allowedDays: [3, 5, 7],
+                allowedTimeWindows: [
+                    { start: '00:00', end: '10:00' },
+                    { start: '19:00', end: '23:59' },
+                ],
+            },
+        ]);
+
+        expect(rows).toHaveLength(1);
+        expect(rows[0]).toEqual({
+            slug: 'maintenance',
+            siteSlug: 'home',
+            name: 'Maintenance',
+            isActive: true,
+            allowedDays: [3, 5, 7],
+            allowedTimeWindows: [
+                { start: '00:00', end: '10:00' },
+                { start: '19:00', end: '23:59' },
+            ],
+        });
+    });
+
+    it('accepts null values for allowedDays and allowedTimeWindows', () => {
+        const rows = parseSchedules([
+            {
+                slug: 'maintenance',
+                siteSlug: 'home',
+                name: 'Maintenance',
+                isActive: true,
+                allowedDays: null,
+                allowedTimeWindows: null,
+            },
+        ]);
+
+        expect(rows[0]?.allowedDays).toBeNull();
+        expect(rows[0]?.allowedTimeWindows).toBeNull();
+    });
+
+    it('rejects entries with an ISO weekday outside 1..7', () => {
+        const base = {
+            slug: 'maintenance',
+            siteSlug: 'home',
+            name: 'Maintenance',
+            isActive: true,
+            allowedTimeWindows: null,
+        };
+
+        expect(() => parseSchedules([{ ...base, allowedDays: [0] }])).toThrow();
+        expect(() => parseSchedules([{ ...base, allowedDays: [8] }])).toThrow();
+    });
+
+    it('rejects allowedTimeWindows whose start or end is not HH:mm', () => {
+        const base = {
+            slug: 'maintenance',
+            siteSlug: 'home',
+            name: 'Maintenance',
+            isActive: true,
+            allowedDays: null,
+        };
+
+        expect(() => parseSchedules([{ ...base, allowedTimeWindows: [{ start: '5pm', end: '11pm' }] }])).toThrow();
+        expect(() => parseSchedules([{ ...base, allowedTimeWindows: [{ start: '05:00' }] }])).toThrow();
+    });
+
+    it('rejects entries missing the required siteSlug field', () => {
+        expect(() => parseSchedules([
+            {
+                slug: 'maintenance',
+                name: 'Maintenance',
+                isActive: true,
+                allowedDays: null,
+                allowedTimeWindows: null,
+            },
+        ])).toThrow(/siteSlug/);
     });
 });
 

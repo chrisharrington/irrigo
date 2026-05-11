@@ -29,6 +29,20 @@ export const SiteSeedSchema = z.object({
     address: z.string().optional(),
 });
 
+export const ScheduleTimeWindowSeedSchema = z.object({
+    start: z.string().regex(/^\d{2}:\d{2}$/, `start must be HH:mm`),
+    end: z.string().regex(/^\d{2}:\d{2}$/, `end must be HH:mm`),
+});
+
+export const ScheduleSeedSchema = z.object({
+    slug: z.string().min(1),
+    siteSlug: z.string().min(1),
+    name: z.string().min(1),
+    isActive: z.boolean(),
+    allowedDays: z.array(z.number().int().min(1).max(7)).nullable(),
+    allowedTimeWindows: z.array(ScheduleTimeWindowSeedSchema).nullable(),
+});
+
 export const ZoneSeedSchema = z.object({
     slug: z.string().min(1),
     name: z.string().min(1),
@@ -52,11 +66,14 @@ export type GrassTypeSeed = z.infer<typeof GrassTypeSeedSchema>;
 export type SoilTypeSeed = z.infer<typeof SoilTypeSeedSchema>;
 export type SiteSeed = z.infer<typeof SiteSeedSchema>;
 export type ZoneSeed = z.infer<typeof ZoneSeedSchema>;
+export type ScheduleSeed = z.infer<typeof ScheduleSeedSchema>;
+export type ScheduleTimeWindowSeed = z.infer<typeof ScheduleTimeWindowSeedSchema>;
 
 const GrassTypesArraySchema = z.array(GrassTypeSeedSchema);
 const SoilTypesArraySchema = z.array(SoilTypeSeedSchema);
 const SitesArraySchema = z.array(SiteSeedSchema);
 const ZonesArraySchema = z.array(ZoneSeedSchema);
+const SchedulesArraySchema = z.array(ScheduleSeedSchema);
 
 /**
  * Parses the contents of `grass-types.json` into typed seed rows.
@@ -102,4 +119,17 @@ export function parseSites(input: unknown): SiteSeed[] {
  */
 export function parseZones(input: unknown): ZoneSeed[] {
     return ZonesArraySchema.parse(input);
+}
+
+/**
+ * Parses the contents of `schedules.json` into typed seed rows. Site slug
+ * references (`siteSlug`) are validated as non-empty strings here; resolution
+ * against the actual site-id map happens in the seed orchestrator.
+ *
+ * @param input - Raw parsed JSON.
+ * @returns Validated schedule seed rows.
+ * @throws ZodError when the input doesn't match the schema.
+ */
+export function parseSchedules(input: unknown): ScheduleSeed[] {
+    return SchedulesArraySchema.parse(input);
 }
