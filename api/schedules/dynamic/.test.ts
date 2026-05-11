@@ -1378,4 +1378,125 @@ describe('planZoneSchedule', () => {
             expect(inMorning || inEvening).toBe(true);
         });
     });
+
+    describe('schedule overrides', () => {
+        const baseZone = () => createTestZone({
+            currentDepletionMm: 5,
+            allowableDepletionFraction: 0.5,
+            rootDepthM: 0.3,
+            soil: { name: 'Loam', availableWaterHoldingCapacityMmPerM: 150, infiltrationRateMmPerHr: 25 },
+        });
+
+        const drySevenDays = () => createDryPeriod(7, 5.0, dayjs('2026-05-04'));
+
+        it('produces output identical to a no-args call when overrides are omitted (regression)', () => {
+            const zone = baseZone();
+            const weather = drySevenDays();
+
+            const baseline = planZoneSchedule(zone, weather);
+            const withEmpty = planZoneSchedule(zone, weather, [], undefined, {});
+
+            expect(withEmpty.entries.length).toBe(baseline.entries.length);
+            for (let i = 0; i < baseline.entries.length; i++) {
+                const a = baseline.entries[i]!;
+                const b = withEmpty.entries[i]!;
+                expect(b.date.isSame(a.date)).toBe(true);
+                expect(b.appliedDepthMm).toBeCloseTo(a.appliedDepthMm, 5);
+                expect(b.cycles.length).toBe(a.cycles.length);
+            }
+            expect(withEmpty.projectedNextDepletionMm).toBeCloseTo(baseline.projectedNextDepletionMm, 5);
+        });
+
+        it('shrinks TAW/RAW when only rootDepthM is overridden, triggering irrigation sooner', () => {
+            // Zone default RAW = 0.5 * (150 * 0.3) = 22.5 mm. Starting depletion 5 mm,
+            // Kc * ET = 0.85 * 5 = 4.25 mm/day → reaches RAW around day 5.
+            const zone = baseZone();
+            const weather = drySevenDays();
+
+            const baseline = planZoneSchedule(zone, weather);
+            // Override RAW = 0.5 * (150 * 0.05) = 3.75 mm. Starting depletion 5 mm
+            // already exceeds it, so day-0 triggers immediately.
+            const shallow = planZoneSchedule(zone, weather, [], undefined, { rootDepthM: 0.05 });
+
+            const baselineDay0 = baseline.entries.find(e => e.date.format('YYYY-MM-DD') === '2026-05-04');
+            const shallowDay0 = shallow.entries.find(e => e.date.format('YYYY-MM-DD') === '2026-05-04');
+
+            expect(baselineDay0).toBeUndefined();
+            expect(shallowDay0).toBeDefined();
+        });
+
+        it('tightens the trigger threshold when only allowableDepletionFraction is overridden', () => {
+            // Default RAW 22.5 mm. Tightening to 0.1 → RAW = 0.1 * 45 = 4.5 mm.
+            // Starting depletion 5 mm exceeds it → day 0 fires.
+            const zone = baseZone();
+            const weather = drySevenDays();
+
+            const baseline = planZoneSchedule(zone, weather);
+            const tight = planZoneSchedule(zone, weather, [], undefined, { allowableDepletionFraction: 0.1 });
+
+            const baselineDay0 = baseline.entries.find(e => e.date.format('YYYY-MM-DD') === '2026-05-04');
+            const tightDay0 = tight.entries.find(e => e.date.format('YYYY-MM-DD') === '2026-05-04');
+
+            expect(baselineDay0).toBeUndefined();
+            expect(tightDay0).toBeDefined();
+            // depletionBefore reflects the tight threshold (5 + 0.85*5 = 9.25 mm).
+            expect(tightDay0?.depletionBeforeMm).toBeCloseTo(9.3, 1);
+        });
+
+        it('produces daily entries across the forecast under overseeding-style overrides', () => {
+            // Overseeding-style: RAW = 0.25 * (150 * 0.05) = 1.875 mm.
+            // Daily ET ≈ 4.75 mm overwhelms RAW every day.
+            const zone = baseZone();
+            const weather = drySevenDays();
+
+            const overseeding = planZoneSchedule(zone, weather, [], undefined, {
+                rootDepthM: 0.05,
+                allowableDepletionFraction: 0.25,
+            });
+
+            expect(overseeding.entries.length).toBe(7);
+        });
+
+        it('clamps starting depletion against the overridden (shallower) TAW', () => {
+            // Default TAW = 45 mm, zone starts at 30 mm. With rootDepthM override
+            // of 0.05, TAW shrinks to 7.5 mm and the clamp pulls the starting
+            // depletion down accordingly. The post-day-0 projection reflects
+            // the clamp, not the seed value.
+            const zone = createTestZone({
+                currentDepletionMm: 30,
+                allowableDepletionFraction: 0.5,
+                rootDepthM: 0.3,
+                soil: { name: 'Loam', availableWaterHoldingCapacityMmPerM: 150, infiltrationRateMmPerHr: 25 },
+            });
+            const weather = createWeatherDays([{ evapotranspirationMmPerDay: 0, rainfallMm: 0 }], dayjs('2026-05-04'));
+
+            const result = planZoneSchedule(zone, weather, [], undefined, { rootDepthM: 0.05 });
+
+            // With currentDepletion clamped to 7.5 mm (overridden TAW), starting
+            // depletion > RAW (1.875 mm) so day-0 triggers and refills to 0.
+            // With ET=0 the projected end-of-day depletion is 0, not 30.
+            expect(result.entries[0]?.depletionBeforeMm).toBeCloseTo(7.5, 1);
+            expect(result.projectedNextDepletionMm).toBe(0);
+        });
+
+        it('produces materially different output when the same fixture is planned under different override modes', () => {
+            const zone = baseZone();
+            const weather = drySevenDays();
+
+            const maintenance = planZoneSchedule(zone, weather);
+            const overseeding = planZoneSchedule(zone, weather, [], undefined, {
+                rootDepthM: 0.05,
+                allowableDepletionFraction: 0.25,
+            });
+
+            // Maintenance: ~1 entry in a 7-day dry run (refills once around day 5).
+            // Overseeding: an entry every day (7 in total).
+            expect(overseeding.entries.length).toBeGreaterThan(maintenance.entries.length);
+            // Maintenance per-fire applied depth is much larger (refills full RAW)
+            // than the overseeding per-fire applied depth (refills the much smaller RAW).
+            const maintenanceFire = maintenance.entries[0]!;
+            const overseedingFire = overseeding.entries[0]!;
+            expect(maintenanceFire.appliedDepthMm).toBeGreaterThan(overseedingFire.appliedDepthMm * 3);
+        });
+    });
 });
