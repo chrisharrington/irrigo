@@ -1,3 +1,4 @@
+import Config from '@/config';
 import { enableSchedule, type Schedule, type ScheduleManagerDb } from '@/daemon/schedule-manager';
 
 /**
@@ -7,6 +8,13 @@ import { enableSchedule, type Schedule, type ScheduleManagerDb } from '@/daemon/
 export type EnableScheduleCliDeps = {
     enableSchedule: (db: ScheduleManagerDb, slug: string) => Promise<Schedule | null>;
     loadDb: () => Promise<ScheduleManagerDb>;
+    /**
+     * Drives an immediate re-plan against the running api process so the
+     * new schedule's effect on cycles materialises within seconds rather
+     * than at the next 04:00 tick. Production wiring POSTs `/replan`; the
+     * tests pass a recording stub.
+     */
+    triggerReplan: () => Promise<void>;
     log: (message: string) => void;
     error: (message: string) => void;
 };
@@ -35,7 +43,31 @@ export async function enableScheduleCli(argv: ReadonlyArray<string>, deps: Enabl
     }
 
     deps.log(`enable-schedule: enabled '${result.slug}' (${result.name}) on site ${result.siteId}.`);
+
+    try {
+        await deps.triggerReplan();
+    } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        deps.error(`enable-schedule: re-plan request failed — the DB change is already persisted. Re-run /replan to retry. Cause: ${message}`);
+        return 1;
+    }
+    deps.log('enable-schedule: re-plan triggered.');
     return 0;
+}
+
+/**
+ * Production `triggerReplan` wiring. POSTs `/replan` against the api's
+ * own HTTP surface so the running daemon picks up the new schedule
+ * within seconds. Override via `IRRIGO_BASE_URL` for non-default host /
+ * port (e.g. when the CLI runs from a different host).
+ */
+async function postReplan(): Promise<void> {
+    const baseUrl = process.env.IRRIGO_BASE_URL ?? `http://127.0.0.1:${Config.port}`;
+    const response = await fetch(`${baseUrl}/replan`, { method: 'POST' });
+    if (!response.ok) {
+        const body = await response.text().catch(() => '<no body>');
+        throw new Error(`POST ${baseUrl}/replan failed: ${response.status} ${response.statusText} — ${body}`);
+    }
 }
 
 if (import.meta.main) {
@@ -45,6 +77,7 @@ if (import.meta.main) {
             const { db } = await import('@/db');
             return db as unknown as ScheduleManagerDb;
         },
+        triggerReplan: postReplan,
         log: (m) => console.log(m),
         error: (m) => console.error(m),
     };

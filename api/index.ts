@@ -29,11 +29,48 @@ export type ScheduleApi = {
     disable: (slug: string) => Promise<Schedule | null>;
 };
 
+/**
+ * Wraps a base `ScheduleApi` so that any non-null `enable` / `disable`
+ * result triggers `replan` before resolving. The wrapper keeps the route
+ * handler synchronous-looking: when the route awaits `schedule.enable`,
+ * it implicitly awaits the re-plan too. When the base call returns null
+ * (unknown slug), the re-plan is skipped — there's nothing to re-plan
+ * against. Errors from `replan` propagate to the route, which maps them
+ * to a 502 response.
+ *
+ * @param base - The underlying schedule manager (DB-backed in production).
+ * @param replan - The daemon's `rePlan` reference.
+ * @returns A new `ScheduleApi` that drives a re-plan after each successful
+ *   activation change.
+ */
+export function wrapScheduleWithReplan(base: ScheduleApi, replan: () => Promise<void>): ScheduleApi {
+    return {
+        enable: async slug => {
+            const result = await base.enable(slug);
+            if (result !== null) await replan();
+            return result;
+        },
+        disable: async slug => {
+            const result = await base.disable(slug);
+            if (result !== null) await replan();
+            return result;
+        },
+    };
+}
+
 export type BuildAppOptions = {
     getStatus: () => DaemonStatus;
     manual?: ManualController;
     zoneById?: (zoneId: string) => Promise<Zone | null>;
     schedule?: ScheduleApi;
+
+    /**
+     * Optional. When supplied, registers `POST /replan` that calls this
+     * function. The route returns the post-re-plan daemon status so
+     * operators can confirm `lastRePlanAt` advanced. Production wires
+     * `daemon.rePlan` here.
+     */
+    replan?: () => Promise<void>;
 };
 
 /**
@@ -69,7 +106,34 @@ export function buildApp(opts: BuildAppOptions): FastifyInstance {
         registerScheduleRoutes(app, opts.schedule);
     }
 
+    if (opts.replan) {
+        registerReplanRoute(app, opts.replan, opts.getStatus);
+    }
+
     return app;
+}
+
+function registerReplanRoute(
+    app: FastifyInstance,
+    replan: () => Promise<void>,
+    getStatus: () => DaemonStatus,
+): void {
+    /**
+     * `POST /replan` — forces the daemon to re-plan immediately. Used by the
+     * CLI scripts to make schedule changes take effect within seconds rather
+     * than at the next 04:00 site-local tick. Returns 200 with the post-
+     * re-plan `lastRePlanAt`; 502 if the re-plan itself rejects.
+     */
+    app.post('/replan', async (_req, reply) => {
+        try {
+            await replan();
+        } catch (err) {
+            const message = err instanceof Error ? err.message : String(err);
+            return reply.code(502).send({ error: 'replan-failed', message });
+        }
+        const status = getStatus();
+        return reply.code(200).send({ status: 'replanned', lastRePlanAt: status.lastRePlanAt });
+    });
 }
 
 function registerScheduleRoutes(app: FastifyInstance, schedule: ScheduleApi): void {
@@ -80,7 +144,13 @@ function registerScheduleRoutes(app: FastifyInstance, schedule: ScheduleApi): vo
      */
     app.post('/schedule/enable/:slug', async (req, reply) => {
         const { slug } = req.params as { slug: string };
-        const result = await schedule.enable(slug);
+        let result;
+        try {
+            result = await schedule.enable(slug);
+        } catch (err) {
+            const message = err instanceof Error ? err.message : String(err);
+            return reply.code(502).send({ error: 'replan-failed', message });
+        }
         if (result === null) {
             return reply.code(404).send({ error: 'not-found', message: `Schedule '${slug}' not found.` });
         }
@@ -97,7 +167,13 @@ function registerScheduleRoutes(app: FastifyInstance, schedule: ScheduleApi): vo
      */
     app.post('/schedule/disable/:slug', async (req, reply) => {
         const { slug } = req.params as { slug: string };
-        const result = await schedule.disable(slug);
+        let result;
+        try {
+            result = await schedule.disable(slug);
+        } catch (err) {
+            const message = err instanceof Error ? err.message : String(err);
+            return reply.code(502).send({ error: 'replan-failed', message });
+        }
         if (result === null) {
             return reply.code(404).send({ error: 'not-found', message: `Schedule '${slug}' not found.` });
         }
@@ -238,14 +314,16 @@ if (import.meta.main) {
         isAnyScheduledInFlight: () => daemon.getStatus().activeZones.length > 0,
     });
     const scheduleDb = db as unknown as ScheduleManagerDb;
+    const baseSchedule: ScheduleApi = {
+        enable: slug => defaultEnableSchedule(scheduleDb, slug),
+        disable: slug => defaultDisableSchedule(scheduleDb, slug),
+    };
     const app = buildApp({
         getStatus: daemon.getStatus,
         manual,
         zoneById: zoneId => loadZoneById(db as unknown as Parameters<typeof loadZoneById>[0], zoneId),
-        schedule: {
-            enable: slug => defaultEnableSchedule(scheduleDb, slug),
-            disable: slug => defaultDisableSchedule(scheduleDb, slug),
-        },
+        schedule: wrapScheduleWithReplan(baseSchedule, () => daemon.rePlan()),
+        replan: () => daemon.rePlan(),
     });
 
     const onSignal = (signal: NodeJS.Signals): void => {
