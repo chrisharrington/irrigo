@@ -2,6 +2,7 @@ import dayjs from 'dayjs';
 import { getWeatherData } from '../data/weather';
 import type { Zone } from '../models';
 import { planZoneSchedule, type BusyWindow, type PlanZoneScheduleResult } from './dynamic';
+import type { ScheduleRestrictions } from './dynamic/restrictions';
 
 export type RunScheduleForZoneOptions = {
     /** Optional. Number of days of forecast weather to plan against. Default 7. */
@@ -14,6 +15,12 @@ export type RunScheduleForZoneOptions = {
      * windows so subsequent zones plan around them.
      */
     busyWindows?: ReadonlyArray<{ start: Date; end: Date }>;
+
+    /**
+     * Optional. Day/time-window restrictions from the active schedule.
+     * `null`/empty fields mean "no restriction" for that dimension.
+     */
+    restrictions?: ScheduleRestrictions;
 };
 
 /**
@@ -51,5 +58,5 @@ export async function runScheduleForZone(
         end: dayjs(w.end),
     }));
 
-    return planZoneSchedule(zone, weather, busyWindows);
+    return planZoneSchedule(zone, weather, busyWindows, options?.restrictions);
 }
