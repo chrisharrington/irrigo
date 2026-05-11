@@ -154,6 +154,28 @@ describe('runScheduleForZone', () => {
         expect(result.entries.some(e => e.date.format('YYYY-MM-DD') === '2025-10-20')).toBe(false);
     });
 
+    it('forwards schedule overrides to the planner so cycle counts change without zone edits', async () => {
+        const zone = createTestZone({
+            currentDepletionMm: 5,
+            allowableDepletionFraction: 0.5,
+            rootDepthM: 0.3,
+            soil: { name: 'Loam', availableWaterHoldingCapacityMmPerM: 150, infiltrationRateMmPerHr: 25 },
+            location: { lat: 51.0447, lon: -114.0719 },
+        });
+
+        // Baseline — Maintenance-style cadence against the stubbed 3-day forecast.
+        stubSuccess();
+        const baseline = await runScheduleForZone(zone);
+
+        // Overseeding-style overrides: RAW ≈ 1.875 mm, ET ≈ 3.4 mm/day → daily.
+        stubSuccess();
+        const overseeding = await runScheduleForZone(zone, {
+            overrides: { rootDepthM: 0.05, allowableDepletionFraction: 0.25 },
+        });
+
+        expect(overseeding.entries.length).toBeGreaterThan(baseline.entries.length);
+    });
+
     it('returns an empty schedule when the weather API returns no days', async () => {
         mockFetch.mockResolvedValueOnce({
             ok: true,

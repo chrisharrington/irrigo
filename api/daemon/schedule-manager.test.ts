@@ -23,6 +23,8 @@ function buildSchedule(overrides?: Partial<Schedule>): Schedule {
         isActive: true,
         allowedDays: null,
         allowedTimeWindows: null,
+        rootDepthMOverride: null,
+        allowableDepletionFractionOverride: null,
         createdAt: NOW,
         updatedAt: NOW,
         ...overrides,

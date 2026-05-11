@@ -1287,6 +1287,8 @@ type DaemonStubInputs = {
         isActive: boolean;
         allowedDays: number[] | null;
         allowedTimeWindows: Array<{ start: string; end: string }> | null;
+        rootDepthMOverride: number | null;
+        allowableDepletionFractionOverride: number | null;
         createdAt: Date;
         updatedAt: Date;
     } }>;
@@ -1335,6 +1337,8 @@ function createDaemonDbStub(inputs?: DaemonStubInputs) {
             isActive: true,
             allowedDays: null,
             allowedTimeWindows: null,
+            rootDepthMOverride: null,
+            allowableDepletionFractionOverride: null,
             createdAt: NOW_FOR_SCHEDULES,
             updatedAt: NOW_FOR_SCHEDULES,
         },
@@ -1976,6 +1980,88 @@ describe('start', () => {
     });
 
     describe('schedule integration', () => {
+        it('forwards the active schedule\'s rootDepthMOverride and allowableDepletionFractionOverride to runPlan', async () => {
+            const enabledRow = buildJoinedRow({ zone: { id: 'zone-o', siteId: 'site-O' } });
+            const { db } = createDaemonDbStub({
+                enabledZones: [enabledRow],
+                activeSchedules: [{
+                    schedule: {
+                        id: 'sched-o', siteId: 'site-O', slug: 'overseeding', name: 'Overseeding',
+                        isActive: true,
+                        allowedDays: null,
+                        allowedTimeWindows: null,
+                        rootDepthMOverride: 0.05,
+                        allowableDepletionFractionOverride: 0.25,
+                        createdAt: NOW, updatedAt: NOW,
+                    },
+                }],
+            });
+            const { clock } = createFakeClock(NOW);
+            const planCalls: Array<{ rootDepthM: number | undefined; allowableDepletionFraction: number | undefined }> = [];
+
+            const control = await start(db, {
+                clock,
+                rePlanHourLocal: 4,
+                runPlan: async (_z, opts) => {
+                    planCalls.push({
+                        rootDepthM: opts?.overrides?.rootDepthM,
+                        allowableDepletionFraction: opts?.overrides?.allowableDepletionFraction,
+                    });
+                    return { entries: [], projectedNextDepletionMm: 0 };
+                },
+                openZone: async () => {},
+                closeZone: async () => {},
+                getZoneState: async () => 'off',
+            });
+
+            await control.rePlan();
+
+            expect(planCalls).toHaveLength(1);
+            expect(planCalls[0]?.rootDepthM).toBe(0.05);
+            expect(planCalls[0]?.allowableDepletionFraction).toBe(0.25);
+        });
+
+        it('forwards undefined overrides when the active schedule has both override columns null', async () => {
+            const enabledRow = buildJoinedRow({ zone: { id: 'zone-n', siteId: 'site-N' } });
+            const { db } = createDaemonDbStub({
+                enabledZones: [enabledRow],
+                activeSchedules: [{
+                    schedule: {
+                        id: 'sched-n', siteId: 'site-N', slug: 'maintenance', name: 'Maintenance',
+                        isActive: true,
+                        allowedDays: null,
+                        allowedTimeWindows: null,
+                        rootDepthMOverride: null,
+                        allowableDepletionFractionOverride: null,
+                        createdAt: NOW, updatedAt: NOW,
+                    },
+                }],
+            });
+            const { clock } = createFakeClock(NOW);
+            const planCalls: Array<{ rootDepthM: number | undefined; allowableDepletionFraction: number | undefined }> = [];
+
+            const control = await start(db, {
+                clock,
+                rePlanHourLocal: 4,
+                runPlan: async (_z, opts) => {
+                    planCalls.push({
+                        rootDepthM: opts?.overrides?.rootDepthM,
+                        allowableDepletionFraction: opts?.overrides?.allowableDepletionFraction,
+                    });
+                    return { entries: [], projectedNextDepletionMm: 0 };
+                },
+                openZone: async () => {},
+                closeZone: async () => {},
+                getZoneState: async () => 'off',
+            });
+
+            await control.rePlan();
+
+            expect(planCalls).toHaveLength(1);
+            expect(planCalls[0]?.rootDepthM).toBeUndefined();
+            expect(planCalls[0]?.allowableDepletionFraction).toBeUndefined();
+        });
+
         it('forwards the active schedule\'s allowedDays and allowedTimeWindows to runPlan', async () => {
             const enabledRow = buildJoinedRow({ zone: { id: 'zone-r', siteId: 'site-R' } });
             const { db } = createDaemonDbStub({
@@ -1989,6 +2075,8 @@ describe('start', () => {
                             { start: '00:00', end: '10:00' },
                             { start: '19:00', end: '23:59' },
                         ],
+                        rootDepthMOverride: null,
+                        allowableDepletionFractionOverride: null,
                         createdAt: NOW, updatedAt: NOW,
                     },
                 }],
@@ -2028,7 +2116,7 @@ describe('start', () => {
                 activeSchedules: [{
                     schedule: {
                         id: 'sched-active', siteId: 'site-A', slug: 'maintenance', name: 'Maintenance',
-                        isActive: true, allowedDays: null, allowedTimeWindows: null, createdAt: NOW, updatedAt: NOW,
+                        isActive: true, allowedDays: null, allowedTimeWindows: null, rootDepthMOverride: null, allowableDepletionFractionOverride: null, createdAt: NOW, updatedAt: NOW,
                     },
                 }],
             });
@@ -2095,7 +2183,7 @@ describe('start', () => {
                     activeSchedules: [{
                         schedule: {
                             id: 'sched-A', siteId: 'site-active', slug: 'maintenance', name: 'Maintenance',
-                            isActive: true, allowedDays: null, allowedTimeWindows: null, createdAt: NOW, updatedAt: NOW,
+                            isActive: true, allowedDays: null, allowedTimeWindows: null, rootDepthMOverride: null, allowableDepletionFractionOverride: null, createdAt: NOW, updatedAt: NOW,
                         },
                     }],
                 });

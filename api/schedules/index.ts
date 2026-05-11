@@ -1,7 +1,7 @@
 import dayjs from 'dayjs';
 import { getWeatherData } from '../data/weather';
 import type { Zone } from '../models';
-import { planZoneSchedule, type BusyWindow, type PlanZoneScheduleResult } from './dynamic';
+import { planZoneSchedule, type BusyWindow, type PlanZoneScheduleResult, type ScheduleOverrides } from './dynamic';
 import type { ScheduleRestrictions } from './dynamic/restrictions';
 
 export type RunScheduleForZoneOptions = {
@@ -21,6 +21,13 @@ export type RunScheduleForZoneOptions = {
      * `null`/empty fields mean "no restriction" for that dimension.
      */
     restrictions?: ScheduleRestrictions;
+
+    /**
+     * Optional. Per-schedule planner-parameter overrides. Both fields
+     * `undefined` means "no override" — planner reads the zone's own
+     * `rootDepthM` / `allowableDepletionFraction`.
+     */
+    overrides?: ScheduleOverrides;
 };
 
 /**
@@ -58,5 +65,5 @@ export async function runScheduleForZone(
         end: dayjs(w.end),
     }));
 
-    return planZoneSchedule(zone, weather, busyWindows, options?.restrictions);
+    return planZoneSchedule(zone, weather, busyWindows, options?.restrictions, options?.overrides);
 }

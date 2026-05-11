@@ -12,6 +12,19 @@ import {
 const NO_RESTRICTIONS: ScheduleRestrictions = { allowedDays: null, allowedTimeWindows: null };
 
 /**
+ * Per-schedule planner overrides. When set, the planner uses these values
+ * in place of the corresponding zone fields. Both null/undefined means
+ * "no override" — planner reads `zone.rootDepthM` and
+ * `zone.allowableDepletionFraction` as before.
+ */
+export type ScheduleOverrides = {
+    rootDepthM?: number;
+    allowableDepletionFraction?: number;
+};
+
+const NO_OVERRIDES: ScheduleOverrides = {};
+
+/**
  * A time interval the planner must avoid placing cycles inside. Used by the
  * daemon's sequential per-zone planning to prevent cross-zone overlap: each
  * zone's persisted cycles become busy windows for subsequent zones.
@@ -47,6 +60,10 @@ export type PlanZoneScheduleResult = {
  *   day is disallowed or the planned irrigation block can't fit any allowed
  *   window, the day's cycles are dropped (with a warning) and depletion
  *   carries forward into the next allowed day. Defaults to "no restriction".
+ * @param overrides - Per-schedule planner-parameter overrides. When set,
+ *   the planner uses these in place of the zone's own `rootDepthM` /
+ *   `allowableDepletionFraction`. Zone rows stay untouched — overrides
+ *   express the temporary planning mode (e.g. overseeding vs. maintenance).
  * @returns Per-day entries plus the projected next-day starting depletion.
  */
 export function planZoneSchedule(
@@ -54,16 +71,24 @@ export function planZoneSchedule(
     weatherHistory: DailyWeather[],
     busyWindows: ReadonlyArray<BusyWindow> = [],
     restrictions: ScheduleRestrictions = NO_RESTRICTIONS,
+    overrides: ScheduleOverrides = NO_OVERRIDES,
 ): PlanZoneScheduleResult {
-    const totalAvailableWaterMillimetersForClamp = zone.soil.availableWaterHoldingCapacityMmPerM * zone.rootDepthM,
+    const effectiveRootDepthM = overrides.rootDepthM ?? zone.rootDepthM,
+        effectiveAllowableDepletionFraction = overrides.allowableDepletionFraction ?? zone.allowableDepletionFraction;
+
+    if (overrides.rootDepthM !== undefined || overrides.allowableDepletionFraction !== undefined) {
+        console.log(`planZoneSchedule: zone ${zone.id} using overrides root=${effectiveRootDepthM} depletion=${effectiveAllowableDepletionFraction}.`);
+    }
+
+    const totalAvailableWaterMillimetersForClamp = zone.soil.availableWaterHoldingCapacityMmPerM * effectiveRootDepthM,
         clampedStartingDepletion = clampValue(zone.currentDepletionMm ?? 0, 0, totalAvailableWaterMillimetersForClamp);
 
     if (zone.isEnabled === false) return { entries: [], projectedNextDepletionMm: clampedStartingDepletion };
 
     // Calculate soil water holding capacity and thresholds.
     const availableWaterHoldingCapacity = zone.soil.availableWaterHoldingCapacityMmPerM,
-        totalAvailableWaterMillimeters = availableWaterHoldingCapacity * zone.rootDepthM,
-        readilyAvailableWaterMillimeters = zone.allowableDepletionFraction * totalAvailableWaterMillimeters;
+        totalAvailableWaterMillimeters = availableWaterHoldingCapacity * effectiveRootDepthM,
+        readilyAvailableWaterMillimeters = effectiveAllowableDepletionFraction * totalAvailableWaterMillimeters;
 
     // Calculate precipitation rate from flow rate and area (1 L/m² = 1 mm).
     const precipitationRateMillimetersPerHour = zone.precipitationRateMmPerHr ?? 60 * (zone.flowRateLPerMin / zone.areaM2);
