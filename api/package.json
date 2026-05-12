@@ -13,6 +13,7 @@
     "disable-schedule": "bun scripts/disable-schedule.ts",
     "next-runs": "bun scripts/next-runs.ts",
     "notify:test": "bun scripts/notify-test.ts",
+    "toggle-zone": "bun scripts/toggle-zone.ts",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
     "db:push": "drizzle-kit push",

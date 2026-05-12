@@ -22,5 +22,6 @@ export const zones = pgTable('zones', {
     latitude: doublePrecision('latitude'),
     longitude: doublePrecision('longitude'),
     homeAssistantEntityId: text('home_assistant_entity_id'),
+    microclimateFactor: real('microclimate_factor').notNull().default(1),
     ...auditColumns,
 });

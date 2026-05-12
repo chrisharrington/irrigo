@@ -101,6 +101,9 @@ export type Zone = {
 
     /** Optional. The Home Assistant entity ID controlling the zone's relay (e.g. `switch.sonoff_4chpro_relay_1`). */
     homeAssistantEntityId?: string;
+
+    /** Optional. Multiplier applied to crop ET to account for microclimate differences (sun exposure, aspect). Default 1.0. */
+    microclimateFactor?: number;
 }
 
 export type IrrigationCycle = {

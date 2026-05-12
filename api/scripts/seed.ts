@@ -233,6 +233,7 @@ async function upsertZones(db: SeedDb, rows: ZoneSeed[], lookups: ZoneLookups): 
                 latitude: sql`excluded.latitude`,
                 longitude: sql`excluded.longitude`,
                 homeAssistantEntityId: sql`excluded.home_assistant_entity_id`,
+                microclimateFactor: sql`excluded.microclimate_factor`,
             },
         })
         .returning({ id: zones.id, slug: zones.slug });
@@ -304,12 +305,15 @@ function resolveZone(row: ZoneSeed, lookups: ZoneLookups) {
         latitude: row.latitude ?? null,
         longitude: row.longitude ?? null,
         homeAssistantEntityId: row.homeAssistantEntityId ?? null,
+        microclimateFactor: row.microclimateFactor ?? 1,
     };
 }
 
 if (import.meta.main) {
-    seed().catch((err: unknown) => {
-        console.error('seed: failed.', err);
-        process.exit(1);
-    });
+    seed()
+        .then(() => process.exit(0))
+        .catch((err: unknown) => {
+            console.error('seed: failed.', err);
+            process.exit(1);
+        });
 }

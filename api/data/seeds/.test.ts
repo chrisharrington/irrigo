@@ -331,6 +331,6 @@ describe('zones.json fixture', () => {
         }
 
         const zoneSlugs = zoneRows.map(row => row.slug);
-        expect(zoneSlugs).toEqual(['front-lawn', 'back-lawn', 'side-yard']);
+        expect(zoneSlugs).toEqual(['north', 'south', 'east']);
     });
 });
