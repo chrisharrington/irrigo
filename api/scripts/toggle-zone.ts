@@ -2,7 +2,7 @@ import type { Zone } from '@/models';
 import type { ZoneRelayState } from '@/data/home-assistant';
 
 export type ToggleZoneDeps = {
-    loadZones: () => Promise<Zone[]>;
+    loadZoneBySlug: (slug: string) => Promise<Zone | null>;
     getState: (zone: Zone) => Promise<ZoneRelayState>;
     open: (zone: Zone) => Promise<void>;
     close: (zone: Zone) => Promise<void>;
@@ -10,27 +10,20 @@ export type ToggleZoneDeps = {
     error: (message: string) => void;
 };
 
-export async function toggleZoneCli(index: number, deps: ToggleZoneDeps): Promise<0 | 1> {
-    let zones: Zone[];
+export async function toggleZoneCli(slug: string, deps: ToggleZoneDeps): Promise<0 | 1> {
+    let zone: Zone | null;
     try {
-        zones = await deps.loadZones();
+        zone = await deps.loadZoneBySlug(slug);
     } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
-        deps.error(`toggle-zone: failed to load zones — ${message}`);
+        deps.error(`toggle-zone: failed to load zone '${slug}' — ${message}`);
         return 1;
     }
 
-    if (zones.length === 0) {
-        deps.error('toggle-zone: no zones found in the database.');
+    if (!zone) {
+        deps.error(`toggle-zone: no zone found with slug '${slug}'.`);
         return 1;
     }
-
-    if (index < 1 || index > zones.length) {
-        deps.error(`toggle-zone: index ${index} is out of range (1–${zones.length}).`);
-        return 1;
-    }
-
-    const zone = zones[index - 1]!;
 
     let state: ZoneRelayState;
     try {
@@ -70,20 +63,14 @@ export async function toggleZoneCli(index: number, deps: ToggleZoneDeps): Promis
 }
 
 if (import.meta.main) {
-    const rawIndex = process.argv[2];
-    if (!rawIndex) {
-        console.error('toggle-zone: usage: bun run toggle-zone <index>  (index is 1-based)');
-        process.exit(1);
-    }
-
-    const index = Number.parseInt(rawIndex, 10);
-    if (!Number.isFinite(index) || index < 1) {
-        console.error(`toggle-zone: index must be a positive integer, got '${rawIndex}'.`);
+    const slug = process.argv[2];
+    if (!slug) {
+        console.error('toggle-zone: usage: bun run toggle-zone <slug>  (e.g. north, south, east)');
         process.exit(1);
     }
 
     const deps: ToggleZoneDeps = {
-        loadZones: async () => {
+        loadZoneBySlug: async (s) => {
             const { db } = await import('@/db');
             const { eq } = await import('drizzle-orm');
             const { grassTypes, soilTypes, sites, zones } = await import('@/db/schema');
@@ -94,11 +81,11 @@ if (import.meta.main) {
                 .from(zones)
                 .innerJoin(grassTypes, eq(zones.grassTypeId, grassTypes.id))
                 .innerJoin(soilTypes, eq(zones.soilTypeId, soilTypes.id))
-                .innerJoin(sites, eq(zones.siteId, sites.id));
+                .innerJoin(sites, eq(zones.siteId, sites.id))
+                .where(eq(zones.slug, s));
 
-            return rows
-                .sort((a, b) => a.zone.name.localeCompare(b.zone.name))
-                .map(joinedRowToZone);
+            const row = rows[0];
+            return row ? joinedRowToZone(row) : null;
         },
         getState: async (zone) => {
             const { getZoneState } = await import('@/data/home-assistant');
@@ -116,5 +103,5 @@ if (import.meta.main) {
         error: m => console.error(m),
     };
 
-    toggleZoneCli(index, deps).then(code => process.exit(code));
+    toggleZoneCli(slug, deps).then(code => process.exit(code));
 }
