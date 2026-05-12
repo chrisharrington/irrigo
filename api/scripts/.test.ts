@@ -323,6 +323,39 @@ describe('seed orchestrator', () => {
             { start: '00:00', end: '10:00' },
             { start: '19:00', end: '23:59' },
         ]);
+        // Missing override fields default to null and still appear in the
+        // payload so the DB row has explicit values rather than UNDEFINED.
+        expect(row['rootDepthMOverride']).toBeNull();
+        expect(row['allowableDepletionFractionOverride']).toBeNull();
+    });
+
+    it('forwards rootDepthMOverride and allowableDepletionFractionOverride into the upsert payload', async () => {
+        await writeJson(dataDir, 'grass-types.json', []);
+        await writeJson(dataDir, 'soil-types.json', []);
+        await writeJson(dataDir, 'sites.json', [
+            { slug: 'home', name: 'Home', timezone: 'America/Edmonton', latitude: 51.05, longitude: -114.07 },
+        ]);
+        await writeJson(dataDir, 'zones.json', []);
+        await writeJson(dataDir, 'schedules.json', [
+            {
+                slug: 'overseeding',
+                siteSlug: 'home',
+                name: 'Overseeding',
+                isActive: false,
+                allowedDays: null,
+                allowedTimeWindows: null,
+                rootDepthMOverride: 0.05,
+                allowableDepletionFractionOverride: 0.25,
+            },
+        ]);
+        const { db, calls } = createStubDb();
+
+        await seed({ db, dataDir });
+
+        const scheduleCall = calls.find(c => c.table === schedules);
+        const row = scheduleCall!.rows[0]!;
+        expect(row['rootDepthMOverride']).toBe(0.05);
+        expect(row['allowableDepletionFractionOverride']).toBe(0.25);
     });
 
     it('omits isActive, allowedDays, and allowedTimeWindows from the conflict-update set', async () => {
@@ -399,5 +432,27 @@ describe('seed orchestrator against real api/data/seeds fixtures', () => {
             expect(row['grassTypeId']).toMatch(/^id-/);
             expect(row['soilTypeId']).toMatch(/^id-/);
         }
+    });
+
+    it('seeds both Maintenance (active) and Overseeding (inactive) with their respective fields', async () => {
+        const { db, calls } = createStubDb();
+
+        const summary = await seed({ db, dataDir: realDataDir });
+
+        expect(summary.schedules).toBe(2);
+        const scheduleCall = calls.find(c => c.table === schedules);
+        expect(scheduleCall).toBeDefined();
+
+        const maintenance = scheduleCall!.rows.find(r => r['slug'] === 'maintenance');
+        expect(maintenance).toBeDefined();
+        expect(maintenance!['isActive']).toBe(true);
+        expect(maintenance!['rootDepthMOverride']).toBeNull();
+        expect(maintenance!['allowableDepletionFractionOverride']).toBeNull();
+
+        const overseeding = scheduleCall!.rows.find(r => r['slug'] === 'overseeding');
+        expect(overseeding).toBeDefined();
+        expect(overseeding!['isActive']).toBe(false);
+        expect(overseeding!['rootDepthMOverride']).toBe(0.05);
+        expect(overseeding!['allowableDepletionFractionOverride']).toBe(0.25);
     });
 });

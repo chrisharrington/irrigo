@@ -41,6 +41,8 @@ export const ScheduleSeedSchema = z.object({
     isActive: z.boolean(),
     allowedDays: z.array(z.number().int().min(1).max(7)).nullable(),
     allowedTimeWindows: z.array(ScheduleTimeWindowSeedSchema).nullable(),
+    rootDepthMOverride: z.number().nullable().default(null),
+    allowableDepletionFractionOverride: z.number().nullable().default(null),
 });
 
 export const ZoneSeedSchema = z.object({
