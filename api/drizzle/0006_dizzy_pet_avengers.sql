@@ -1,0 +1,1 @@
+ALTER TABLE "zones" ADD COLUMN "microclimate_factor" real DEFAULT 1 NOT NULL;

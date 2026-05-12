@@ -117,7 +117,8 @@ export function planZoneSchedule(
         // Calculate crop evapotranspiration and effective rainfall.
         const referenceEvapotranspiration = Math.max(0, weatherDay.evapotranspirationMmPerDay ?? 0),
             cropCoefficient = zone.grassType.cropCoefficient,
-            cropEvapotranspiration = cropCoefficient * referenceEvapotranspiration,
+            microclimateFactor = zone.microclimateFactor ?? 1,
+            cropEvapotranspiration = cropCoefficient * microclimateFactor * referenceEvapotranspiration,
             rainfallMillimeters = weatherDay.rainfallMm ?? 0,
             effectiveRainfallMillimeters = rainfallMillimeters < 2 ? 0 : 0.8 * rainfallMillimeters; // If rainfall is less than 2mm, treat as zero.
 

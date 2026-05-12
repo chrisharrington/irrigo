@@ -173,5 +173,6 @@ export function joinedRowToZone(row: ZoneJoinedRow): Zone {
         isEnabled: row.zone.isEnabled,
         location: { lat, lon },
         homeAssistantEntityId: row.zone.homeAssistantEntityId ?? undefined,
+        microclimateFactor: row.zone.microclimateFactor,
     };
 }

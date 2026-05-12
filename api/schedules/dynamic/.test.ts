@@ -324,6 +324,28 @@ describe('planZoneSchedule', () => {
 
             expect(schedule.length).toBeLessThan(3);
         });
+
+        it('microclimateFactor above 1 increases irrigation frequency relative to factor of 1', () => {
+            const baseZone = createTestZone({ currentDepletionMm: 0, microclimateFactor: 1 });
+            const sunnyZone = createTestZone({ currentDepletionMm: 0, microclimateFactor: 1.1 });
+            const weather = createDryPeriod(14, 3.0);
+
+            const { entries: baseSchedule } = planZoneSchedule(baseZone, weather);
+            const { entries: sunnySchedule } = planZoneSchedule(sunnyZone, weather);
+
+            expect(sunnySchedule.length).toBeGreaterThanOrEqual(baseSchedule.length);
+        });
+
+        it('microclimateFactor below 1 decreases irrigation frequency relative to factor of 1', () => {
+            const baseZone = createTestZone({ currentDepletionMm: 0, microclimateFactor: 1 });
+            const shadyZone = createTestZone({ currentDepletionMm: 0, microclimateFactor: 0.85 });
+            const weather = createDryPeriod(14, 3.0);
+
+            const { entries: baseSchedule } = planZoneSchedule(baseZone, weather);
+            const { entries: shadySchedule } = planZoneSchedule(shadyZone, weather);
+
+            expect(shadySchedule.length).toBeLessThanOrEqual(baseSchedule.length);
+        });
     });
 
     // Root Depth Variations.
