@@ -255,6 +255,8 @@ async function upsertSchedules(
             isActive: row.isActive,
             allowedDays: row.allowedDays,
             allowedTimeWindows: row.allowedTimeWindows,
+            rootDepthMOverride: row.rootDepthMOverride,
+            allowableDepletionFractionOverride: row.allowableDepletionFractionOverride,
         };
     });
 

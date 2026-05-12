@@ -201,6 +201,8 @@ describe('parseSchedules', () => {
                 { start: '00:00', end: '10:00' },
                 { start: '19:00', end: '23:59' },
             ],
+            rootDepthMOverride: null,
+            allowableDepletionFractionOverride: null,
         });
     });
 
@@ -256,6 +258,54 @@ describe('parseSchedules', () => {
                 allowedTimeWindows: null,
             },
         ])).toThrow(/siteSlug/);
+    });
+
+    it('carries the override fields through when set as numbers', () => {
+        const rows = parseSchedules([
+            {
+                slug: 'overseeding',
+                siteSlug: 'home',
+                name: 'Overseeding',
+                isActive: false,
+                allowedDays: null,
+                allowedTimeWindows: null,
+                rootDepthMOverride: 0.05,
+                allowableDepletionFractionOverride: 0.25,
+            },
+        ]);
+
+        expect(rows[0]?.rootDepthMOverride).toBe(0.05);
+        expect(rows[0]?.allowableDepletionFractionOverride).toBe(0.25);
+    });
+
+    it('defaults missing override fields to null so older JSON still parses', () => {
+        const rows = parseSchedules([
+            {
+                slug: 'maintenance',
+                siteSlug: 'home',
+                name: 'Maintenance',
+                isActive: true,
+                allowedDays: null,
+                allowedTimeWindows: null,
+            },
+        ]);
+
+        expect(rows[0]?.rootDepthMOverride).toBeNull();
+        expect(rows[0]?.allowableDepletionFractionOverride).toBeNull();
+    });
+
+    it('rejects non-numeric override values', () => {
+        expect(() => parseSchedules([
+            {
+                slug: 'overseeding',
+                siteSlug: 'home',
+                name: 'Overseeding',
+                isActive: false,
+                allowedDays: null,
+                allowedTimeWindows: null,
+                rootDepthMOverride: 'shallow',
+            },
+        ])).toThrow(/rootDepthMOverride/);
     });
 });
 
