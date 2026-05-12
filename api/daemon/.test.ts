@@ -83,6 +83,7 @@ function buildJoinedRow(overrides?: Partial<{
             latitude: 51.0447,
             longitude: -114.0719,
             homeAssistantEntityId: 'switch.zone_1',
+            microclimateFactor: 1,
             createdAt: NOW,
             updatedAt: NOW,
             ...overrides?.zone,
@@ -262,6 +263,14 @@ describe('mapJoinedRowsToZones', () => {
         const result = mapJoinedRowsToZones([row]);
 
         expect(result[0]?.siteTimezone).toBe('Europe/London');
+    });
+
+    it('maps microclimateFactor from the zone row', () => {
+        const row = buildJoinedRow({ zone: { microclimateFactor: 1.1 } });
+
+        const result = mapJoinedRowsToZones([row]);
+
+        expect(result[0]?.microclimateFactor).toBe(1.1);
     });
 });
 
@@ -1589,6 +1598,7 @@ describe('start', () => {
                 if (z.id === 'zone-bad') throw new Error('plan failed');
                 return { entries: [planned], projectedNextDepletionMm: 0 };
             },
+            getZoneState: async () => 'off',
             openZone: async () => {},
             closeZone: async () => {},
         });
@@ -1891,6 +1901,7 @@ describe('start', () => {
                         ? { entries: [zoneAEntry], projectedNextDepletionMm: 0 }
                         : { entries: [zoneBEntry], projectedNextDepletionMm: 0 };
                 },
+                getZoneState: async () => 'off',
                 openZone: async () => {},
                 closeZone: async () => {},
             });
@@ -1927,6 +1938,7 @@ describe('start', () => {
                     if (zone.id === 'zone-B') return { entries: [entryFor(zone.id, '2026-05-04T05:30:00Z', 20)], projectedNextDepletionMm: 0 };
                     return { entries: [entryFor(zone.id, '2026-05-04T06:00:00Z', 20)], projectedNextDepletionMm: 0 };
                 },
+                getZoneState: async () => 'off',
                 openZone: async () => {},
                 closeZone: async () => {},
             });
@@ -1966,6 +1978,7 @@ describe('start', () => {
                         projectedNextDepletionMm: 0,
                     };
                 },
+                getZoneState: async () => 'off',
                 openZone: async () => {},
                 closeZone: async () => {},
             });
