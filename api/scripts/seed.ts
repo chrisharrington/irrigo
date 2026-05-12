@@ -15,6 +15,23 @@ import {
 } from '@/data/seeds';
 
 /**
+ * Computes the initial `currentDepletionMm` value for a zone being seeded.
+ * Returns the explicit seed value when provided (including 0); otherwise
+ * defaults to the zone's MAD (maximum allowable depletion) so a freshly
+ * seeded zone triggers irrigation on the very first replan rather than
+ * waiting for ET to accumulate from scratch.
+ *
+ * MAD = rootDepthM × soilAwcMmPerM × allowableDepletionFraction
+ */
+export function computeInitialDepletionMm(
+    zone: Pick<ZoneSeed, 'rootDepthM' | 'allowableDepletionFraction' | 'currentDepletionMm'>,
+    soilAwcMmPerM: number,
+): number {
+    if (zone.currentDepletionMm !== undefined) return zone.currentDepletionMm;
+    return zone.rootDepthM * soilAwcMmPerM * zone.allowableDepletionFraction;
+}
+
+/**
  * Minimal subset of the Drizzle client surface that the seed orchestrator
  * needs. Lets tests inject a recording stub without depending on a live
  * Postgres connection.
@@ -95,7 +112,8 @@ export async function seed(options?: SeedOptions): Promise<SeedSummary> {
     const grassMap = await upsertGrassTypes(db, grassRows);
     const soilMap = await upsertSoilTypes(db, soilRows);
     const siteMap = await upsertSites(db, siteRows);
-    await upsertZones(db, zoneRows, { grassMap, soilMap, siteMap });
+    const soilDataMap = new Map(soilRows.map(r => [r.slug, r]));
+    await upsertZones(db, zoneRows, { grassMap, soilMap, siteMap, soilDataMap });
     const scheduleCount = await upsertSchedules(db, scheduleRows, siteMap);
 
     console.log('seed: complete.');
@@ -205,6 +223,7 @@ type ZoneLookups = {
     grassMap: Map<string, string>;
     soilMap: Map<string, string>;
     siteMap: Map<string, string>;
+    soilDataMap: Map<string, SoilTypeSeed>;
 };
 
 async function upsertZones(db: SeedDb, rows: ZoneSeed[], lookups: ZoneLookups): Promise<void> {
@@ -228,7 +247,6 @@ async function upsertZones(db: SeedDb, rows: ZoneSeed[], lookups: ZoneLookups): 
                 flowRateLPerMin: sql`excluded.flow_rate_l_per_min`,
                 areaM2: sql`excluded.area_m2`,
                 precipitationRateMmPerHr: sql`excluded.precipitation_rate_mm_per_hr`,
-                currentDepletionMm: sql`excluded.current_depletion_mm`,
                 isEnabled: sql`excluded.is_enabled`,
                 latitude: sql`excluded.latitude`,
                 longitude: sql`excluded.longitude`,
@@ -288,6 +306,8 @@ function resolveZone(row: ZoneSeed, lookups: ZoneLookups) {
     const soilTypeId = lookups.soilMap.get(row.soilType);
     if (!soilTypeId) throw new Error(`seed: zone "${row.slug}" references unknown soilType "${row.soilType}".`);
 
+    const soil = lookups.soilDataMap.get(row.soilType)!;
+
     return {
         slug: row.slug,
         name: row.name,
@@ -300,7 +320,7 @@ function resolveZone(row: ZoneSeed, lookups: ZoneLookups) {
         flowRateLPerMin: row.flowRateLPerMin,
         areaM2: row.areaM2,
         precipitationRateMmPerHr: row.precipitationRateMmPerHr ?? null,
-        currentDepletionMm: row.currentDepletionMm ?? 0,
+        currentDepletionMm: computeInitialDepletionMm(row, soil.availableWaterHoldingCapacityMmPerM),
         isEnabled: row.isEnabled ?? true,
         latitude: row.latitude ?? null,
         longitude: row.longitude ?? null,
