@@ -3,10 +3,12 @@ import { sql } from 'drizzle-orm';
 import { grassTypes, schedules, sites, soilTypes, zones } from '@/db/schema';
 import {
     parseGrassTypes,
+    parseSchedules,
     parseSites,
     parseSoilTypes,
     parseZones,
     type GrassTypeSeed,
+    type ScheduleSeed,
     type SiteSeed,
     type SoilTypeSeed,
     type ZoneSeed,
@@ -86,14 +88,15 @@ export async function seed(options?: SeedOptions): Promise<SeedSummary> {
     const soilRows = parseSoilTypes(await readJson(dataDir, 'soil-types.json'));
     const siteRows = parseSites(await readJson(dataDir, 'sites.json'));
     const zoneRows = parseZones(await readJson(dataDir, 'zones.json'));
+    const scheduleRows = parseSchedules(await readJsonOptional(dataDir, 'schedules.json') ?? []);
 
-    console.log(`seed: parsed ${grassRows.length} grass types, ${soilRows.length} soil types, ${siteRows.length} sites, ${zoneRows.length} zones.`);
+    console.log(`seed: parsed ${grassRows.length} grass types, ${soilRows.length} soil types, ${siteRows.length} sites, ${zoneRows.length} zones, ${scheduleRows.length} schedules.`);
 
     const grassMap = await upsertGrassTypes(db, grassRows);
     const soilMap = await upsertSoilTypes(db, soilRows);
     const siteMap = await upsertSites(db, siteRows);
     await upsertZones(db, zoneRows, { grassMap, soilMap, siteMap });
-    const scheduleCount = await upsertDefaultSchedules(db, siteMap);
+    const scheduleCount = await upsertSchedules(db, scheduleRows, siteMap);
 
     console.log('seed: complete.');
 
@@ -115,6 +118,19 @@ async function readJson(dir: string, file: string): Promise<unknown> {
     const filePath = path.join(dir, file);
     const handle = Bun.file(filePath);
     if (!(await handle.exists())) throw new Error(`seed: missing seed file ${filePath}.`);
+    return handle.json();
+}
+
+/**
+ * Like `readJson` but returns `null` when the file is missing, so older
+ * seed directories (or partial fixtures used in tests) can skip optional
+ * seed files cleanly. Used for `schedules.json` — the rest of the seeds
+ * are hard-required.
+ */
+async function readJsonOptional(dir: string, file: string): Promise<unknown> {
+    const filePath = path.join(dir, file);
+    const handle = Bun.file(filePath);
+    if (!(await handle.exists())) return null;
     return handle.json();
 }
 
@@ -222,18 +238,29 @@ async function upsertZones(db: SeedDb, rows: ZoneSeed[], lookups: ZoneLookups): 
         .returning({ id: zones.id, slug: zones.slug });
 }
 
-async function upsertDefaultSchedules(db: SeedDb, siteMap: Map<string, string>): Promise<number> {
-    if (siteMap.size === 0) return 0;
+async function upsertSchedules(
+    db: SeedDb,
+    rows: ScheduleSeed[],
+    siteMap: Map<string, string>,
+): Promise<number> {
+    if (rows.length === 0) return 0;
 
-    const valueRows = [...siteMap.values()].map(siteId => ({
-        siteId,
-        slug: 'maintenance',
-        name: 'Maintenance',
-        isActive: true,
-    }));
+    const valueRows = rows.map(row => {
+        const siteId = siteMap.get(row.siteSlug);
+        if (!siteId) throw new Error(`seed: schedule "${row.slug}" references unknown site "${row.siteSlug}".`);
+        return {
+            siteId,
+            slug: row.slug,
+            name: row.name,
+            isActive: row.isActive,
+            allowedDays: row.allowedDays,
+            allowedTimeWindows: row.allowedTimeWindows,
+        };
+    });
 
     // Conflict target: composite (siteId, slug). On conflict only refresh `name` —
-    // leave `isActive` alone so re-seeding doesn't clobber a runtime activation.
+    // leave `isActive`, `allowedDays`, and `allowedTimeWindows` alone so re-seeding
+    // doesn't clobber operator edits made via SQL or a future admin UI.
     await db
         .insert(schedules)
         .values(valueRows)

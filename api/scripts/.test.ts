@@ -61,7 +61,7 @@ describe('seed orchestrator', () => {
         await rm(dataDir, { recursive: true, force: true });
     });
 
-    it('upserts each table in dependency order: grass types, soil types, sites, zones', async () => {
+    it('upserts each table in dependency order: grass types, soil types, sites, zones, schedules', async () => {
         await writeJson(dataDir, 'grass-types.json', [
             { slug: 'k-blue', name: 'Kentucky Bluegrass', cropCoefficient: 0.85 },
         ]);
@@ -84,6 +84,9 @@ describe('seed orchestrator', () => {
                 flowRateLPerMin: 15,
                 areaM2: 100,
             },
+        ]);
+        await writeJson(dataDir, 'schedules.json', [
+            { slug: 'maintenance', siteSlug: 'home', name: 'Maintenance', isActive: true, allowedDays: null, allowedTimeWindows: null },
         ]);
         const { db, calls } = createStubDb();
 
@@ -260,6 +263,11 @@ describe('seed orchestrator', () => {
             { slug: 'office', name: 'Office', timezone: 'America/Edmonton', latitude: 51.1, longitude: -114.1 },
         ]);
         await writeJson(dataDir, 'zones.json', []);
+        await writeJson(dataDir, 'schedules.json', [
+            { slug: 'maintenance', siteSlug: 'home', name: 'Maintenance', isActive: true, allowedDays: null, allowedTimeWindows: null },
+            { slug: 'maintenance', siteSlug: 'cabin', name: 'Maintenance', isActive: true, allowedDays: null, allowedTimeWindows: null },
+            { slug: 'maintenance', siteSlug: 'office', name: 'Maintenance', isActive: true, allowedDays: null, allowedTimeWindows: null },
+        ]);
         const { db } = createStubDb();
 
         const summary = await seed({ db, dataDir });
@@ -277,37 +285,56 @@ describe('seed orchestrator', () => {
         await expect(seed({ db, dataDir })).rejects.toThrow(/missing seed file .+zones\.json/);
     });
 
-    it('upserts a Maintenance/maintenance schedule for every seeded site with isActive=true', async () => {
+    it('upserts schedules from schedules.json with site references resolved to ids', async () => {
         await writeJson(dataDir, 'grass-types.json', []);
         await writeJson(dataDir, 'soil-types.json', []);
         await writeJson(dataDir, 'sites.json', [
             { slug: 'home', name: 'Home', timezone: 'America/Edmonton', latitude: 51.05, longitude: -114.07 },
-            { slug: 'cabin', name: 'Cabin', timezone: 'America/Edmonton', latitude: 52.0, longitude: -114.0 },
         ]);
         await writeJson(dataDir, 'zones.json', []);
+        await writeJson(dataDir, 'schedules.json', [
+            {
+                slug: 'maintenance',
+                siteSlug: 'home',
+                name: 'Maintenance',
+                isActive: true,
+                allowedDays: [3, 5, 7],
+                allowedTimeWindows: [
+                    { start: '00:00', end: '10:00' },
+                    { start: '19:00', end: '23:59' },
+                ],
+            },
+        ]);
         const { db, calls } = createStubDb();
 
         const summary = await seed({ db, dataDir });
 
-        expect(summary.schedules).toBe(2);
+        expect(summary.schedules).toBe(1);
         const scheduleCall = calls.find(c => c.table === schedules);
         expect(scheduleCall).toBeDefined();
-        expect(scheduleCall!.rows).toHaveLength(2);
-        for (const row of scheduleCall!.rows) {
-            expect(row['slug']).toBe('maintenance');
-            expect(row['name']).toBe('Maintenance');
-            expect(row['isActive']).toBe(true);
-            expect(typeof row['siteId']).toBe('string');
-        }
+        expect(scheduleCall!.rows).toHaveLength(1);
+        const row = scheduleCall!.rows[0]!;
+        expect(row['slug']).toBe('maintenance');
+        expect(row['name']).toBe('Maintenance');
+        expect(row['isActive']).toBe(true);
+        expect(row['siteId']).toBe('id-home');
+        expect(row['allowedDays']).toEqual([3, 5, 7]);
+        expect(row['allowedTimeWindows']).toEqual([
+            { start: '00:00', end: '10:00' },
+            { start: '19:00', end: '23:59' },
+        ]);
     });
 
-    it('omits isActive from the conflict-update set so re-seeding does not flip a deactivated schedule', async () => {
+    it('omits isActive, allowedDays, and allowedTimeWindows from the conflict-update set', async () => {
         await writeJson(dataDir, 'grass-types.json', []);
         await writeJson(dataDir, 'soil-types.json', []);
         await writeJson(dataDir, 'sites.json', [
             { slug: 'home', name: 'Home', timezone: 'America/Edmonton', latitude: 51.05, longitude: -114.07 },
         ]);
         await writeJson(dataDir, 'zones.json', []);
+        await writeJson(dataDir, 'schedules.json', [
+            { slug: 'maintenance', siteSlug: 'home', name: 'Maintenance', isActive: true, allowedDays: null, allowedTimeWindows: null },
+        ]);
         const { db, calls } = createStubDb();
 
         await seed({ db, dataDir });
@@ -316,13 +343,33 @@ describe('seed orchestrator', () => {
         expect(scheduleCall).toBeDefined();
         expect(Object.keys(scheduleCall!.conflictSet)).toEqual(['name']);
         expect('isActive' in scheduleCall!.conflictSet).toBe(false);
+        expect('allowedDays' in scheduleCall!.conflictSet).toBe(false);
+        expect('allowedTimeWindows' in scheduleCall!.conflictSet).toBe(false);
     });
 
-    it('skips schedules upsert when no sites are seeded', async () => {
+    it('throws when a schedule references an unknown siteSlug', async () => {
         await writeJson(dataDir, 'grass-types.json', []);
         await writeJson(dataDir, 'soil-types.json', []);
-        await writeJson(dataDir, 'sites.json', []);
+        await writeJson(dataDir, 'sites.json', [
+            { slug: 'home', name: 'Home', timezone: 'America/Edmonton', latitude: 51.05, longitude: -114.07 },
+        ]);
         await writeJson(dataDir, 'zones.json', []);
+        await writeJson(dataDir, 'schedules.json', [
+            { slug: 'maintenance', siteSlug: 'no-such-site', name: 'Maintenance', isActive: true, allowedDays: null, allowedTimeWindows: null },
+        ]);
+        const { db } = createStubDb();
+
+        await expect(seed({ db, dataDir })).rejects.toThrow(/unknown site "no-such-site"/);
+    });
+
+    it('treats a missing schedules.json as zero schedules to seed (no insert)', async () => {
+        await writeJson(dataDir, 'grass-types.json', []);
+        await writeJson(dataDir, 'soil-types.json', []);
+        await writeJson(dataDir, 'sites.json', [
+            { slug: 'home', name: 'Home', timezone: 'America/Edmonton', latitude: 51.05, longitude: -114.07 },
+        ]);
+        await writeJson(dataDir, 'zones.json', []);
+        // Intentionally omit schedules.json.
         const { db, calls } = createStubDb();
 
         const summary = await seed({ db, dataDir });

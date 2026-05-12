@@ -1,0 +1,13 @@
+[
+    {
+        "slug": "maintenance",
+        "siteSlug": "home",
+        "name": "Maintenance",
+        "isActive": true,
+        "allowedDays": [3, 5, 7],
+        "allowedTimeWindows": [
+            { "start": "00:00", "end": "10:00" },
+            { "start": "19:00", "end": "23:59" }
+        ]
+    }
+]
