@@ -94,7 +94,7 @@ export function createNotifier(): Notifier {
     };
 }
 
-function buildMessage(event: NotificationEvent, context?: NotificationContext): string {
+export function buildMessage(event: NotificationEvent, context?: NotificationContext): string {
     const zone = context?.zoneName ?? 'Zone';
     if (event === 'watering-started') {
         const dur = context?.durationMin !== undefined ? ` (~${context.durationMin} min)` : '';

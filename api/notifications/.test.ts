@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, mock, spyOn } from 'bun:test';
-import { createNotifier, noopNotifier } from '.';
+import { createNotifier, noopNotifier, buildMessage } from '.';
 
 const mockFetch = mock(() => Promise.resolve({} as Response));
 (global as unknown as { fetch: typeof mockFetch }).fetch = mockFetch;
@@ -192,5 +192,49 @@ describe('createNotifier', () => {
         await notifier('watering-ended', { zoneName: 'A' });
 
         expect(mockFetch).toHaveBeenCalledTimes(1);
+    });
+});
+
+describe('buildMessage', () => {
+    it('includes zone name and duration for watering-started', () => {
+        const msg = buildMessage('watering-started', { zoneName: 'Front Lawn', durationMin: 20 });
+        expect(msg).toContain('Front Lawn');
+        expect(msg).toContain('20');
+        expect(msg).toContain('watering started');
+    });
+
+    it('omits duration for watering-started when not provided', () => {
+        const msg = buildMessage('watering-started', { zoneName: 'Front Lawn' });
+        expect(msg).toContain('Front Lawn');
+        expect(msg).not.toContain('min');
+    });
+
+    it('appends boot-recovery qualifier for watering-started with reason=boot', () => {
+        const msg = buildMessage('watering-started', { zoneName: 'Front Lawn', durationMin: 10, reason: 'boot' });
+        expect(msg).toContain('daemon restart');
+    });
+
+    it('returns a simple ended message for watering-ended', () => {
+        const msg = buildMessage('watering-ended', { zoneName: 'Back Garden' });
+        expect(msg).toContain('Back Garden');
+        expect(msg).toContain('watering ended');
+        expect(msg).not.toContain('shutdown');
+    });
+
+    it('appends shutdown qualifier for watering-ended with reason=shutdown', () => {
+        const msg = buildMessage('watering-ended', { zoneName: 'Back Garden', reason: 'shutdown' });
+        expect(msg).toContain('shutdown');
+    });
+
+    it('includes operation and reason for error events', () => {
+        const msg = buildMessage('error', { zoneName: 'Front Lawn', operation: 'open', reason: 'HA 502' });
+        expect(msg).toContain('Front Lawn');
+        expect(msg).toContain('open');
+        expect(msg).toContain('HA 502');
+    });
+
+    it('falls back to Zone when zoneName is omitted', () => {
+        const msg = buildMessage('watering-started', {});
+        expect(msg).toContain('Zone');
     });
 });
