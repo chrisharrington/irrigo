@@ -5,7 +5,12 @@
     "workspaceFolder": "/app",
     "shutdownAction": "none",
     "mounts": [
-        "source=irrigo-vscode-server,target=/home/chrisharrington/.vscode-server,type=volume"
+        "source=irrigo-vscode-server,target=/home/chrisharrington/.vscode-server,type=volume",
+        "source=${localEnv:HOME}/.claude-personal,target=/home/chrisharrington/.claude,type=bind,consistency=cached",
+        "source=${localEnv:HOME}/.claude/commands,target=/home/chrisharrington/.claude/commands,type=bind,readonly",
+        "source=${localEnv:HOME}/.claude/skills,target=/home/chrisharrington/.claude/skills,type=bind,readonly",
+        "source=${localEnv:HOME}/.claude/plugins,target=/home/chrisharrington/.claude/plugins,type=bind,readonly",
+        "source=${localEnv:HOME}/.claude/settings.json,target=/home/chrisharrington/.claude/settings.json,type=bind,readonly"
     ],
     "customizations": {
         "vscode": {
