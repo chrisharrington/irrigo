@@ -1522,6 +1522,94 @@ describe('planZoneSchedule', () => {
         });
     });
 
+    describe('sunset gating', () => {
+        // Clay soil: infiltration 4 mm/hr → soak 60 min. Default zone: AWHC=200 mm/m,
+        // rootDepthM=0.3 → TAW=60 mm, RAW=30 mm. With precipitationRateMmPerHr=9 and
+        // currentDepletionMm=29, irrigation fires on day 1 (after 0.85mm Kc×ET per day
+        // accumulates from 29mm to 30.7mm). That depletion triggers 10 cycles; with 60-min
+        // soaks the first cycle starts ~796 min (13h16m) before sunrise — at ~16:44 on day 0.
+        function sunsetGatingZone() {
+            return createTestZone({
+                currentDepletionMm: 29, // Just below RAW (30 mm) — fires on day 1 only.
+                soil: SOIL_TYPES.clay,
+                precipitationRateMmPerHr: 9,
+            });
+        }
+
+        it('defers a day when first cycle would begin before the previous evening\'s sunset', () => {
+            // Day 0 sunset at 17:00; first cycle for day 1 lands at ~16:44 on day 0
+            // (before sunset) → the planner defers and returns no entry for day 1.
+            const zone = sunsetGatingZone();
+            const weather = createWeatherDays([
+                { evapotranspirationMmPerDay: 1.0, rainfallMm: 0, sunset: dayjs('2026-05-04').hour(17).minute(0).second(0).millisecond(0) },
+                { evapotranspirationMmPerDay: 1.0, rainfallMm: 0 },
+            ], dayjs('2026-05-04'));
+
+            const { entries } = planZoneSchedule(zone, weather);
+
+            // Day 0: depletion 29 + 0.85 ET = 29.85 < RAW 30 → no entry.
+            // Day 1: first cycle ~16:44 is before sunset 17:00 → gated → no entry.
+            expect(entries).toHaveLength(0);
+        });
+
+        it('places a day when first cycle starts after the previous evening\'s sunset', () => {
+            // Day 0 sunset at 16:00; first cycle for day 1 lands at ~16:44 on day 0
+            // (after the 16:00 sunset) → placement is allowed.
+            const zone = sunsetGatingZone();
+            const weather = createWeatherDays([
+                { evapotranspirationMmPerDay: 1.0, rainfallMm: 0, sunset: dayjs('2026-05-04').hour(16).minute(0).second(0).millisecond(0) },
+                { evapotranspirationMmPerDay: 1.0, rainfallMm: 0 },
+            ], dayjs('2026-05-04'));
+
+            const { entries } = planZoneSchedule(zone, weather);
+
+            // First cycle at ~16:44 is after the 16:00 sunset → entry placed on day 1.
+            expect(entries).toHaveLength(1);
+            expect(entries[0]!.date.format('YYYY-MM-DD')).toBe('2026-05-05');
+        });
+
+        it('never gates dayIndex 0 even when the day has a very late sunset', () => {
+            // prevDaySunset is always undefined for dayIndex=0, so the check is skipped
+            // regardless of what sunset value the day carries.
+            const zone = createTestZone({
+                currentDepletionMm: 31, // Above RAW (30 mm for clay) → fires immediately on day 0.
+                soil: SOIL_TYPES.clay,
+                precipitationRateMmPerHr: 9,
+            });
+            const weather = createWeatherDays([
+                {
+                    evapotranspirationMmPerDay: 1.0,
+                    rainfallMm: 0,
+                    sunrise: dayjs('2026-05-04').hour(6).minute(0).second(0).millisecond(0),
+                    sunset: dayjs('2026-05-04').hour(23).minute(59).second(0).millisecond(0),
+                },
+            ], dayjs('2026-05-04'));
+
+            const { entries } = planZoneSchedule(zone, weather);
+
+            // No prevDaySunset at dayIndex=0 — gate check never runs.
+            expect(entries).toHaveLength(1);
+            expect(entries[0]!.date.format('YYYY-MM-DD')).toBe('2026-05-04');
+        });
+
+        it('does not gate when no sunset is provided for the previous day', () => {
+            // If the previous day's DailyWeather has no sunset field, prevDaySunset
+            // is undefined and the gate is skipped — irrigation can fire normally.
+            const zone = sunsetGatingZone();
+            // Day 0 has no sunset field → prevDaySunset for day 1 is undefined.
+            const weather = createWeatherDays([
+                { evapotranspirationMmPerDay: 1.0, rainfallMm: 0 },
+                { evapotranspirationMmPerDay: 1.0, rainfallMm: 0 },
+            ], dayjs('2026-05-04'));
+
+            const { entries } = planZoneSchedule(zone, weather);
+
+            // Gate skipped due to missing sunset → entry placed on day 1.
+            expect(entries).toHaveLength(1);
+            expect(entries[0]!.date.format('YYYY-MM-DD')).toBe('2026-05-05');
+        });
+    });
+
     describe('past-window deconfliction', () => {
         // Simulates the daemon passing { start: epoch, end: now } as a busy window
         // so that past-dated cycles are shifted forward to fire after now.
