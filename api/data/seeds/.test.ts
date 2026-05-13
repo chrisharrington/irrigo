@@ -203,6 +203,7 @@ describe('parseSchedules', () => {
             ],
             rootDepthMOverride: null,
             allowableDepletionFractionOverride: null,
+            endBySunrise: null,
         });
     });
 

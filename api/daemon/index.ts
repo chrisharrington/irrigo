@@ -177,6 +177,7 @@ export async function start(db: DaemonDb, options?: DaemonOptions): Promise<Daem
                 const restrictions = {
                     allowedDays: activeSchedule.allowedDays,
                     allowedTimeWindows: activeSchedule.allowedTimeWindows,
+                    endBySunrise: activeSchedule.endBySunrise ?? false,
                 };
                 const overrides = {
                     rootDepthM: activeSchedule.rootDepthMOverride ?? undefined,

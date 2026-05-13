@@ -43,6 +43,7 @@ export const ScheduleSeedSchema = z.object({
     allowedTimeWindows: z.array(ScheduleTimeWindowSeedSchema).nullable(),
     rootDepthMOverride: z.number().nullable().default(null),
     allowableDepletionFractionOverride: z.number().nullable().default(null),
+    endBySunrise: z.boolean().nullable().default(null),
 });
 
 export const ZoneSeedSchema = z.object({

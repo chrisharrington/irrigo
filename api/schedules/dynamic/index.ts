@@ -231,9 +231,9 @@ function tryPlaceIrrigationForDay(inputs: PlaceIrrigationInputs): PlaceIrrigatio
         : Math.ceil(totalRunTimeMinutes / maximumCycleMinutes);
     const requiredSpanMinutes = totalRunTimeMinutes + (numberOfCycles - 1) * soakTimeMinutes;
 
-    const allowedIntervals = computeAllowedIntervalsForDay(date, restrictions);
+    const allowedIntervals = computeAllowedIntervalsForDay(date, restrictions, sunrise);
     const hasTimeWindows = restrictions.allowedTimeWindows !== null && restrictions.allowedTimeWindows.length > 0;
-    const forbiddenForDay = hasTimeWindows ? computeForbiddenIntervalsForDay(date, restrictions) : [];
+    const forbiddenForDay = hasTimeWindows ? computeForbiddenIntervalsForDay(date, restrictions, sunrise) : [];
 
     // Pick an anchor:
     //  - No time-window restriction: the existing sunrise anchor.

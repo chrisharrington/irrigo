@@ -8,7 +8,8 @@
         "allowedTimeWindows": [
             { "start": "00:00", "end": "10:00" },
             { "start": "19:00", "end": "23:59" }
-        ]
+        ],
+        "endBySunrise": true
     },
     {
         "slug": "overseeding",
