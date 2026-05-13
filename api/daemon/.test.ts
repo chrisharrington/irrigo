@@ -1102,6 +1102,26 @@ describe('armCycle', () => {
         const errorCall = calls.find(c => c.event === 'error');
         expect(errorCall?.context).toEqual({ zoneName: 'Front Lawn', operation: 'close', reason: 'close failed' });
     });
+
+    it('snapshotInFlight includes endTime equal to firedAt + durationMin after a successful open', async () => {
+        const { clock, advanceTo } = createFakeClock(NOW);
+        const { db } = createRuntimeDbStub();
+        const registry = new TimerRegistry();
+        const zone = buildZoneModel({ id: 'zone-snap' });
+        const durationMin = 30;
+        const startTime = new Date('2026-05-04T13:00:00.000Z');
+        const cycle = buildPersistedCycle({ id: 'cycle-snap', startTime, durationMin });
+
+        armCycle({ db, clock, registry, zone, cycle, openZone: async () => {}, closeZone: async () => {}, notifier: noopNotifier });
+        await advanceTo(new Date('2026-05-04T13:00:01.000Z'));
+
+        const snapshot = registry.snapshotInFlight();
+        expect(snapshot).toHaveLength(1);
+        expect(snapshot[0]?.endTime).toBeInstanceOf(Date);
+        // The fake clock fires the open timer at exactly the cycle's startTime (13:00:00Z).
+        // endTime = firedAt + durationMin * 60_000 = 13:00:00Z + 30min = 13:30:00Z.
+        expect(snapshot[0]!.endTime).toEqual(new Date('2026-05-04T13:30:00.000Z'));
+    });
 });
 
 describe('armCloseOnly', () => {
@@ -1128,7 +1148,9 @@ describe('armCloseOnly', () => {
         });
 
         // Pre-registered immediately so getStatus.activeZones reflects the resume.
-        expect(registry.snapshotInFlight().map(({ zone }) => zone.id)).toEqual(['zone-resume']);
+        const snapshot = registry.snapshotInFlight();
+        expect(snapshot.map(({ zone }) => zone.id)).toEqual(['zone-resume']);
+        expect(snapshot[0]?.endTime).toEqual(plannedCloseAt);
         expect(getPendingCount()).toBe(1);
         expect(closes).toHaveLength(0);
 
@@ -1202,8 +1224,8 @@ describe('closeAllInFlight', () => {
         const registry = new TimerRegistry();
         const zoneA = buildZoneModel({ id: 'zone-A' });
         const zoneB = buildZoneModel({ id: 'zone-B' });
-        registry.addInFlight('cycle-X', zoneA, 999);
-        registry.addInFlight('cycle-Y', zoneB, 998);
+        registry.addInFlight('cycle-X', zoneA, 999, new Date(NOW.getTime() + 60 * 60_000));
+        registry.addInFlight('cycle-Y', zoneB, 998, new Date(NOW.getTime() + 60 * 60_000));
         const closes: Zone[] = [];
         const closeZone = async (z: Zone) => { closes.push(z); };
 
@@ -1218,8 +1240,8 @@ describe('closeAllInFlight', () => {
         const { clock } = createFakeClock(NOW);
         const { db, updates } = createRuntimeDbStub();
         const registry = new TimerRegistry();
-        registry.addInFlight('cycle-X', buildZoneModel({ id: 'zone-A' }), 999);
-        registry.addInFlight('cycle-Y', buildZoneModel({ id: 'zone-B' }), 998);
+        registry.addInFlight('cycle-X', buildZoneModel({ id: 'zone-A' }), 999, new Date(NOW.getTime() + 60 * 60_000));
+        registry.addInFlight('cycle-Y', buildZoneModel({ id: 'zone-B' }), 998, new Date(NOW.getTime() + 60 * 60_000));
         let calls = 0;
         const closeZone = async () => {
             calls += 1;
@@ -1251,8 +1273,8 @@ describe('closeAllInFlight', () => {
         const registry = new TimerRegistry();
         const zoneA = buildZoneModel({ id: 'zone-A', name: 'Front Lawn' });
         const zoneB = buildZoneModel({ id: 'zone-B', name: 'Back Yard' });
-        registry.addInFlight('cycle-X', zoneA, 999);
-        registry.addInFlight('cycle-Y', zoneB, 998);
+        registry.addInFlight('cycle-X', zoneA, 999, new Date(NOW.getTime() + 60 * 60_000));
+        registry.addInFlight('cycle-Y', zoneB, 998, new Date(NOW.getTime() + 60 * 60_000));
         const { notifier, calls } = recordingNotifier();
 
         await closeAllInFlight({ db, clock, registry, closeZone: async () => {}, notifier });
@@ -1267,7 +1289,7 @@ describe('closeAllInFlight', () => {
         const { db } = createRuntimeDbStub();
         const registry = new TimerRegistry();
         const zone = buildZoneModel({ id: 'zone-A', name: 'Front Lawn' });
-        registry.addInFlight('cycle-X', zone, 999);
+        registry.addInFlight('cycle-X', zone, 999, new Date(NOW.getTime() + 60 * 60_000));
         const { notifier, calls } = recordingNotifier();
 
         await closeAllInFlight({
@@ -1991,6 +2013,104 @@ describe('start', () => {
             // zone-C must see only zone-A's window — not the failed zone's.
             expect(calls[2]?.busyWindows).toHaveLength(1);
             expect(calls[2]?.busyWindows[0]?.start.toISOString()).toBe('2026-05-04T05:00:00.000Z');
+        });
+
+        it('includes in-flight cycle windows in the initial busy set passed to each zone\'s planner', async () => {
+            // A cycle armed at boot opens at 12:30Z and runs for 60 min → relay closes at ~13:30Z.
+            const futureRow = buildFutureCycleRow({
+                cycle: {
+                    id: 'cycle-inflight',
+                    startTime: new Date('2026-05-04T12:30:00.000Z'),
+                    durationMin: 60,
+                },
+                zone: { id: 'zone-inflight' },
+            });
+            const enabledRow = buildJoinedRow({ zone: { id: 'zone-plan', siteId: 'site-001' } });
+            const { db } = createDaemonDbStub({
+                futureCycles: [futureRow],
+                enabledZones: [enabledRow],
+            });
+            const { clock, advanceTo } = createFakeClock(NOW);
+            const busyWindowsReceived: Array<ReadonlyArray<{ start: Date; end: Date }>> = [];
+
+            const control = await start(db, {
+                clock,
+                rePlanHourLocal: 4,
+                runPlan: async (_z, opts) => {
+                    busyWindowsReceived.push([...(opts?.busyWindows ?? [])]);
+                    return { entries: [], projectedNextDepletionMm: 0 };
+                },
+                openZone: async () => {},
+                closeZone: async () => {},
+                getZoneState: async () => 'off',
+            });
+
+            // Advance past 12:30Z so the boot cycle opens and goes in-flight.
+            await advanceTo(new Date('2026-05-04T12:30:01.000Z'));
+
+            // rePlan — in-flight cycle should seed the initial busyWindows.
+            await control.rePlan();
+
+            expect(busyWindowsReceived).toHaveLength(1);
+            const windows = busyWindowsReceived[0]!;
+            expect(windows.length).toBeGreaterThanOrEqual(1);
+            // The in-flight window ends at ≈12:30Z + 60 min = 13:30Z.
+            const inFlightWindow = windows.find(
+                w => w.end.getTime() >= new Date('2026-05-04T13:29:00.000Z').getTime()
+                  && w.end.getTime() <= new Date('2026-05-04T13:31:00.000Z').getTime()
+            );
+            expect(inFlightWindow).toBeDefined();
+        });
+
+        it('does not arm a cycle that overlaps an in-flight window', async () => {
+            const warnSpy = spyOn(console, 'warn').mockImplementation(() => {});
+            try {
+                // Same in-flight setup: zone-inflight runs 12:30Z–13:30Z.
+                const futureRow = buildFutureCycleRow({
+                    cycle: {
+                        id: 'cycle-inflight',
+                        startTime: new Date('2026-05-04T12:30:00.000Z'),
+                        durationMin: 60,
+                    },
+                    zone: { id: 'zone-inflight' },
+                });
+                const enabledRow = buildJoinedRow({ zone: { id: 'zone-plan', siteId: 'site-001' } });
+                const { db } = createDaemonDbStub({
+                    futureCycles: [futureRow],
+                    enabledZones: [enabledRow],
+                });
+                const { clock, advanceTo } = createFakeClock(NOW);
+                const opens: string[] = [];
+
+                const control = await start(db, {
+                    clock,
+                    rePlanHourLocal: 4,
+                    // zone-plan's planned cycle (12:45Z–13:15Z) falls inside zone-inflight's window.
+                    runPlan: async () => ({
+                        entries: [buildEntry('2026-05-04', [{ startTime: '2026-05-04T12:45:00Z', durationMin: 30 }])],
+                        projectedNextDepletionMm: 0,
+                    }),
+                    openZone: async (z) => { opens.push(z.id); },
+                    closeZone: async () => {},
+                    getZoneState: async () => 'off',
+                });
+
+                // Fire the boot cycle open.
+                await advanceTo(new Date('2026-05-04T12:30:01.000Z'));
+
+                // rePlan plans zone-plan; its cycle overlaps the in-flight window.
+                await control.rePlan();
+
+                // Advance past zone-plan's planned start — it should NOT open.
+                await advanceTo(new Date('2026-05-04T12:45:01.000Z'));
+
+                expect(opens).toContain('zone-inflight');
+                expect(opens).not.toContain('zone-plan');
+                const warnMessages = warnSpy.mock.calls.map(args => String((args as unknown[])[0]));
+                expect(warnMessages.some(m => m.includes('overlaps a busy window'))).toBe(true);
+            } finally {
+                warnSpy.mockRestore();
+            }
         });
     });
 
