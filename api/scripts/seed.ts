@@ -276,6 +276,7 @@ async function upsertSchedules(
             allowedTimeWindows: row.allowedTimeWindows,
             rootDepthMOverride: row.rootDepthMOverride,
             allowableDepletionFractionOverride: row.allowableDepletionFractionOverride,
+            endBySunrise: row.endBySunrise ?? null,
         };
     });
 

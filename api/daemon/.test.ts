@@ -1298,6 +1298,7 @@ type DaemonStubInputs = {
         allowedTimeWindows: Array<{ start: string; end: string }> | null;
         rootDepthMOverride: number | null;
         allowableDepletionFractionOverride: number | null;
+        endBySunrise: boolean | null;
         createdAt: Date;
         updatedAt: Date;
     } }>;
@@ -1348,6 +1349,7 @@ function createDaemonDbStub(inputs?: DaemonStubInputs) {
             allowedTimeWindows: null,
             rootDepthMOverride: null,
             allowableDepletionFractionOverride: null,
+            endBySunrise: null,
             createdAt: NOW_FOR_SCHEDULES,
             updatedAt: NOW_FOR_SCHEDULES,
         },
@@ -2046,6 +2048,7 @@ describe('start', () => {
                         allowedTimeWindows: null,
                         rootDepthMOverride: null,
                         allowableDepletionFractionOverride: null,
+                        endBySunrise: null,
                         createdAt: NOW, updatedAt: NOW,
                     },
                 }],
@@ -2090,6 +2093,7 @@ describe('start', () => {
                         ],
                         rootDepthMOverride: null,
                         allowableDepletionFractionOverride: null,
+                        endBySunrise: null,
                         createdAt: NOW, updatedAt: NOW,
                     },
                 }],
@@ -2129,7 +2133,7 @@ describe('start', () => {
                 activeSchedules: [{
                     schedule: {
                         id: 'sched-active', siteId: 'site-A', slug: 'maintenance', name: 'Maintenance',
-                        isActive: true, allowedDays: null, allowedTimeWindows: null, rootDepthMOverride: null, allowableDepletionFractionOverride: null, createdAt: NOW, updatedAt: NOW,
+                        isActive: true, allowedDays: null, allowedTimeWindows: null, rootDepthMOverride: null, allowableDepletionFractionOverride: null, endBySunrise: null, createdAt: NOW, updatedAt: NOW,
                     },
                 }],
             });
@@ -2196,7 +2200,7 @@ describe('start', () => {
                     activeSchedules: [{
                         schedule: {
                             id: 'sched-A', siteId: 'site-active', slug: 'maintenance', name: 'Maintenance',
-                            isActive: true, allowedDays: null, allowedTimeWindows: null, rootDepthMOverride: null, allowableDepletionFractionOverride: null, createdAt: NOW, updatedAt: NOW,
+                            isActive: true, allowedDays: null, allowedTimeWindows: null, rootDepthMOverride: null, allowableDepletionFractionOverride: null, endBySunrise: null, createdAt: NOW, updatedAt: NOW,
                         },
                     }],
                 });

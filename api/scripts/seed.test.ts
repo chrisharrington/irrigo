@@ -1,6 +1,6 @@
 import path from 'node:path';
 import { describe, it, expect } from 'bun:test';
-import { zones } from '@/db/schema';
+import { schedules, zones } from '@/db/schema';
 import { computeInitialDepletionMm, seed, type SeedDb } from './seed';
 
 const SEEDS_DIR = path.resolve(import.meta.dir, '../data/seeds');
@@ -8,6 +8,8 @@ const SEEDS_DIR = path.resolve(import.meta.dir, '../data/seeds');
 function makeSeedDb() {
     const zoneConflictSets: Array<Record<string, unknown>> = [];
     const zoneInsertValues: Array<ReadonlyArray<Record<string, unknown>>> = [];
+    const scheduleConflictSets: Array<Record<string, unknown>> = [];
+    const scheduleInsertValues: Array<ReadonlyArray<Record<string, unknown>>> = [];
 
     const db: SeedDb = {
         insert: (table) => ({
@@ -16,6 +18,10 @@ function makeSeedDb() {
                     if (table === zones) {
                         zoneConflictSets.push(config.set as Record<string, unknown>);
                         zoneInsertValues.push(rows as ReadonlyArray<Record<string, unknown>>);
+                    }
+                    if (table === schedules) {
+                        scheduleConflictSets.push(config.set as Record<string, unknown>);
+                        scheduleInsertValues.push(rows as ReadonlyArray<Record<string, unknown>>);
                     }
                     return {
                         returning: async () =>
@@ -29,7 +35,7 @@ function makeSeedDb() {
         }),
     };
 
-    return { db, zoneConflictSets, zoneInsertValues };
+    return { db, zoneConflictSets, zoneInsertValues, scheduleConflictSets, scheduleInsertValues };
 }
 
 describe('computeInitialDepletionMm', () => {
@@ -80,5 +86,28 @@ describe('seed zone upsert', () => {
 
         expect(zoneConflictSets).toHaveLength(1);
         expect('currentDepletionMm' in zoneConflictSets[0]!).toBe(false);
+    });
+});
+
+describe('seed schedule upsert', () => {
+    it('includes endBySunrise in schedule insert values', async () => {
+        const { db, scheduleInsertValues } = makeSeedDb();
+
+        await seed({ db, dataDir: SEEDS_DIR });
+
+        const rows = scheduleInsertValues[0];
+        expect(rows).toBeDefined();
+        const maintenance = rows!.find(r => r['slug'] === 'maintenance');
+        expect(maintenance).toBeDefined();
+        expect(maintenance!['endBySunrise']).toBe(true);
+    });
+
+    it('does not include endBySunrise in the ON CONFLICT set (re-seed preserves operator edits)', async () => {
+        const { db, scheduleConflictSets } = makeSeedDb();
+
+        await seed({ db, dataDir: SEEDS_DIR });
+
+        expect(scheduleConflictSets).toHaveLength(1);
+        expect('endBySunrise' in scheduleConflictSets[0]!).toBe(false);
     });
 });
