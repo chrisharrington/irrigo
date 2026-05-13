@@ -43,14 +43,25 @@ export type WeatherDataParams = {
  * @throws Error if the API request fails
  */
 export async function getWeatherData(params: WeatherDataParams): Promise<DailyWeather[]> {
+    if (process.env.OPEN_METEO_ENABLED === 'false') {
+        throw new Error('Weather integration is disabled (OPEN_METEO_ENABLED=false).');
+    }
+
     const { latitude, longitude, forecastDays = 7 } = params;
+    const apiKey = process.env.OPEN_METEO_API_KEY || undefined;
+    const baseUrl = apiKey
+        ? 'https://customer-api.open-meteo.com/v1/forecast'
+        : 'https://api.open-meteo.com/v1/forecast';
 
     // Construct the API URL with required parameters.
-    const url = new URL('https://api.open-meteo.com/v1/forecast');
+    const url = new URL(baseUrl);
     url.searchParams.set('latitude', latitude.toString());
     url.searchParams.set('longitude', longitude.toString());
     url.searchParams.set('daily', 'sunrise,rain_sum,et0_fao_evapotranspiration');
     url.searchParams.set('forecast_days', forecastDays.toString());
+    if (apiKey) {
+        url.searchParams.set('apikey', apiKey);
+    }
 
     // Make the API request.
     const response = await fetch(url.toString());
