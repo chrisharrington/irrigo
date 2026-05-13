@@ -167,6 +167,9 @@ export async function start(db: DaemonDb, options?: DaemonOptions): Promise<Daem
         const now = clock.now();
         const busyWindows: Array<{ start: Date; end: Date }> = registry.snapshotInFlight()
             .map(({ endTime }) => ({ start: now, end: endTime }));
+        // Sentinel covering the entire past so deconflictCycles shifts any
+        // cycle whose planned start has already passed to fire at or after now.
+        const pastWindow: { start: Date; end: Date } = { start: new Date(0), end: now };
 
         for (const zone of enabledZones) {
             const activeSchedule = activeSchedulesBySite.get(zone.siteId);
@@ -185,7 +188,11 @@ export async function start(db: DaemonDb, options?: DaemonOptions): Promise<Daem
                     rootDepthM: activeSchedule.rootDepthMOverride ?? undefined,
                     allowableDepletionFraction: activeSchedule.allowableDepletionFractionOverride ?? undefined,
                 };
-                const { entries, projectedNextDepletionMm } = await runPlan(zone, { busyWindows, restrictions, overrides });
+                const { entries, projectedNextDepletionMm } = await runPlan(zone, {
+                    busyWindows: [pastWindow, ...busyWindows],
+                    restrictions,
+                    overrides,
+                });
                 const { cycles } = await replaceZoneSchedule(db, zone.id, entries, today, projectedNextDepletionMm, activeSchedule.id);
                 for (const cycle of cycles) {
                     const cycleEnd = new Date(cycle.startTime.getTime() + cycle.durationMin * 60_000);

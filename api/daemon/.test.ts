@@ -1933,10 +1933,16 @@ describe('start', () => {
             await control.rePlan();
 
             expect(calls).toHaveLength(2);
-            expect(calls[0]).toEqual({ zoneId: 'zone-A', busyWindows: [] });
+            // zone-A receives only the past window (no cross-zone windows yet).
+            expect(calls[0]?.zoneId).toBe('zone-A');
+            const zoneAWindows = calls[0]!.busyWindows.filter(w => w.start.getTime() > 0);
+            expect(zoneAWindows).toHaveLength(0);
+
+            // zone-B receives the past window + zone-A's placed cycle.
             expect(calls[1]?.zoneId).toBe('zone-B');
-            expect(calls[1]?.busyWindows).toHaveLength(1);
-            const zoneABusy = calls[1]!.busyWindows[0]!;
+            const zoneBCrossWindows = calls[1]!.busyWindows.filter(w => w.start.getTime() > 0);
+            expect(zoneBCrossWindows).toHaveLength(1);
+            const zoneABusy = zoneBCrossWindows[0]!;
             expect(zoneABusy.start.toISOString()).toBe('2026-05-04T05:00:00.000Z');
             expect(zoneABusy.end.toISOString()).toBe('2026-05-04T05:30:00.000Z');
         });
@@ -1969,8 +1975,10 @@ describe('start', () => {
 
             await control.rePlan();
 
-            expect(calls.map(c => c.busyWindows.length)).toEqual([0, 1, 2]);
-            const zoneCBusy = calls[2]!.busyWindows;
+            // Each call includes the past window + cross-zone windows accumulated so far.
+            const crossZoneCounts = calls.map(c => c.busyWindows.filter(w => w.start.getTime() > 0).length);
+            expect(crossZoneCounts).toEqual([0, 1, 2]);
+            const zoneCBusy = calls[2]!.busyWindows.filter(w => w.start.getTime() > 0);
             expect(zoneCBusy[0]?.start.toISOString()).toBe('2026-05-04T05:00:00.000Z');
             expect(zoneCBusy[0]?.end.toISOString()).toBe('2026-05-04T05:20:00.000Z');
             expect(zoneCBusy[1]?.start.toISOString()).toBe('2026-05-04T05:30:00.000Z');
@@ -2010,9 +2018,10 @@ describe('start', () => {
             await control.rePlan();
 
             expect(calls.map(c => c.zoneId)).toEqual(['zone-A', 'zone-bad', 'zone-C']);
-            // zone-C must see only zone-A's window — not the failed zone's.
-            expect(calls[2]?.busyWindows).toHaveLength(1);
-            expect(calls[2]?.busyWindows[0]?.start.toISOString()).toBe('2026-05-04T05:00:00.000Z');
+            // zone-C must see only zone-A's cross-zone window — not the failed zone's.
+            const zoneCCrossWindows = calls[2]!.busyWindows.filter(w => w.start.getTime() > 0);
+            expect(zoneCCrossWindows).toHaveLength(1);
+            expect(zoneCCrossWindows[0]?.start.toISOString()).toBe('2026-05-04T05:00:00.000Z');
         });
 
         it('includes in-flight cycle windows in the initial busy set passed to each zone\'s planner', async () => {
@@ -2111,6 +2120,75 @@ describe('start', () => {
             } finally {
                 warnSpy.mockRestore();
             }
+        });
+
+        it('always includes a past-covering busy window (epoch → now) in the set passed to each zone\'s planner', async () => {
+            const enabledRow = buildJoinedRow({ zone: { id: 'zone-A' } });
+            const { db } = createDaemonDbStub({ enabledZones: [enabledRow] });
+            const { clock } = createFakeClock(NOW);
+            let receivedBusyWindows: ReadonlyArray<{ start: Date; end: Date }> = [];
+
+            const control = await start(db, {
+                clock,
+                rePlanHourLocal: 4,
+                runPlan: async (_z, opts) => {
+                    receivedBusyWindows = [...(opts?.busyWindows ?? [])];
+                    return { entries: [], projectedNextDepletionMm: 0 };
+                },
+                openZone: async () => {},
+                closeZone: async () => {},
+                getZoneState: async () => 'off',
+            });
+
+            await control.rePlan();
+
+            const pastWindow = receivedBusyWindows.find(w => w.start.getTime() === 0);
+            expect(pastWindow).toBeDefined();
+            expect(pastWindow!.end.toISOString()).toBe(NOW.toISOString());
+        });
+    });
+
+    describe('past-dated cycle rescheduling', () => {
+        it('persists planner output even when a returned cycle has a past start time — rescheduling is the planner\'s job', async () => {
+            const enabledRow = buildJoinedRow({ zone: { id: 'zone-loaded', name: 'Loaded Zone' } });
+            const { db, inserts } = createDaemonDbStub({ enabledZones: [enabledRow] });
+            const { clock } = createFakeClock(NOW);
+            // Cycle startTime is 2 hours before NOW — the daemon must not filter it;
+            // the planner (given pastWindow) is responsible for shifting it to the future.
+            const pastEntry = buildEntry('2026-05-04', [{ startTime: '2026-05-04T10:00:00Z', durationMin: 30 }]);
+
+            const control = await start(db, {
+                clock,
+                rePlanHourLocal: 4,
+                runPlan: async () => ({ entries: [pastEntry], projectedNextDepletionMm: 0 }),
+                openZone: async () => {},
+                closeZone: async () => {},
+            });
+
+            await control.rePlan();
+
+            expect(inserts.filter(c => c.table === scheduleEntries)).toHaveLength(1);
+            expect(inserts.filter(c => c.table === irrigationCycles)).toHaveLength(1);
+        });
+
+        it('does not open a zone when the planner returns no entries (all slots past)', async () => {
+            const enabledRow = buildJoinedRow({ zone: { id: 'zone-loaded' } });
+            const { db } = createDaemonDbStub({ enabledZones: [enabledRow] });
+            const { clock, advanceTo } = createFakeClock(NOW);
+            const opens: string[] = [];
+
+            const control = await start(db, {
+                clock,
+                rePlanHourLocal: 4,
+                runPlan: async () => ({ entries: [], projectedNextDepletionMm: 0 }),
+                openZone: async (z) => { opens.push(z.id); },
+                closeZone: async () => {},
+            });
+
+            await control.rePlan();
+            await advanceTo(new Date('2026-05-04T20:00:00.000Z'));
+
+            expect(opens).toHaveLength(0);
         });
     });
 
