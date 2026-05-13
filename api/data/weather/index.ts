@@ -1,5 +1,10 @@
 import type { DailyWeather } from "@/models";
 import dayjs from "dayjs";
+import utc from "dayjs/plugin/utc";
+import tzPlugin from "dayjs/plugin/timezone";
+
+dayjs.extend(utc);
+dayjs.extend(tzPlugin);
 
 type OpenMeteoResponse = {
     latitude: number;
@@ -12,12 +17,14 @@ type OpenMeteoResponse = {
     daily_units: {
         time: string;
         sunrise: string;
+        sunset: string;
         rain_sum: string;
         et0_fao_evapotranspiration: string;
     };
     daily: {
         time: string[];
         sunrise: string[];
+        sunset: string[];
         rain_sum: number[];
         et0_fao_evapotranspiration: number[];
     };
@@ -32,6 +39,15 @@ export type WeatherDataParams = {
 
     /** Optional. Number of days to forecast (default: 7). */
     forecastDays?: number;
+
+    /**
+     * Optional. IANA timezone string (e.g. `America/Edmonton`). When provided,
+     * Open-Meteo returns all daily times in that local timezone and the returned
+     * DailyWeather dayjs objects are anchored to it. This is required for
+     * `allowedTimeWindows` in schedule restrictions to align correctly with the
+     * site's local clock.
+     */
+    timezone?: string;
 };
 
 /**
@@ -43,29 +59,35 @@ export type WeatherDataParams = {
  * @throws Error if the API request fails
  */
 export async function getWeatherData(params: WeatherDataParams): Promise<DailyWeather[]> {
-    const { latitude, longitude, forecastDays = 7 } = params;
+    const { latitude, longitude, forecastDays = 7, timezone } = params;
 
-    // Construct the API URL with required parameters.
     const url = new URL('https://api.open-meteo.com/v1/forecast');
     url.searchParams.set('latitude', latitude.toString());
     url.searchParams.set('longitude', longitude.toString());
-    url.searchParams.set('daily', 'sunrise,rain_sum,et0_fao_evapotranspiration');
+    url.searchParams.set('daily', 'sunrise,sunset,rain_sum,et0_fao_evapotranspiration');
     url.searchParams.set('forecast_days', forecastDays.toString());
+    if (timezone) {
+        url.searchParams.set('timezone', timezone);
+    }
 
-    // Make the API request.
     const response = await fetch(url.toString());
 
     if (!response.ok) {
         throw new Error(`Open-Meteo API request failed: ${response.status} ${response.statusText}`);
     }
 
-    // Parse the JSON response.
     const data = await response.json() as OpenMeteoResponse;
 
-    // Transform the parallel arrays into an array of objects.
+    // Parse a time string in the correct timezone so that downstream dayjs
+    // operations (startOf('day'), isoWeekday, hour comparisons) all use the
+    // site's local clock rather than the container's UTC clock.
+    const parseTime = (t: string): dayjs.Dayjs =>
+        timezone ? dayjs.tz(t, timezone) : dayjs(t);
+
     const dailyData: DailyWeather[] = data.daily.time.map((time, index) => ({
-        date: dayjs(time),
-        sunrise: dayjs(data.daily.sunrise[index]),
+        date: parseTime(time),
+        sunrise: parseTime(data.daily.sunrise[index]!),
+        sunset: parseTime(data.daily.sunset[index]!),
         rainfallMm: data.daily.rain_sum[index],
         evapotranspirationMmPerDay: data.daily.et0_fao_evapotranspiration[index],
     }));

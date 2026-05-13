@@ -50,6 +50,7 @@ describe('runScheduleForZone', () => {
         expect(calledUrl.searchParams.get('latitude')).toBe('51.0447');
         expect(calledUrl.searchParams.get('longitude')).toBe('-114.0719');
         expect(calledUrl.searchParams.get('forecast_days')).toBe('7');
+        expect(calledUrl.searchParams.get('timezone')).toBe('America/Edmonton');
     });
 
     it('passes a custom forecastDays option through to the weather API', async () => {

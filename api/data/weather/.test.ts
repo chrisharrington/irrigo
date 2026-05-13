@@ -17,12 +17,14 @@ describe('Weather Data', () => {
         daily_units: {
             time: 'iso8601',
             sunrise: 'iso8601',
+            sunset: 'iso8601',
             rain_sum: 'mm',
             et0_fao_evapotranspiration: 'mm',
         },
         daily: {
             time: ['2025-10-20', '2025-10-21', '2025-10-22'],
             sunrise: ['2025-10-20T05:41', '2025-10-21T05:43', '2025-10-22T05:45'],
+            sunset: ['2025-10-20T18:10', '2025-10-21T18:08', '2025-10-22T18:06'],
             rain_sum: [0.2, 0.5, 0.0],
             et0_fao_evapotranspiration: [1.63, 1.62, 1.04],
         },
@@ -55,7 +57,8 @@ describe('Weather Data', () => {
         expect(calledUrl.searchParams.get('latitude')).toBe('52.52');
         expect(calledUrl.searchParams.get('longitude')).toBe('13.41');
         expect(calledUrl.searchParams.get('forecast_days')).toBe('7');
-        expect(calledUrl.searchParams.get('daily')).toBe('sunrise,rain_sum,et0_fao_evapotranspiration');
+        expect(calledUrl.searchParams.get('daily')).toBe('sunrise,sunset,rain_sum,et0_fao_evapotranspiration');
+        expect(calledUrl.searchParams.get('timezone')).toBeNull();
     });
 
     it('should use default forecast days of 7 when not specified', async () => {
@@ -90,18 +93,21 @@ describe('Weather Data', () => {
         // Verify first day's data.
         expect(result[0]!.date.format('YYYY-MM-DD')).toBe('2025-10-20');
         expect(result[0]!.sunrise?.format('YYYY-MM-DDTHH:mm')).toBe('2025-10-20T05:41');
+        expect(result[0]!.sunset?.format('YYYY-MM-DDTHH:mm')).toBe('2025-10-20T18:10');
         expect(result[0]!.rainfallMm).toBe(0.2);
         expect(result[0]!.evapotranspirationMmPerDay).toBe(1.63);
 
         // Verify second day's data.
         expect(result[1]!.date.format('YYYY-MM-DD')).toBe('2025-10-21');
         expect(result[1]!.sunrise?.format('YYYY-MM-DDTHH:mm')).toBe('2025-10-21T05:43');
+        expect(result[1]!.sunset?.format('YYYY-MM-DDTHH:mm')).toBe('2025-10-21T18:08');
         expect(result[1]!.rainfallMm).toBe(0.5);
         expect(result[1]!.evapotranspirationMmPerDay).toBe(1.62);
 
         // Verify third day's data.
         expect(result[2]!.date.format('YYYY-MM-DD')).toBe('2025-10-22');
         expect(result[2]!.sunrise?.format('YYYY-MM-DDTHH:mm')).toBe('2025-10-22T05:45');
+        expect(result[2]!.sunset?.format('YYYY-MM-DDTHH:mm')).toBe('2025-10-22T18:06');
         expect(result[2]!.rainfallMm).toBe(0.0);
         expect(result[2]!.evapotranspirationMmPerDay).toBe(1.04);
     });
@@ -119,6 +125,41 @@ describe('Weather Data', () => {
                 longitude: 13.41,
             })
         ).rejects.toThrow('Open-Meteo API request failed: 500 Internal Server Error');
+    });
+
+    it('should include timezone param in URL when specified', async () => {
+        mockFetch.mockResolvedValueOnce({
+            ok: true,
+            json: async () => mockWeatherResponse,
+        } as Response);
+
+        await getWeatherData({
+            latitude: 52.52,
+            longitude: 13.41,
+            timezone: 'America/Edmonton',
+        });
+
+        const calledUrl = new URL((mockFetch.mock.calls[0] as any[])[0] as string);
+        expect(calledUrl.searchParams.get('timezone')).toBe('America/Edmonton');
+    });
+
+    it('should parse times as timezone-aware dayjs objects when timezone is specified', async () => {
+        mockFetch.mockResolvedValueOnce({
+            ok: true,
+            json: async () => mockWeatherResponse,
+        } as Response);
+
+        const result = await getWeatherData({
+            latitude: 52.52,
+            longitude: 13.41,
+            timezone: 'America/Edmonton',
+        });
+
+        // '2025-10-20T05:41' interpreted as 5:41am America/Edmonton (MDT=UTC-6 in Oct).
+        // In UTC that's 11:41am. utcOffset() for an America/Edmonton dayjs is -360 (MDT).
+        expect(result[0]!.sunrise).toBeDefined();
+        // Verify the offset matches the specified timezone (MDT = -360 min in Oct 2025).
+        expect(result[0]!.sunrise!.utcOffset()).toBe(-360);
     });
 
     it('should throw error on network failure', async () => {
