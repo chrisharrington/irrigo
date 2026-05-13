@@ -1521,4 +1521,100 @@ describe('planZoneSchedule', () => {
             expect(maintenanceFire.appliedDepthMm).toBeGreaterThan(overseedingFire.appliedDepthMm * 3);
         });
     });
+
+    describe('past-window deconfliction', () => {
+        // Simulates the daemon passing { start: epoch, end: now } as a busy window
+        // so that past-dated cycles are shifted forward to fire after now.
+
+        const NOW = dayjs('2026-05-04T14:00:00.000Z');
+        const PAST_WINDOW = { start: dayjs(new Date(0)), end: NOW };
+
+        function pastWindowZone() {
+            // Single-cycle zone: high infiltration → no cycle splitting.
+            // currentDepletionMm=22 plus ET=0.85 pushes over RAW (22.5 mm) on day 0.
+            return createTestZone({
+                currentDepletionMm: 22,
+                soil: { name: 'TestSoil', availableWaterHoldingCapacityMmPerM: 150, infiltrationRateMmPerHr: 100 },
+                precipitationRateMmPerHr: 50,
+            });
+        }
+
+        function multiCycleZone() {
+            // Clay soil (infiltration 4 mm/hr) forces 3 cycles.
+            // currentDepletionMm=8 plus ET=0.85 pushes over RAW (8 mm) on day 0.
+            return createTestZone({
+                currentDepletionMm: 8,
+                allowableDepletionFraction: 0.5,
+                rootDepthM: 0.08,
+                soil: SOIL_TYPES.clay,
+                precipitationRateMmPerHr: 9,
+            });
+        }
+
+        function weatherDay(sunriseHour = 6) {
+            return createWeatherDays(
+                [{ evapotranspirationMmPerDay: 1.0, rainfallMm: 0 }],
+                dayjs('2026-05-04'),
+            ).map(day => ({
+                ...day,
+                sunrise: dayjs('2026-05-04').hour(sunriseHour).minute(0).second(0).millisecond(0),
+            }));
+        }
+
+        it('shifts a single past-dated cycle to start at or after now when there is no time window restriction', () => {
+            const zone = pastWindowZone();
+            const weather = weatherDay();
+
+            const { entries } = planZoneSchedule(zone, weather, [PAST_WINDOW]);
+
+            expect(entries).toHaveLength(1);
+            const cycle = entries[0]!.cycles[0]!;
+            expect(cycle.startTime.valueOf()).toBeGreaterThanOrEqual(NOW.valueOf());
+        });
+
+        it('shifts all cycles in a multi-cycle plan to start sequentially after now', () => {
+            const zone = multiCycleZone();
+            const weather = weatherDay();
+
+            const { entries } = planZoneSchedule(zone, weather, [PAST_WINDOW]);
+
+            expect(entries).toHaveLength(1);
+            const cycles = entries[0]!.cycles;
+            expect(cycles.length).toBeGreaterThan(1);
+            for (const cycle of cycles) {
+                expect(cycle.startTime.valueOf()).toBeGreaterThanOrEqual(NOW.valueOf());
+            }
+        });
+
+        it('drops the day when all remaining allowed windows have closed', () => {
+            // Window is 00:00–10:00; now = 14:00 → past window pushes cycle to 14:00
+            // which is outside the window, so cyclesFitAllowed fails and the day is dropped.
+            const zone = pastWindowZone();
+            const weather = weatherDay();
+
+            const { entries } = planZoneSchedule(zone, weather, [PAST_WINDOW], {
+                allowedDays: null,
+                allowedTimeWindows: [{ start: '00:00', end: '10:00' }],
+            });
+
+            expect(entries).toHaveLength(0);
+        });
+
+        it('places a cycle within the remaining window when today\'s window is still open', () => {
+            // Window is 00:00–23:59; now = 09:00 → past window pushes cycle to 09:00
+            // which fits within the window.
+            const NOW_09 = dayjs('2026-05-04T09:00:00.000Z');
+            const zone = pastWindowZone();
+            const weather = weatherDay();
+
+            const { entries } = planZoneSchedule(zone, weather, [{ start: dayjs(new Date(0)), end: NOW_09 }], {
+                allowedDays: null,
+                allowedTimeWindows: [{ start: '00:00', end: '23:59' }],
+            });
+
+            expect(entries).toHaveLength(1);
+            const cycle = entries[0]!.cycles[0]!;
+            expect(cycle.startTime.valueOf()).toBeGreaterThanOrEqual(NOW_09.valueOf());
+        });
+    });
 });
