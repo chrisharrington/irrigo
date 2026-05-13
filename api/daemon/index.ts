@@ -164,7 +164,9 @@ export async function start(db: DaemonDb, options?: DaemonOptions): Promise<Daem
         const enabledZones = await loadEnabledZones(db);
         const activeSchedulesBySite: Map<string, Schedule> = await loadActiveSchedulesBySite(db);
         const today = dayjs(clock.now()).format('YYYY-MM-DD');
-        const busyWindows: Array<{ start: Date; end: Date }> = [];
+        const now = clock.now();
+        const busyWindows: Array<{ start: Date; end: Date }> = registry.snapshotInFlight()
+            .map(({ endTime }) => ({ start: now, end: endTime }));
 
         for (const zone of enabledZones) {
             const activeSchedule = activeSchedulesBySite.get(zone.siteId);
@@ -186,11 +188,14 @@ export async function start(db: DaemonDb, options?: DaemonOptions): Promise<Daem
                 const { entries, projectedNextDepletionMm } = await runPlan(zone, { busyWindows, restrictions, overrides });
                 const { cycles } = await replaceZoneSchedule(db, zone.id, entries, today, projectedNextDepletionMm, activeSchedule.id);
                 for (const cycle of cycles) {
+                    const cycleEnd = new Date(cycle.startTime.getTime() + cycle.durationMin * 60_000);
+                    const overlaps = busyWindows.some(w => cycle.startTime < w.end && cycleEnd > w.start);
+                    if (overlaps) {
+                        console.warn(`daemon: cycle ${cycle.id} for zone ${zone.id} (${zone.name}) overlaps a busy window — not arming.`);
+                        continue;
+                    }
                     armCycle({ db, clock, registry, zone, cycle, openZone, closeZone, notifier });
-                    busyWindows.push({
-                        start: cycle.startTime,
-                        end: new Date(cycle.startTime.getTime() + cycle.durationMin * 60_000),
-                    });
+                    busyWindows.push({ start: cycle.startTime, end: cycleEnd });
                 }
             } catch (err) {
                 console.error(`daemon: re-plan failed for zone ${zone.id}.`, err);

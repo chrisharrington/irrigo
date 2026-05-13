@@ -45,7 +45,7 @@ export const realClock: Clock = {
  */
 export class TimerRegistry {
     private readonly openHandles = new Set<TimerHandle>();
-    private readonly inFlight = new Map<string, { zone: Zone; closeHandle: TimerHandle }>();
+    private readonly inFlight = new Map<string, { zone: Zone; closeHandle: TimerHandle; endTime: Date }>();
     private rePlanHandle: TimerHandle | undefined;
 
     addOpen(handle: TimerHandle): void {
@@ -56,8 +56,8 @@ export class TimerRegistry {
         this.openHandles.delete(handle);
     }
 
-    addInFlight(cycleId: string, zone: Zone, closeHandle: TimerHandle): void {
-        this.inFlight.set(cycleId, { zone, closeHandle });
+    addInFlight(cycleId: string, zone: Zone, closeHandle: TimerHandle, endTime: Date): void {
+        this.inFlight.set(cycleId, { zone, closeHandle, endTime });
     }
 
     clearInFlight(cycleId: string): void {
@@ -92,8 +92,8 @@ export class TimerRegistry {
         }
     }
 
-    snapshotInFlight(): ReadonlyArray<{ cycleId: string; zone: Zone }> {
-        return [...this.inFlight.entries()].map(([cycleId, value]) => ({ cycleId, zone: value.zone }));
+    snapshotInFlight(): ReadonlyArray<{ cycleId: string; zone: Zone; endTime: Date }> {
+        return [...this.inFlight.entries()].map(([cycleId, value]) => ({ cycleId, zone: value.zone, endTime: value.endTime }));
     }
 }
 
@@ -176,12 +176,13 @@ async function runOpen(inputs: ArmCycleInputs): Promise<void> {
     });
 
     const closeDelay = cycle.durationMin * 60_000;
+    const endTime = new Date(firedAt.getTime() + closeDelay);
     const closeHandle = clock.setTimeout(() => {
         runClose({ db, clock, registry, zone, cycle, closeZone, notifier }).catch(err => {
             console.error(`daemon: unhandled error in cycle close path for ${cycle.id}.`, err);
         });
     }, closeDelay);
-    registry.addInFlight(cycle.id, zone, closeHandle);
+    registry.addInFlight(cycle.id, zone, closeHandle, endTime);
 }
 
 /**
@@ -222,7 +223,7 @@ export function armCloseOnly(inputs: ArmCloseOnlyInputs): void {
             console.error(`daemon: unhandled error in close-only path for cycle ${cycle.id}.`, err);
         });
     }, closeDelay);
-    registry.addInFlight(cycle.id, zone, closeHandle);
+    registry.addInFlight(cycle.id, zone, closeHandle, plannedCloseAt);
 }
 
 type RunCloseInputs = {
