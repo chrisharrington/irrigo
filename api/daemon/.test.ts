@@ -2099,7 +2099,7 @@ describe('start', () => {
                 }],
             });
             const { clock } = createFakeClock(NOW);
-            const planCalls: Array<{ allowedDays: number[] | null | undefined; allowedTimeWindows: unknown }> = [];
+            const planCalls: Array<{ allowedDays: number[] | null | undefined; allowedTimeWindows: unknown; endBySunrise: unknown }> = [];
 
             const control = await start(db, {
                 clock,
@@ -2108,6 +2108,7 @@ describe('start', () => {
                     planCalls.push({
                         allowedDays: opts?.restrictions?.allowedDays,
                         allowedTimeWindows: opts?.restrictions?.allowedTimeWindows,
+                        endBySunrise: opts?.restrictions?.endBySunrise,
                     });
                     return { entries: [], projectedNextDepletionMm: 0 };
                 },
@@ -2124,6 +2125,45 @@ describe('start', () => {
                 { start: '00:00', end: '10:00' },
                 { start: '19:00', end: '23:59' },
             ]);
+            expect(planCalls[0]?.endBySunrise).toBe(false);
+        });
+
+        it('forwards endBySunrise: true from the active schedule to runPlan', async () => {
+            const enabledRow = buildJoinedRow({ zone: { id: 'zone-ebs', siteId: 'site-EBS' } });
+            const { db } = createDaemonDbStub({
+                enabledZones: [enabledRow],
+                activeSchedules: [{
+                    schedule: {
+                        id: 'sched-ebs', siteId: 'site-EBS', slug: 'maintenance', name: 'Maintenance',
+                        isActive: true,
+                        allowedDays: null,
+                        allowedTimeWindows: null,
+                        rootDepthMOverride: null,
+                        allowableDepletionFractionOverride: null,
+                        endBySunrise: true,
+                        createdAt: NOW, updatedAt: NOW,
+                    },
+                }],
+            });
+            const { clock } = createFakeClock(NOW);
+            const planCalls: Array<{ endBySunrise: unknown }> = [];
+
+            const control = await start(db, {
+                clock,
+                rePlanHourLocal: 4,
+                runPlan: async (_z, opts) => {
+                    planCalls.push({ endBySunrise: opts?.restrictions?.endBySunrise });
+                    return { entries: [], projectedNextDepletionMm: 0 };
+                },
+                openZone: async () => {},
+                closeZone: async () => {},
+                getZoneState: async () => 'off',
+            });
+
+            await control.rePlan();
+
+            expect(planCalls).toHaveLength(1);
+            expect(planCalls[0]?.endBySunrise).toBe(true);
         });
 
         it('stamps the active schedule id on each schedule_entries insert during rePlan', async () => {

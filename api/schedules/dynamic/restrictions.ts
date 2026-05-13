@@ -18,10 +18,15 @@ export type ScheduleTimeWindow = {
  * Restrictions a schedule applies to the planner's per-day cycle placement.
  * `null` (or an empty array) for either field means "no restriction"; both
  * null is the no-op shape used when no schedule has constraints.
+ *
+ * `endBySunrise`: when true, the planner narrows each morning allowed window
+ * to `[start, min(end, sunrise)]` so no placed cycle can finish post-sunrise.
+ * Evening windows (those that start after sunrise) are left untouched.
  */
 export type ScheduleRestrictions = {
     allowedDays: number[] | null;
     allowedTimeWindows: ScheduleTimeWindow[] | null;
+    endBySunrise?: boolean;
 };
 
 /**
@@ -50,26 +55,59 @@ export function isDayAllowed(restrictions: ScheduleRestrictions, isoWeekday: num
  * (returns []) when the day itself is disallowed — callers should consult
  * `isDayAllowed` first.
  *
+ * When `restrictions.endBySunrise` is true and `sunrise` is provided, morning
+ * windows (those that start before sunrise) are narrowed to end at sunrise.
+ * Evening windows (start >= sunrise) are kept as-is.
+ *
  * @param day - Reference Dayjs already anchored at midnight in the site's
  *   timezone. The returned intervals share its tz.
  * @param restrictions - Effective restrictions for the active schedule.
+ * @param sunrise - Optional sunrise time for the day; required when
+ *   `restrictions.endBySunrise` is true to apply morning-window narrowing.
  */
-export function computeAllowedIntervalsForDay(day: dayjs.Dayjs, restrictions: ScheduleRestrictions): AllowedInterval[] {
+export function computeAllowedIntervalsForDay(
+    day: dayjs.Dayjs,
+    restrictions: ScheduleRestrictions,
+    sunrise?: dayjs.Dayjs,
+): AllowedInterval[] {
     if (!isDayAllowed(restrictions, day.isoWeekday())) return [];
 
     const windows = restrictions.allowedTimeWindows;
+    let intervals: AllowedInterval[];
     if (windows === null || windows.length === 0) {
-        return [{ start: day.startOf('day'), end: day.add(1, 'day').startOf('day') }];
+        intervals = [{ start: day.startOf('day'), end: day.add(1, 'day').startOf('day') }];
+    } else {
+        const base = day.startOf('day');
+        intervals = windows
+            .map(w => ({
+                start: applyHhmm(base, w.start),
+                end: applyHhmm(base, w.end),
+            }))
+            .filter(interval => interval.end.isAfter(interval.start))
+            .sort((a, b) => a.start.valueOf() - b.start.valueOf());
     }
 
-    const base = day.startOf('day');
-    return windows
-        .map(w => ({
-            start: applyHhmm(base, w.start),
-            end: applyHhmm(base, w.end),
-        }))
-        .filter(interval => interval.end.isAfter(interval.start))
-        .sort((a, b) => a.start.valueOf() - b.start.valueOf());
+    if (restrictions.endBySunrise && sunrise !== undefined) {
+        intervals = applyEndBySunrise(intervals, sunrise);
+    }
+
+    return intervals;
+}
+
+/**
+ * Narrows morning windows so no cycle can end after sunrise. Windows that
+ * start before sunrise are capped at `[start, min(end, sunrise)]`; windows
+ * that start at or after sunrise (evening windows) are kept as-is. Zero-
+ * length results (edge case: window starts exactly at sunrise) are dropped.
+ */
+function applyEndBySunrise(intervals: AllowedInterval[], sunrise: dayjs.Dayjs): AllowedInterval[] {
+    return intervals
+        .map(interval => {
+            if (!interval.start.isBefore(sunrise)) return interval;
+            const cappedEnd = interval.end.isAfter(sunrise) ? sunrise : interval.end;
+            return { start: interval.start, end: cappedEnd };
+        })
+        .filter(interval => interval.end.isAfter(interval.start));
 }
 
 /**
@@ -77,8 +115,15 @@ export function computeAllowedIntervalsForDay(day: dayjs.Dayjs, restrictions: Sc
  * intervals. When the day is fully forbidden, the result is a single
  * interval spanning the whole day. Used as additional busy windows in
  * `deconflictCycles` so forward shifts skip past restricted time.
+ *
+ * Pass `sunrise` when `restrictions.endBySunrise` is true so the post-sunrise
+ * portion of morning windows also appears as a forbidden gap.
  */
-export function computeForbiddenIntervalsForDay(day: dayjs.Dayjs, restrictions: ScheduleRestrictions): AllowedInterval[] {
+export function computeForbiddenIntervalsForDay(
+    day: dayjs.Dayjs,
+    restrictions: ScheduleRestrictions,
+    sunrise?: dayjs.Dayjs,
+): AllowedInterval[] {
     const dayStart = day.startOf('day');
     const dayEnd = day.add(1, 'day').startOf('day');
 
@@ -86,7 +131,7 @@ export function computeForbiddenIntervalsForDay(day: dayjs.Dayjs, restrictions: 
         return [{ start: dayStart, end: dayEnd }];
     }
 
-    const allowed = computeAllowedIntervalsForDay(day, restrictions);
+    const allowed = computeAllowedIntervalsForDay(day, restrictions, sunrise);
     if (allowed.length === 0) return [{ start: dayStart, end: dayEnd }];
 
     const gaps: AllowedInterval[] = [];
