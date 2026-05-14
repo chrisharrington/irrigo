@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach, mock } from 'bun:test';
+import { describe, it, expect, beforeEach, afterEach, mock, spyOn } from 'bun:test';
 import { getWeatherData } from '.';
 
 // Mock the global fetch function.
@@ -6,6 +6,8 @@ const mockFetch = mock(() => Promise.resolve({} as Response));
 (global as any).fetch = mockFetch;
 
 describe('Weather Data', () => {
+    let errorSpy: ReturnType<typeof spyOn>;
+
     const mockWeatherResponse = {
         latitude: 52.52,
         longitude: 13.419998,
@@ -32,9 +34,11 @@ describe('Weather Data', () => {
 
     beforeEach(() => {
         mockFetch.mockClear();
+        errorSpy = spyOn(console, 'error').mockImplementation(() => {});
     });
 
     afterEach(() => {
+        errorSpy.mockRestore();
         delete process.env.OPEN_METEO_ENABLED;
         delete process.env.OPEN_METEO_API_KEY;
     });
@@ -130,6 +134,9 @@ describe('Weather Data', () => {
                 longitude: 13.41,
             })
         ).rejects.toThrow('Open-Meteo API request failed: 500 Internal Server Error');
+        expect(errorSpy).toHaveBeenCalledWith(
+            'weather: Open-Meteo API request failed: 500 Internal Server Error',
+        );
     });
 
     it('should include timezone param in URL when specified', async () => {
@@ -175,7 +182,8 @@ describe('Weather Data', () => {
                 latitude: 52.52,
                 longitude: 13.41,
             })
-        ).rejects.toThrow('Network error');
+        ).rejects.toThrow('Open-Meteo network error: Network error');
+        expect(errorSpy).toHaveBeenCalledWith('weather: Open-Meteo network error: Network error');
     });
 
     it('should handle empty response arrays', async () => {
@@ -214,12 +222,14 @@ describe('Weather Data', () => {
             json: async () => malformedResponse,
         } as Response);
 
-        expect(
+        await expect(
             getWeatherData({
                 latitude: 52.52,
                 longitude: 13.41,
             })
-        ).rejects.toThrow();
+        ).rejects.toThrow(/^Open-Meteo response parse error: /);
+        expect(errorSpy).toHaveBeenCalled();
+        expect(errorSpy.mock.calls[0]![0]).toMatch(/^weather: Open-Meteo response could not be parsed: /);
     });
 
     it('should throw error when daily arrays are missing in response', async () => {
@@ -243,7 +253,9 @@ describe('Weather Data', () => {
                 latitude: 52.52,
                 longitude: 13.41,
             })
-        ).rejects.toThrow();
+        ).rejects.toThrow(/^Open-Meteo response parse error: /);
+        expect(errorSpy).toHaveBeenCalled();
+        expect(errorSpy.mock.calls[0]![0]).toMatch(/^weather: Open-Meteo response could not be parsed: /);
     });
 
     it('should throw error when API returns non-JSON response', async () => {
@@ -259,7 +271,10 @@ describe('Weather Data', () => {
                 latitude: 52.52,
                 longitude: 13.41,
             })
-        ).rejects.toThrow('Unexpected token < in JSON at position 0');
+        ).rejects.toThrow('Open-Meteo response parse error: Unexpected token < in JSON at position 0');
+        expect(errorSpy).toHaveBeenCalledWith(
+            'weather: Open-Meteo response could not be parsed: Unexpected token < in JSON at position 0',
+        );
     });
 
     it('throws when OPEN_METEO_ENABLED is false without calling fetch', async () => {
@@ -269,6 +284,8 @@ describe('Weather Data', () => {
             getWeatherData({ latitude: 52.52, longitude: 13.41 })
         ).rejects.toThrow('Weather integration is disabled (OPEN_METEO_ENABLED=false).');
         expect(mockFetch).not.toHaveBeenCalled();
+        // Configuration short-circuit, not a failure — no error log expected.
+        expect(errorSpy).not.toHaveBeenCalled();
     });
 
     it('uses commercial endpoint and appends apikey when OPEN_METEO_API_KEY is set', async () => {
