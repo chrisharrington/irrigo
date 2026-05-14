@@ -1,7 +1,15 @@
+import dayjs from 'dayjs';
+import utc from 'dayjs/plugin/utc';
+import timezone from 'dayjs/plugin/timezone';
+
+dayjs.extend(utc);
+dayjs.extend(timezone);
+
 /**
- * Notification framework. Surfaces watering events and errors through Home
- * Assistant's `notify` service so HA can fan them out to whatever channels
- * it has wired up (mobile companion, persistent notification, email, etc.).
+ * Notification framework. Surfaces day-level irrigation events and errors
+ * through Home Assistant's `notify` service so HA can fan them out to whatever
+ * channels it has wired up (mobile companion, persistent notification, email,
+ * etc.).
  *
  * Best-effort by design: the notifier never throws, never retries, and never
  * blocks the caller's work for long. The alerting channel can be the failing
@@ -9,8 +17,17 @@
  * worse.
  */
 
-/** Coarse event categories the daemon emits. */
-export type NotificationEvent = 'watering-started' | 'watering-ended' | 'error';
+/**
+ * Coarse event categories. `schedule-*` covers daemon-driven scheduled runs;
+ * `watering-*` is reserved for manual operator-initiated fires from the
+ * `/zones/:id/...` HTTP surface; `error` covers any failure.
+ */
+export type NotificationEvent =
+    | 'schedule-begun'
+    | 'schedule-ended'
+    | 'watering-started'
+    | 'watering-ended'
+    | 'error';
 
 /**
  * Optional context fields included on a notification. Producers fill in
@@ -18,17 +35,37 @@ export type NotificationEvent = 'watering-started' | 'watering-ended' | 'error';
  * human-readable copy.
  */
 export type NotificationContext = {
-    /** Zone display name. Used in the notification message. */
+    /** Zone display name. Used in `watering-*` and `error` messages. */
     zoneName?: string;
 
-    /** Cycle duration in minutes. Included in `watering-started` messages. */
+    /** Cycle duration in minutes. Included on `watering-started` for manual fires. */
     durationMin?: number;
 
     /** Operation that failed for `error` events (e.g. `open`, `close`, `re-plan`). */
     operation?: string;
 
-    /** Free-form qualifier (`boot`, `shutdown`, error message, etc.). */
+    /** Free-form qualifier (`manual`, `shutdown`, error message, etc.). */
     reason?: string;
+
+    /**
+     * The irrigation night the schedule event refers to, as a local-date string
+     * (`YYYY-MM-DD` in the site's timezone). Included on `schedule-begun` and
+     * `schedule-ended` so the body can name the night unambiguously.
+     */
+    scheduleNight?: string;
+
+    /**
+     * Total minutes watered per zone for the night. Keys are zone display names;
+     * values are durations in minutes. Used to format the `schedule-ended`
+     * summary line.
+     */
+    perZoneRuntimeMin?: Record<string, number>;
+
+    /** Site timezone used to format `nextIrrigation` for the operator. */
+    siteTimezone?: string;
+
+    /** Next scheduled irrigation, included on the `schedule-ended` body when one is known. */
+    nextIrrigation?: { zoneName: string; startTime: Date };
 };
 
 /**
@@ -61,6 +98,8 @@ export function createNotifier(): Notifier {
     }
 
     const flags = {
+        scheduleStart: parseBoolean(process.env.NOTIFY_ON_SCHEDULE_START, true),
+        scheduleEnd: parseBoolean(process.env.NOTIFY_ON_SCHEDULE_END, true),
         wateringStarted: parseBoolean(process.env.NOTIFY_ON_WATERING_START, false),
         wateringEnded: parseBoolean(process.env.NOTIFY_ON_WATERING_END, false),
         error: parseBoolean(process.env.NOTIFY_ON_ERROR, true),
@@ -69,6 +108,8 @@ export function createNotifier(): Notifier {
     const endpoint = `${url.endsWith('/') ? url.slice(0, -1) : url}/api/services/notify/${service}`;
 
     return async (event, context) => {
+        if (event === 'schedule-begun' && !flags.scheduleStart) return;
+        if (event === 'schedule-ended' && !flags.scheduleEnd) return;
         if (event === 'watering-started' && !flags.wateringStarted) return;
         if (event === 'watering-ended' && !flags.wateringEnded) return;
         if (event === 'error' && !flags.error) return;
@@ -95,20 +136,66 @@ export function createNotifier(): Notifier {
 }
 
 export function buildMessage(event: NotificationEvent, context?: NotificationContext): string {
-    const zone = context?.zoneName ?? 'Zone';
+    if (event === 'schedule-begun') {
+        const night = context?.scheduleNight;
+        return night
+            ? `Irrigation schedule started for the night of ${night}.`
+            : `Irrigation schedule started.`;
+    }
+    if (event === 'schedule-ended') {
+        return buildScheduleEndedMessage(context);
+    }
     if (event === 'watering-started') {
+        const zone = context?.zoneName ?? 'Zone';
         const dur = context?.durationMin !== undefined ? ` (~${context.durationMin} min)` : '';
-        if (context?.reason === 'boot') return `${zone} watering started${dur} (recovered after daemon restart).`;
+        if (context?.reason === 'manual') return `${zone} watering started${dur} (manual fire).`;
         return `${zone} watering started${dur}.`;
     }
     if (event === 'watering-ended') {
+        const zone = context?.zoneName ?? 'Zone';
         if (context?.reason === 'shutdown') return `${zone} watering ended (closed during daemon shutdown).`;
+        if (context?.reason === 'manual') return `${zone} watering ended (manual fire).`;
         return `${zone} watering ended.`;
     }
     // error
+    const zone = context?.zoneName ?? 'Zone';
     const op = context?.operation ?? 'unknown';
     const reason = context?.reason ?? 'unknown';
     return `Irrigo error during ${op} on ${zone}: ${reason}.`;
+}
+
+function buildScheduleEndedMessage(context?: NotificationContext): string {
+    const summary = formatSummary(context?.perZoneRuntimeMin);
+    const next = formatNextIrrigation(context?.nextIrrigation, context?.siteTimezone);
+
+    const head = summary === null
+        ? `Irrigation complete.`
+        : `Irrigation complete: ${summary}.`;
+    return next === null ? head : `${head} ${next}`;
+}
+
+function formatSummary(perZone: Record<string, number> | undefined): string | null {
+    if (!perZone) return null;
+    const entries = Object.entries(perZone);
+    if (entries.length === 0) return null;
+    // Sort alphabetically for stable output and human-scannable ordering.
+    entries.sort(([a], [b]) => a.localeCompare(b));
+    return entries.map(([zone, mins]) => `${zone} ${roundMin(mins)} min`).join(', ');
+}
+
+function formatNextIrrigation(
+    next: { zoneName: string; startTime: Date } | undefined,
+    siteTimezone: string | undefined,
+): string | null {
+    if (!next) return null;
+    const formatted = siteTimezone
+        ? dayjs(next.startTime).tz(siteTimezone).format('ddd D MMM [at] h:mma')
+        : dayjs(next.startTime).format('ddd D MMM [at] h:mma');
+    return `Next irrigation: ${next.zoneName} on ${formatted}.`;
+}
+
+function roundMin(value: number): number {
+    return Math.round(value * 10) / 10;
 }
 
 function parseBoolean(raw: string | undefined, fallback: boolean): boolean {

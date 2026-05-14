@@ -12,6 +12,8 @@ const ENV_KEYS = [
     'HA_URL',
     'HA_TOKEN',
     'HA_NOTIFY_SERVICE',
+    'NOTIFY_ON_SCHEDULE_START',
+    'NOTIFY_ON_SCHEDULE_END',
     'NOTIFY_ON_WATERING_START',
     'NOTIFY_ON_WATERING_END',
     'NOTIFY_ON_ERROR',
@@ -27,6 +29,8 @@ describe('createNotifier', () => {
         process.env.HA_URL = HA_URL;
         process.env.HA_TOKEN = HA_TOKEN;
         process.env.HA_NOTIFY_SERVICE = HA_NOTIFY_SERVICE;
+        delete process.env.NOTIFY_ON_SCHEDULE_START;
+        delete process.env.NOTIFY_ON_SCHEDULE_END;
         delete process.env.NOTIFY_ON_WATERING_START;
         delete process.env.NOTIFY_ON_WATERING_END;
         delete process.env.NOTIFY_ON_ERROR;
@@ -70,6 +74,37 @@ describe('createNotifier', () => {
         expect(notifier).toBe(noopNotifier);
     });
 
+    it('POSTs a schedule-begun event by default (opt-out)', async () => {
+        const notifier = createNotifier();
+
+        await notifier('schedule-begun', { scheduleNight: '2026-05-15' });
+
+        expect(mockFetch).toHaveBeenCalledTimes(1);
+    });
+
+    it('POSTs a schedule-ended event by default (opt-out)', async () => {
+        const notifier = createNotifier();
+
+        await notifier('schedule-ended', {
+            scheduleNight: '2026-05-15',
+            perZoneRuntimeMin: { North: 47 },
+            siteTimezone: 'America/Edmonton',
+        });
+
+        expect(mockFetch).toHaveBeenCalledTimes(1);
+    });
+
+    it('does not POST schedule events when their flag is set to false', async () => {
+        process.env.NOTIFY_ON_SCHEDULE_START = 'false';
+        process.env.NOTIFY_ON_SCHEDULE_END = 'false';
+        const notifier = createNotifier();
+
+        await notifier('schedule-begun', { scheduleNight: '2026-05-15' });
+        await notifier('schedule-ended', { scheduleNight: '2026-05-15' });
+
+        expect(mockFetch).not.toHaveBeenCalled();
+    });
+
     it('does not POST a watering-started event by default (opt-in)', async () => {
         const notifier = createNotifier();
 
@@ -104,10 +139,9 @@ describe('createNotifier', () => {
     });
 
     it('POSTs to the HA notify service URL with bearer auth and JSON body shape', async () => {
-        process.env.NOTIFY_ON_WATERING_START = 'true';
         const notifier = createNotifier();
 
-        await notifier('watering-started', { zoneName: 'Front Lawn', durationMin: 20 });
+        await notifier('schedule-begun', { scheduleNight: '2026-05-15' });
 
         const [calledUrl, init] = mockFetch.mock.calls[0] as [string, RequestInit];
         expect(calledUrl).toBe(`${HA_URL}/api/services/notify/${HA_NOTIFY_SERVICE}`);
@@ -117,22 +151,18 @@ describe('createNotifier', () => {
         expect(headers['Content-Type']).toBe('application/json');
         const parsed = JSON.parse(init.body as string) as { message: string; title: string };
         expect(parsed.title).toBe('Irrigo');
-        expect(parsed.message).toContain('Front Lawn');
-        expect(parsed.message).toContain('20');
+        expect(parsed.message).toContain('2026-05-15');
     });
 
-    it('builds different messages for boot-armed and natural watering-started events', async () => {
+    it('builds a manual-fire qualified message for manual-driven watering-started events', async () => {
         process.env.NOTIFY_ON_WATERING_START = 'true';
         const notifier = createNotifier();
 
-        await notifier('watering-started', { zoneName: 'Front Lawn', durationMin: 20 });
-        await notifier('watering-started', { zoneName: 'Front Lawn', durationMin: 20, reason: 'boot' });
+        await notifier('watering-started', { zoneName: 'Front Lawn', durationMin: 20, reason: 'manual' });
 
-        const calls = mockFetch.mock.calls as Array<[string, RequestInit]>;
-        const firstMessage = (JSON.parse(calls[0]![1].body as string) as { message: string }).message;
-        const secondMessage = (JSON.parse(calls[1]![1].body as string) as { message: string }).message;
-        expect(firstMessage).not.toContain('daemon restart');
-        expect(secondMessage).toContain('daemon restart');
+        const init = mockFetch.mock.calls[0]![1] as RequestInit;
+        const message = (JSON.parse(init.body as string) as { message: string }).message;
+        expect(message).toContain('manual fire');
     });
 
     it('builds a shutdown-qualified message for shutdown-driven watering-ended events', async () => {
@@ -196,22 +226,75 @@ describe('createNotifier', () => {
 });
 
 describe('buildMessage', () => {
-    it('includes zone name and duration for watering-started', () => {
-        const msg = buildMessage('watering-started', { zoneName: 'Front Lawn', durationMin: 20 });
+    it('names the irrigation night for schedule-begun', () => {
+        const msg = buildMessage('schedule-begun', { scheduleNight: '2026-05-15' });
+        expect(msg).toContain('Irrigation schedule started');
+        expect(msg).toContain('2026-05-15');
+    });
+
+    it('falls back to a generic schedule-begun message when scheduleNight is omitted', () => {
+        const msg = buildMessage('schedule-begun', {});
+        expect(msg).toContain('Irrigation schedule started');
+        expect(msg).not.toMatch(/\d{4}-\d{2}-\d{2}/);
+    });
+
+    it('formats the per-zone summary alphabetically for schedule-ended', () => {
+        const msg = buildMessage('schedule-ended', {
+            scheduleNight: '2026-05-15',
+            perZoneRuntimeMin: { South: 32, North: 47, East: 28 },
+            siteTimezone: 'America/Edmonton',
+        });
+        expect(msg).toContain('Irrigation complete');
+        // Alphabetical ordering of zone names.
+        expect(msg.indexOf('East')).toBeLessThan(msg.indexOf('North'));
+        expect(msg.indexOf('North')).toBeLessThan(msg.indexOf('South'));
+        expect(msg).toContain('East 28 min');
+        expect(msg).toContain('North 47 min');
+        expect(msg).toContain('South 32 min');
+    });
+
+    it('appends the next-irrigation line in site-local time for schedule-ended', () => {
+        const msg = buildMessage('schedule-ended', {
+            scheduleNight: '2026-05-15',
+            perZoneRuntimeMin: { North: 47 },
+            siteTimezone: 'America/Edmonton',
+            // 2026-05-23T04:23Z = 22:23 MDT on 2026-05-22.
+            nextIrrigation: { zoneName: 'North', startTime: new Date('2026-05-23T04:23:00.000Z') },
+        });
+        expect(msg).toContain('Next irrigation: North');
+        expect(msg).toContain('Fri 22 May');
+        expect(msg).toContain('10:23pm');
+    });
+
+    it('omits the next-irrigation line when none is provided', () => {
+        const msg = buildMessage('schedule-ended', {
+            scheduleNight: '2026-05-15',
+            perZoneRuntimeMin: { North: 47 },
+            siteTimezone: 'America/Edmonton',
+        });
+        expect(msg).not.toContain('Next irrigation');
+    });
+
+    it('rounds fractional minutes in the summary to one decimal', () => {
+        const msg = buildMessage('schedule-ended', {
+            scheduleNight: '2026-05-15',
+            perZoneRuntimeMin: { North: 47.36 },
+            siteTimezone: 'America/Edmonton',
+        });
+        expect(msg).toContain('North 47.4 min');
+    });
+
+    it('includes zone name and duration for watering-started (manual fire)', () => {
+        const msg = buildMessage('watering-started', { zoneName: 'Front Lawn', durationMin: 20, reason: 'manual' });
         expect(msg).toContain('Front Lawn');
         expect(msg).toContain('20');
-        expect(msg).toContain('watering started');
+        expect(msg).toContain('manual fire');
     });
 
     it('omits duration for watering-started when not provided', () => {
         const msg = buildMessage('watering-started', { zoneName: 'Front Lawn' });
         expect(msg).toContain('Front Lawn');
         expect(msg).not.toContain('min');
-    });
-
-    it('appends boot-recovery qualifier for watering-started with reason=boot', () => {
-        const msg = buildMessage('watering-started', { zoneName: 'Front Lawn', durationMin: 10, reason: 'boot' });
-        expect(msg).toContain('daemon restart');
     });
 
     it('returns a simple ended message for watering-ended', () => {

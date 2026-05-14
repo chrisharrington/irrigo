@@ -1,7 +1,12 @@
 import { buildMessage } from '@/notifications';
 
-const TEST_ZONE = 'Front Lawn';
-const TEST_DURATION_MIN = 15;
+const TEST_NIGHT = '2026-05-15';
+const TEST_SITE_TIMEZONE = 'America/Edmonton';
+const TEST_PER_ZONE_RUNTIME_MIN = { North: 47, South: 32, East: 28 };
+const TEST_NEXT_IRRIGATION = {
+    zoneName: 'North',
+    startTime: new Date('2026-05-23T04:23:00.000Z'),
+};
 
 export type NotifyTestSendResult = { ok: boolean; status: number; statusText: string };
 
@@ -14,19 +19,24 @@ export type NotifyTestDeps = {
 export async function notifyTestCli(deps: NotifyTestDeps): Promise<0 | 1> {
     let exitCode: 0 | 1 = 0;
 
-    const startedMsg = buildMessage('watering-started', { zoneName: TEST_ZONE, durationMin: TEST_DURATION_MIN });
-    deps.log(`notify-test: sending watering-started → "${startedMsg}"`);
-    const startedResult = await deps.send(startedMsg);
-    if (!startedResult.ok) {
-        deps.error(`notify-test: watering-started returned ${startedResult.status} ${startedResult.statusText}`);
+    const begunMsg = buildMessage('schedule-begun', { scheduleNight: TEST_NIGHT });
+    deps.log(`notify-test: sending schedule-begun → "${begunMsg}"`);
+    const begunResult = await deps.send(begunMsg);
+    if (!begunResult.ok) {
+        deps.error(`notify-test: schedule-begun returned ${begunResult.status} ${begunResult.statusText}`);
         exitCode = 1;
     }
 
-    const endedMsg = buildMessage('watering-ended', { zoneName: TEST_ZONE });
-    deps.log(`notify-test: sending watering-ended → "${endedMsg}"`);
+    const endedMsg = buildMessage('schedule-ended', {
+        scheduleNight: TEST_NIGHT,
+        perZoneRuntimeMin: TEST_PER_ZONE_RUNTIME_MIN,
+        siteTimezone: TEST_SITE_TIMEZONE,
+        nextIrrigation: TEST_NEXT_IRRIGATION,
+    });
+    deps.log(`notify-test: sending schedule-ended → "${endedMsg}"`);
     const endedResult = await deps.send(endedMsg);
     if (!endedResult.ok) {
-        deps.error(`notify-test: watering-ended returned ${endedResult.status} ${endedResult.statusText}`);
+        deps.error(`notify-test: schedule-ended returned ${endedResult.status} ${endedResult.statusText}`);
         exitCode = 1;
     }
 
