@@ -203,9 +203,16 @@ type PlaceIrrigationOutcome = {
  * day is disallowed or no cycles fit the overnight window — callers treat
  * that as "skip, carry depletion forward."
  *
- * The overnight window is [prevDaySunset + 1 hour, sunrise]. Cycles that
- * would start before that window are dropped. If a cross-zone busy window
- * displaces every cycle past sunrise they are all dropped and the day skips.
+ * The overnight window is [prevDaySunset, sunrise]. When `prevDaySunset` is
+ * provided and the planned cycle block would extend before it, the entire
+ * day is deferred (gating). When it isn't provided, the planner falls back
+ * to midnight as the floor and truncates cycles that don't fit.
+ *
+ * Past-window busy intervals (those starting at the epoch) are split out
+ * from cross-zone busy windows and applied as a forward shift *after*
+ * overnight-window validation, so a cycle whose planned time has already
+ * passed gets pushed to fire now-ish rather than being dropped for ending
+ * past sunrise.
  */
 function tryPlaceIrrigationForDay(inputs: PlaceIrrigationInputs): PlaceIrrigationOutcome | null {
     const {
@@ -229,11 +236,11 @@ function tryPlaceIrrigationForDay(inputs: PlaceIrrigationInputs): PlaceIrrigatio
         ? (infiltrationRateMillimetersPerHour / precipitationRateMillimetersPerHour) * 60
         : totalRunTimeMinutes;
 
-    // Overnight window: sunset + 1 hour → sunrise. Fall back to midnight when
-    // no previous-day sunset is available (dayIndex 0 or missing data).
-    const earliestStart = prevDaySunset
-        ? prevDaySunset.add(1, 'hour')
-        : sunrise.startOf('day');
+    // Overnight floor: previous evening's sunset when available; otherwise
+    // midnight (truncation mode, used for dayIndex 0 and weather rows
+    // missing sunset data).
+    const hasPrevSunset = prevDaySunset !== undefined;
+    const earliestStart = hasPrevSunset ? prevDaySunset : sunrise.startOf('day');
 
     const plannedCycles = buildCyclePlan(
         totalRunTimeMinutes,
@@ -241,23 +248,39 @@ function tryPlaceIrrigationForDay(inputs: PlaceIrrigationInputs): PlaceIrrigatio
         sunrise,
         soakTimeMinutes,
         earliestStart,
+        hasPrevSunset,
     );
+
+    if (plannedCycles === null) {
+        console.warn(`planner: zone ${zone.id} (${zone.name}): overnight window too short to fit the planned cycles on ${date.format('YYYY-MM-DD')} — deferring irrigation.`);
+        return null;
+    }
 
     if (plannedCycles.length === 0) {
         console.warn(`planner: zone ${zone.id} (${zone.name}): no cycles fit the overnight window on ${date.format('YYYY-MM-DD')} — skipping irrigation.`);
         return null;
     }
 
-    const placedCycles = deconflictCycles(plannedCycles, busyWindowsSoFar, soakTimeMinutes);
+    // The daemon plumbs a "past window" — { start: epoch, end: now } — as a
+    // busy interval to push past-dated cycles forward. Distinguish it from
+    // real cross-zone busy windows so it can be applied after the sunrise
+    // validation: a cycle shifted by the past window is intentionally past
+    // sunrise and shouldn't be dropped, whereas a cycle pushed past sunrise
+    // by a cross-zone conflict has no useful slot and should drop.
+    const pastWindow = busyWindowsSoFar.find(w => w.start.valueOf() === 0);
+    const crossZoneBusyWindows = pastWindow
+        ? busyWindowsSoFar.filter(w => w !== pastWindow)
+        : busyWindowsSoFar;
 
-    // Drop any cycle displaced past sunrise or before the sunset boundary by
-    // cross-zone busy windows. 1-second tolerance absorbs floating-point drift
-    // from non-integer cycle durations.
+    const deconflictedCycles = deconflictCycles(plannedCycles, crossZoneBusyWindows, soakTimeMinutes);
+
+    // Drop any cycle displaced past sunrise by cross-zone busy windows. A
+    // 1-second tolerance absorbs floating-point drift from non-integer
+    // cycle durations.
     const toleranceMs = 1000;
-    const validCycles = placedCycles.filter(c => {
+    const validCycles = deconflictedCycles.filter(c => {
         const endMs = c.startTime.valueOf() + c.durationMin * 60_000;
-        return !c.startTime.isBefore(earliestStart)
-            && endMs <= sunrise.valueOf() + toleranceMs;
+        return endMs <= sunrise.valueOf() + toleranceMs;
     });
 
     if (validCycles.length === 0) {
@@ -265,31 +288,43 @@ function tryPlaceIrrigationForDay(inputs: PlaceIrrigationInputs): PlaceIrrigatio
         return null;
     }
 
+    // Past-window shift runs after sunrise validation: past-dated cycles get
+    // pushed forward to fire after `now`, even if that lands past sunrise.
+    const finalCycles = pastWindow
+        ? deconflictCycles(validCycles, [pastWindow], soakTimeMinutes)
+        : validCycles;
+
     const entry: IrrigationScheduleEntry = {
         date,
         zoneId: zone.id,
-        cycles: validCycles,
+        cycles: finalCycles,
         appliedDepthMm: roundTo1Decimal(grossIrrigationDepthMillimeters),
         depletionBeforeMm: roundTo1Decimal(depletionBeforeIrrigation),
         depletionAfterMm: 0,
     };
-    return { cycles: validCycles, entry };
+    return { cycles: finalCycles, entry };
 }
 
 
 /**
  * Builds an irrigation cycle plan anchored so the last cycle ends at sunrise,
- * filling backward into the night. Cycles that would start before
- * `earliestStart` (sunset + 1 hour) are omitted — the planner delivers as
- * many cycles as the overnight window can hold rather than all-or-nothing.
+ * filling backward into the night. Behavior when a cycle would start before
+ * `earliestStart`:
+ *  - `deferIfWindowTooShort=true` (previous-day sunset available): the entire
+ *    day is treated as un-irrigatable; the function returns `null` so the
+ *    caller defers and carries depletion into the next allowed day.
+ *  - `deferIfWindowTooShort=false` (no previous-day sunset): the plan is
+ *    truncated to the cycles that do fit; depletion is partially refilled.
  *
  * @param totalRunTimeMinutes - Total irrigation runtime needed.
  * @param maximumCycleMinutes - Maximum duration per cycle (infiltration limit).
  * @param sunrise - End anchor: last cycle ends here.
  * @param soakTimeMinutes - Soak gap between consecutive cycles.
  * @param earliestStart - Hard floor: no cycle may start before this time.
- * @returns Cycles in chronological order (earliest first); may be fewer than
- *   the number needed to deliver the full gross depth if the window is short.
+ * @param deferIfWindowTooShort - When true, returning `null` signals deferral
+ *   rather than truncation.
+ * @returns Cycles in chronological order (earliest first), `null` when the
+ *   day must be deferred, or `[]` when nothing needs to run.
  */
 function buildCyclePlan(
     totalRunTimeMinutes: number,
@@ -297,13 +332,14 @@ function buildCyclePlan(
     sunrise: dayjs.Dayjs,
     soakTimeMinutes: number,
     earliestStart: dayjs.Dayjs,
-): IrrigationCycle[] {
+    deferIfWindowTooShort: boolean,
+): IrrigationCycle[] | null {
     if (totalRunTimeMinutes <= 0) return [];
 
     if (maximumCycleMinutes <= 0 || totalRunTimeMinutes <= maximumCycleMinutes) {
         const durationMin = roundTo1Decimal(totalRunTimeMinutes);
         const startTime = sunrise.subtract(durationMin, 'minute');
-        if (startTime.isBefore(earliestStart)) return [];
+        if (startTime.isBefore(earliestStart)) return deferIfWindowTooShort ? null : [];
         return [{ startTime, durationMin }];
     }
 
@@ -317,7 +353,10 @@ function buildCyclePlan(
         const offsetMinutes = totalMinutesBeforeSunrise + perCycleMinutes;
         const cycleStart = sunrise.subtract(offsetMinutes, 'minute');
 
-        if (cycleStart.isBefore(earliestStart)) break; // window exhausted
+        if (cycleStart.isBefore(earliestStart)) {
+            if (deferIfWindowTooShort) return null;
+            break; // truncate
+        }
 
         cyclesInReverse.push({ startTime: cycleStart, durationMin: perCycleMinutes });
         totalMinutesBeforeSunrise = offsetMinutes + soakTimeMinutes;

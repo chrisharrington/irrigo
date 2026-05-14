@@ -1286,25 +1286,26 @@ describe('planZoneSchedule', () => {
         });
 
         it('skips the day when the overnight window is too short for any cycle', () => {
-            // Zone needs ~35 min of irrigation; its natural start = sunrise - 35min = 05:25.
-            // prevDaySunset + 1h = earliestStart = 05:30 > 05:25 → no cycles fit the window.
+            // Polar-day-ish edge: day 0 sunset 23:50, day 1 sunrise 00:10 → only
+            // 20 min between sunset and sunrise, but the planned cycle is ~35 min,
+            // so the cycle would have to start before sunset → defer the day.
             const zone = createTestZone({
                 currentDepletionMm: 21.5, // needs 2 days of ET (0.85/day) before crossing RAW (22.5)
                 soil: { name: 'TestSoil', availableWaterHoldingCapacityMmPerM: 150, infiltrationRateMmPerHr: 100 },
                 precipitationRateMmPerHr: 50,
             });
-            // Day 0: depletion stays below RAW (21.5 + 0.85 = 22.35 < 22.5). Sunset 04:30.
-            // Day 1: depletion crosses RAW. earliestStart = 05:30. Cycle start = 05:25 < 05:30 → skipped.
+            // Day 0: depletion stays below RAW (21.5 + 0.85 = 22.35 < 22.5).
+            // Day 1: depletion crosses RAW; cycle would start ~23:35 day 0, before sunset 23:50 → defer.
             const weather = createWeatherDays([
                 {
                     evapotranspirationMmPerDay: 1.0,
                     rainfallMm: 0,
-                    sunset: dayjs('2026-05-05').hour(4).minute(30).second(0).millisecond(0),
+                    sunset: dayjs('2026-05-05').hour(23).minute(50).second(0).millisecond(0),
                 },
                 {
                     evapotranspirationMmPerDay: 1.0,
                     rainfallMm: 0,
-                    sunrise: dayjs('2026-05-06').hour(6).minute(0).second(0).millisecond(0),
+                    sunrise: dayjs('2026-05-06').hour(0).minute(10).second(0).millisecond(0),
                 },
             ], dayjs('2026-05-05'));
 
@@ -1358,34 +1359,25 @@ describe('planZoneSchedule', () => {
             expect(result.entries).toHaveLength(0);
         });
 
-        it('multi-zone: deconfliction still produces non-overlapping cycles within allowed windows', () => {
+        it('multi-zone: a cross-zone busy window outside the cycle slot is a no-op', () => {
             const zone = singleCycleZone();
             const weather = weatherFromDates('2026-05-06', 1, 6);
+            const baselineCycle = planZoneSchedule(zone, weather).entries[0]!.cycles[0]!;
 
-            // First zone has already grabbed 05:00–05:30 (typical pre-sunrise).
+            // Zone A's busy interval is well before the cycle's natural slot, so
+            // deconflict shouldn't shift it.
             const zoneABusy = [{
-                start: dayjs('2026-05-06').hour(5).minute(0).second(0).millisecond(0),
-                end: dayjs('2026-05-06').hour(5).minute(30).second(0).millisecond(0),
+                start: dayjs('2026-05-06').hour(2).minute(0).second(0).millisecond(0),
+                end: dayjs('2026-05-06').hour(2).minute(30).second(0).millisecond(0),
             }];
 
-            const result = planZoneSchedule(zone, weather, zoneABusy, {
-                allowedDays: null,
-                allowedTimeWindows: [
-                    { start: '00:00', end: '10:00' },
-                    { start: '19:00', end: '23:59' },
-                ],
-            });
+            const result = planZoneSchedule(zone, weather, zoneABusy);
 
-            const cycle = result.entries[0]?.cycles[0]!;
+            const cycle = result.entries[0]!.cycles[0]!;
+            expect(cycle.startTime.isSame(baselineCycle.startTime)).toBe(true);
             const cycleEnd = cycle.startTime.add(cycle.durationMin, 'minute');
-            // No overlap with zone A's window.
             const overlapsA = cycle.startTime.isBefore(zoneABusy[0]!.end) && cycleEnd.isAfter(zoneABusy[0]!.start);
             expect(overlapsA).toBe(false);
-            // Still inside one of the allowed windows.
-            const dayStart = cycle.startTime.startOf('day');
-            const inMorning = !cycle.startTime.isBefore(dayStart) && !cycleEnd.isAfter(dayStart.hour(10));
-            const inEvening = !cycle.startTime.isBefore(dayStart.hour(19)) && !cycleEnd.isAfter(dayStart.hour(23).minute(59));
-            expect(inMorning || inEvening).toBe(true);
         });
     });
 
@@ -1662,31 +1654,25 @@ describe('planZoneSchedule', () => {
             }
         });
 
-        it('drops the day when all remaining allowed windows have closed', () => {
-            // Window is 00:00–10:00; now = 14:00 → past window pushes cycle to 14:00
-            // which is outside the window, so cyclesFitAllowed fails and the day is dropped.
+        it('places a past-dated cycle at NOW even after sunrise has passed', () => {
+            // PAST_WINDOW.end = 14:00 UTC, well past sunrise 06:00. The cycle is
+            // intentionally shifted past sunrise so the daemon can fire it now.
             const zone = pastWindowZone();
             const weather = weatherDay();
 
-            const { entries } = planZoneSchedule(zone, weather, [PAST_WINDOW], {
-                allowedDays: null,
-                allowedTimeWindows: [{ start: '00:00', end: '10:00' }],
-            });
+            const { entries } = planZoneSchedule(zone, weather, [PAST_WINDOW]);
 
-            expect(entries).toHaveLength(0);
+            expect(entries).toHaveLength(1);
+            const cycle = entries[0]!.cycles[0]!;
+            expect(cycle.startTime.isSame(NOW)).toBe(true);
         });
 
-        it('places a cycle within the remaining window when today\'s window is still open', () => {
-            // Window is 00:00–23:59; now = 09:00 → past window pushes cycle to 09:00
-            // which fits within the window.
+        it('places a cycle at NOW when the past window ends earlier in the day', () => {
             const NOW_09 = dayjs('2026-05-04T09:00:00.000Z');
             const zone = pastWindowZone();
             const weather = weatherDay();
 
-            const { entries } = planZoneSchedule(zone, weather, [{ start: dayjs(new Date(0)), end: NOW_09 }], {
-                allowedDays: null,
-                allowedTimeWindows: [{ start: '00:00', end: '23:59' }],
-            });
+            const { entries } = planZoneSchedule(zone, weather, [{ start: dayjs(new Date(0)), end: NOW_09 }]);
 
             expect(entries).toHaveLength(1);
             const cycle = entries[0]!.cycles[0]!;
