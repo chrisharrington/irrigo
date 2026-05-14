@@ -82,6 +82,6 @@ export const SOIL_TYPES = {
     sand: createSoilType('Sand', 75, 50),
     sandyLoam: createSoilType('Sandy Loam', 125, 30),
     loam: createSoilType('Loam', 150, 25),
-    clayLoam: createSoilType('Clay Loam', 175, 13),
+    clayLoam: createSoilType('Clay Loam', 175, 5),
     clay: createSoilType('Clay', 200, 4),
 };

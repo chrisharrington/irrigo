@@ -58,6 +58,7 @@ export async function runScheduleForZone(
         latitude: zone.location.lat,
         longitude: zone.location.lon,
         forecastDays,
+        timezone: zone.siteTimezone,
     });
 
     const busyWindows: BusyWindow[] = (options?.busyWindows ?? []).map(w => ({

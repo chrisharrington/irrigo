@@ -16,12 +16,14 @@ const stubWeatherResponse = {
     daily_units: {
         time: 'iso8601',
         sunrise: 'iso8601',
+        sunset: 'iso8601',
         rain_sum: 'mm',
         et0_fao_evapotranspiration: 'mm',
     },
     daily: {
         time: ['2025-10-20', '2025-10-21', '2025-10-22'],
         sunrise: ['2025-10-20T07:30', '2025-10-21T07:31', '2025-10-22T07:33'],
+        sunset: ['2025-10-20T18:10', '2025-10-21T18:08', '2025-10-22T18:06'],
         rain_sum: [0, 0, 0],
         et0_fao_evapotranspiration: [4.0, 4.0, 4.0],
     },
@@ -48,6 +50,7 @@ describe('runScheduleForZone', () => {
         expect(calledUrl.searchParams.get('latitude')).toBe('51.0447');
         expect(calledUrl.searchParams.get('longitude')).toBe('-114.0719');
         expect(calledUrl.searchParams.get('forecast_days')).toBe('7');
+        expect(calledUrl.searchParams.get('timezone')).toBe('America/Edmonton');
     });
 
     it('passes a custom forecastDays option through to the weather API', async () => {
@@ -117,19 +120,21 @@ describe('runScheduleForZone', () => {
             location: { lat: 51.0447, lon: -114.0719 },
         });
 
-        // First, baseline plan without busy windows — capture the cycle's natural start.
+        // Baseline plan without busy windows — captures the natural cycle placement.
         stubSuccess();
         const baseline = await runScheduleForZone(zone);
         const baselineCycle = baseline.entries[0]!.cycles[0]!;
+        const baselineDay = baseline.entries[0]!.date.format('YYYY-MM-DD');
 
-        // Now plan again with a busy window covering the baseline cycle's start.
+        // Apply a busy window that straddles the cycle's natural start, pushing it past
+        // sunrise — the planner drops that day's entry entirely.
         const busyStart = baselineCycle.startTime.subtract(15, 'minute').toDate();
         const busyEnd = baselineCycle.startTime.add(20, 'minute').toDate();
 
         const { entries } = await runScheduleForZone(zone, { busyWindows: [{ start: busyStart, end: busyEnd }] });
 
-        const shifted = entries[0]!.cycles[0]!;
-        expect(shifted.startTime.toDate().getTime()).toBe(busyEnd.getTime());
+        // Day 0 entry is absent — the busy window displaced its cycle past sunrise.
+        expect(entries.find(e => e.date.format('YYYY-MM-DD') === baselineDay)).toBeUndefined();
     });
 
     it('forwards schedule restrictions to the planner so disallowed days drop their cycles', async () => {

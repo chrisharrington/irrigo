@@ -12,6 +12,9 @@ export type DailyWeather = {
 
     /** Optional. The local sunrise time as Dayjs object. */
     sunrise?: dayjs.Dayjs;
+
+    /** Optional. The local sunset time as Dayjs object. */
+    sunset?: dayjs.Dayjs;
 }
 
 export type GrassType = {

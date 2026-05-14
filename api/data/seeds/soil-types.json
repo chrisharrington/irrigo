@@ -45,7 +45,7 @@
         "slug": "clay-loam",
         "name": "Clay Loam",
         "availableWaterHoldingCapacityMmPerM": 165,
-        "infiltrationRateMmPerHr": 13
+        "infiltrationRateMmPerHr": 5
     },
     {
         "slug": "silty-clay-loam",

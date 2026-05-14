@@ -192,6 +192,7 @@ export async function start(db: DaemonDb, options?: DaemonOptions): Promise<Daem
                     busyWindows: [pastWindow, ...busyWindows],
                     restrictions,
                     overrides,
+                    forecastDays: 14,
                 });
                 const { cycles } = await replaceZoneSchedule(db, zone.id, entries, today, projectedNextDepletionMm, activeSchedule.id);
                 for (const cycle of cycles) {

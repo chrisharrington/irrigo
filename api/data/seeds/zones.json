@@ -8,7 +8,7 @@
         "rootDepthM": 0.3,
         "allowableDepletionFraction": 0.5,
         "irrigationEfficiency": 0.675,
-        "flowRateLPerMin": 15,
+        "flowRateLPerMin": 25,
         "areaM2": 80,
         "microclimateFactor": 0.85,
         "homeAssistantEntityId": "switch.sprinkler_controller_north_zone"
@@ -22,9 +22,9 @@
         "rootDepthM": 0.3,
         "allowableDepletionFraction": 0.5,
         "irrigationEfficiency": 0.675,
-        "flowRateLPerMin": 15,
-        "areaM2": 120,
-        "microclimateFactor": 1.10,
+        "flowRateLPerMin": 25,
+        "areaM2": 60,
+        "microclimateFactor": 1.1,
         "homeAssistantEntityId": "switch.sprinkler_controller_south_zone"
     },
     {
@@ -36,9 +36,9 @@
         "rootDepthM": 0.3,
         "allowableDepletionFraction": 0.5,
         "irrigationEfficiency": 0.675,
-        "flowRateLPerMin": 15,
-        "areaM2": 60,
-        "microclimateFactor": 1.00,
+        "flowRateLPerMin": 25,
+        "areaM2": 120,
+        "microclimateFactor": 1.0,
         "homeAssistantEntityId": "switch.sprinkler_controller_east_zone"
     }
 ]

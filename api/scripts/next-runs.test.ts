@@ -57,19 +57,19 @@ describe('nextRunsCli', () => {
 
         const row1 = logs[1]!;
         expect(row1).toContain('Front Lawn');
-        expect(row1).toContain('2026-05-13T05:30:00+00:00');
-        expect(row1).toContain('2026-05-13T05:45:00+00:00');
+        expect(row1).toContain('Wed May 13, 2026 5:30am');
+        expect(row1).toContain('Wed May 13, 2026 5:45am');
 
         const row2 = logs[2]!;
         expect(row2).toContain('Back Garden');
-        expect(row2).toContain('2026-05-13T06:00:00+00:00');
-        expect(row2).toContain('2026-05-13T06:20:00+00:00');
+        expect(row2).toContain('Wed May 13, 2026 6:00am');
+        expect(row2).toContain('Wed May 13, 2026 6:20am');
 
         expect(logs).toHaveLength(3);
     });
 
-    it('returns 0 and logs all 5 when exactly 5 runs are available', async () => {
-        const runs = Array.from({ length: 5 }, (_, i) =>
+    it('returns 0 and logs all runs when multiple are available', async () => {
+        const runs = Array.from({ length: 10 }, (_, i) =>
             makeRun({
                 zoneName: `Zone ${i + 1}`,
                 zoneSlug: `zone-${i + 1}`,
@@ -85,7 +85,7 @@ describe('nextRunsCli', () => {
 
         expect(code).toBe(0);
         expect(errors).toEqual([]);
-        expect(logs).toHaveLength(6); // header + 5 rows
+        expect(logs).toHaveLength(11); // header + 10 rows
     });
 
     it('returns 0 and prints a no-runs message when zero cycles are returned', async () => {
@@ -115,11 +115,11 @@ describe('nextRunsCli', () => {
         expect(errors[0]).toContain('connection refused');
     });
 
-    it('passes now and limit=5 to loadRuns', async () => {
-        const calls: Array<{ now: Date; limit: number }> = [];
+    it('passes now to loadRuns without a limit', async () => {
+        const calls: Array<{ now: Date }> = [];
         const { deps } = recordingDeps({
-            loadRuns: async (now, limit) => {
-                calls.push({ now, limit });
+            loadRuns: async (now) => {
+                calls.push({ now });
                 return [];
             },
         });
@@ -128,6 +128,20 @@ describe('nextRunsCli', () => {
 
         expect(calls).toHaveLength(1);
         expect(calls[0]!.now).toBeInstanceOf(Date);
-        expect(calls[0]!.limit).toBe(5);
+    });
+
+    it('formats times in the zone timezone, not UTC', async () => {
+        const run = makeRun({
+            startTime: new Date('2026-05-13T12:00:00.000Z'),
+            endTime: new Date('2026-05-13T12:30:00.000Z'),
+            siteTimezone: 'America/Edmonton', // UTC-6 in May
+        });
+        const { deps, logs } = recordingDeps({ loadRuns: async () => [run] });
+
+        await nextRunsCli(deps);
+
+        const row = logs[1]!;
+        expect(row).toContain('6:00am');
+        expect(row).not.toContain('12:00');
     });
 });
