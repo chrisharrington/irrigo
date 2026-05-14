@@ -313,6 +313,13 @@ if (import.meta.main) {
     } else {
         console.log('startup: DRY_RUN=false - HA relay calls are enabled');
     }
+
+    const openMeteoEnabled = process.env.OPEN_METEO_ENABLED !== 'false';
+    if (openMeteoEnabled) {
+        console.log('startup: OPEN_METEO_ENABLED=true - Open-Meteo weather integration is enabled');
+    } else {
+        console.log('startup: OPEN_METEO_ENABLED=false — Open-Meteo weather integration is disabled; the planner will not be able to fetch forecasts.');
+    }
     const effectiveOpenZone: typeof openZone =
         dryRun ?
             async zone => {
