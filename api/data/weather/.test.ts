@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, mock } from 'bun:test';
+import { describe, it, expect, beforeEach, afterEach, mock } from 'bun:test';
 import { getWeatherData } from '.';
 
 // Mock the global fetch function.
@@ -32,6 +32,11 @@ describe('Weather Data', () => {
 
     beforeEach(() => {
         mockFetch.mockClear();
+    });
+
+    afterEach(() => {
+        delete process.env.OPEN_METEO_ENABLED;
+        delete process.env.OPEN_METEO_API_KEY;
     });
 
     it('should fetch weather data with correct URL parameters', async () => {
@@ -255,5 +260,41 @@ describe('Weather Data', () => {
                 longitude: 13.41,
             })
         ).rejects.toThrow('Unexpected token < in JSON at position 0');
+    });
+
+    it('throws when OPEN_METEO_ENABLED is false without calling fetch', async () => {
+        process.env.OPEN_METEO_ENABLED = 'false';
+
+        await expect(
+            getWeatherData({ latitude: 52.52, longitude: 13.41 })
+        ).rejects.toThrow('Weather integration is disabled (OPEN_METEO_ENABLED=false).');
+        expect(mockFetch).not.toHaveBeenCalled();
+    });
+
+    it('uses commercial endpoint and appends apikey when OPEN_METEO_API_KEY is set', async () => {
+        process.env.OPEN_METEO_API_KEY = 'test-key';
+        mockFetch.mockResolvedValueOnce({
+            ok: true,
+            json: async () => mockWeatherResponse,
+        } as Response);
+
+        await getWeatherData({ latitude: 52.52, longitude: 13.41 });
+
+        const calledUrl = new URL((mockFetch.mock.calls[0] as any[])[0] as string);
+        expect(calledUrl.hostname).toBe('customer-api.open-meteo.com');
+        expect(calledUrl.searchParams.get('apikey')).toBe('test-key');
+    });
+
+    it('does not send apikey param on free-tier requests', async () => {
+        mockFetch.mockResolvedValueOnce({
+            ok: true,
+            json: async () => mockWeatherResponse,
+        } as Response);
+
+        await getWeatherData({ latitude: 52.52, longitude: 13.41 });
+
+        const calledUrl = new URL((mockFetch.mock.calls[0] as any[])[0] as string);
+        expect(calledUrl.hostname).toBe('api.open-meteo.com');
+        expect(calledUrl.searchParams.get('apikey')).toBeNull();
     });
 });
