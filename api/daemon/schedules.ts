@@ -12,12 +12,16 @@ import { joinedRowToZone, type SelectJoinChain, type ZoneJoinedRow } from './zon
 
 /**
  * Compact representation of an inserted irrigation cycle, scoped to what the
- * runtime needs to arm timers and update the row on fire/close.
+ * runtime needs to arm timers and update the row on fire/close. `entryDate`
+ * carries the `schedule_entries.date` (YYYY-MM-DD in site timezone) so the
+ * daemon can group cycles by irrigation night when deciding which gets the
+ * `schedule-begun` / `schedule-ended` notification flags.
  */
 export type PersistedCycle = {
     id: string;
     startTime: Date;
     durationMin: number;
+    entryDate: string;
 };
 
 /**
@@ -85,13 +89,14 @@ export async function replaceZoneSchedule(
     const persisted: PersistedCycle[] = [];
 
     for (const entry of entries) {
+        const entryDate = entry.date.format('YYYY-MM-DD');
         const inserted = await db
             .insert(scheduleEntries)
             .values([
                 {
                     zoneId,
                     scheduleId,
-                    date: entry.date.format('YYYY-MM-DD'),
+                    date: entryDate,
                     appliedDepthMm: entry.appliedDepthMm,
                     depletionBeforeMm: entry.depletionBeforeMm,
                     depletionAfterMm: entry.depletionAfterMm,
@@ -101,7 +106,7 @@ export async function replaceZoneSchedule(
 
         const entryId = (inserted[0] as { id: string } | undefined)?.id;
         if (!entryId) {
-            console.warn(`daemon: schedule_entries insert returned no id for zone ${zoneId} on ${entry.date.format('YYYY-MM-DD')}; skipping cycles.`);
+            console.warn(`daemon: schedule_entries insert returned no id for zone ${zoneId} on ${entryDate}; skipping cycles.`);
             continue;
         }
 
@@ -127,6 +132,7 @@ export async function replaceZoneSchedule(
                 id: row['id'] as string,
                 startTime: row['startTime'] as Date,
                 durationMin: row['durationMin'] as number,
+                entryDate,
             });
         }
     }
@@ -259,6 +265,7 @@ function mapFutureCycleRow(row: FutureCycleJoinedRow): FutureCyclePair {
             id: row.cycle.id,
             startTime: row.cycle.startTime,
             durationMin: row.cycle.durationMin,
+            entryDate: row.scheduleEntry.date,
         },
         zone: joinedRowToZone({
             zone: row.zone,

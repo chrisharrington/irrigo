@@ -24,14 +24,19 @@ function recordingDeps(overrides: Partial<NotifyTestDeps>): {
 }
 
 describe('notifyTestCli', () => {
-    it('sends watering-started then watering-ended in order', async () => {
+    it('sends schedule-begun then schedule-ended in order', async () => {
         const { deps, sends } = recordingDeps({});
 
         await notifyTestCli(deps);
 
         expect(sends).toHaveLength(2);
-        expect(sends[0]).toBe(buildMessage('watering-started', { zoneName: 'Front Lawn', durationMin: 15 }));
-        expect(sends[1]).toBe(buildMessage('watering-ended', { zoneName: 'Front Lawn' }));
+        expect(sends[0]).toBe(buildMessage('schedule-begun', { scheduleNight: '2026-05-15' }));
+        expect(sends[1]).toBe(buildMessage('schedule-ended', {
+            scheduleNight: '2026-05-15',
+            perZoneRuntimeMin: { North: 47, South: 32, East: 28 },
+            siteTimezone: 'America/Edmonton',
+            nextIrrigation: { zoneName: 'North', startTime: new Date('2026-05-23T04:23:00.000Z') },
+        }));
     });
 
     it('returns 0 when both sends succeed', async () => {
@@ -48,8 +53,8 @@ describe('notifyTestCli', () => {
         await notifyTestCli(deps);
 
         expect(logs).toHaveLength(2);
-        expect(logs[0]).toContain('watering-started');
-        expect(logs[1]).toContain('watering-ended');
+        expect(logs[0]).toContain('schedule-begun');
+        expect(logs[1]).toContain('schedule-ended');
     });
 
     it('returns 1 and logs an error when the first send fails', async () => {
@@ -62,7 +67,7 @@ describe('notifyTestCli', () => {
 
         expect(code).toBe(1);
         expect(errors).toHaveLength(1);
-        expect(errors[0]).toContain('watering-started');
+        expect(errors[0]).toContain('schedule-begun');
         expect(errors[0]).toContain('502');
     });
 
@@ -76,7 +81,7 @@ describe('notifyTestCli', () => {
 
         expect(code).toBe(1);
         expect(errors).toHaveLength(1);
-        expect(errors[0]).toContain('watering-ended');
+        expect(errors[0]).toContain('schedule-ended');
         expect(errors[0]).toContain('502');
     });
 

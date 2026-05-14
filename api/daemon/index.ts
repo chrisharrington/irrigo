@@ -14,7 +14,18 @@ import type { PlanZoneScheduleResult } from '@/schedules/dynamic';
 import { reconcileCycleAndRelayState, type ReconcileSummary } from './reconcile';
 import { loadActiveSchedulesBySite, type Schedule, type ScheduleManagerDb } from './schedule-manager';
 import { loadFutureCycles, loadInFlightCycles, replaceZoneSchedule, type FutureCyclesDb, type ScheduleWriterDb } from './schedules';
-import { armCloseOnly, armCycle, closeAllInFlight, realClock, TimerRegistry, type Clock, type RuntimeDb } from './runtime';
+import {
+    armCloseOnly,
+    armCycle,
+    closeAllInFlight,
+    realClock,
+    TimerRegistry,
+    type Clock,
+    type RuntimeDb,
+    type ScheduleEndMarker,
+    type ScheduleStartMarker,
+} from './runtime';
+import type { PersistedCycle } from './schedules';
 import { loadSiteTimezone, type SiteTimezoneDb } from './sites';
 import { countZones, loadEnabledZones, type ZoneCountDb, type ZoneLoaderDb } from './zones';
 
@@ -134,8 +145,11 @@ export async function start(db: DaemonDb, options?: DaemonOptions): Promise<Daem
     console.log(`daemon: reconcile summary — resumed: ${reconcileSummary.resumed}, forcedClosed: ${reconcileSummary.forcedClosed}, missedClose: ${reconcileSummary.missedClose}, orphansClosed: ${reconcileSummary.orphansClosed}, errors: ${reconcileSummary.errors}.`);
 
     const futureCycles = await loadFutureCycles(db, clock.now());
+    // Boot-recovery arms leave the schedule markers undefined — schedule-begun
+    // and schedule-ended for this night, if applicable, were already emitted by
+    // the prior process, and re-emitting on every restart would be misleading.
     for (const { cycle, zone } of futureCycles) {
-        armCycle({ db, clock, registry, zone, cycle, openZone, closeZone, notifier, armReason: 'boot' });
+        armCycle({ db, clock, registry, zone, cycle, openZone, closeZone, notifier });
     }
 
     const { total, enabled } = await countZones(db);
@@ -171,6 +185,11 @@ export async function start(db: DaemonDb, options?: DaemonOptions): Promise<Daem
         // cycle whose planned start has already passed to fire at or after now.
         const pastWindow: { start: Date; end: Date } = { start: new Date(0), end: now };
 
+        // Defer arming until the planning loop is done so we can group cycles
+        // by irrigation night and tag the first/last cycle of each night for
+        // schedule-begun / schedule-ended notifications.
+        const cyclesToArm: Array<{ zone: Zone; cycle: PersistedCycle }> = [];
+
         for (const zone of enabledZones) {
             const activeSchedule = activeSchedulesBySite.get(zone.siteId);
             if (!activeSchedule) {
@@ -202,7 +221,7 @@ export async function start(db: DaemonDb, options?: DaemonOptions): Promise<Daem
                         console.warn(`daemon: cycle ${cycle.id} for zone ${zone.id} (${zone.name}) overlaps a busy window — not arming.`);
                         continue;
                     }
-                    armCycle({ db, clock, registry, zone, cycle, openZone, closeZone, notifier });
+                    cyclesToArm.push({ zone, cycle });
                     busyWindows.push({ start: cycle.startTime, end: cycleEnd });
                 }
             } catch (err) {
@@ -214,6 +233,10 @@ export async function start(db: DaemonDb, options?: DaemonOptions): Promise<Daem
                 });
             }
         }
+
+        armCyclesWithScheduleMarkers(cyclesToArm, siteTimezone, ({ zone, cycle, scheduleStart, scheduleEnd }) => {
+            armCycle({ db, clock, registry, zone, cycle, openZone, closeZone, notifier, scheduleStart, scheduleEnd });
+        });
 
         lastRePlanAt = clock.now();
         scheduleNextRePlan();
@@ -255,4 +278,83 @@ export function computeNextRePlanAt(now: Date, hourLocal: number, timezone: stri
     const todayAtHour = ref.hour(hourLocal).minute(0).second(0).millisecond(0);
     const next = todayAtHour.isAfter(ref) ? todayAtHour : todayAtHour.add(1, 'day');
     return next.toDate();
+}
+
+/**
+ * Tagged cycle ready for `armCycle`. The marker fields decide whether the
+ * runtime emits `schedule-begun` / `schedule-ended` after the cycle's
+ * open/close.
+ */
+export type ArmableCycle = {
+    zone: Zone;
+    cycle: PersistedCycle;
+    scheduleStart?: ScheduleStartMarker;
+    scheduleEnd?: ScheduleEndMarker;
+};
+
+/**
+ * Groups cycles by their `entryDate` (one entry-date = one irrigation
+ * night), sorts each group by start time, and tags the earliest cycle of
+ * each group with `scheduleStart` and the latest with `scheduleEnd`. The
+ * end marker carries the night's per-zone runtime summary and a pointer
+ * to the next night's earliest cycle (when one exists in the same batch).
+ *
+ * Pure function — exported for test coverage of the marking logic
+ * independent of the daemon's surrounding orchestration.
+ *
+ * @param cyclesToArm - Cycles selected for arming, in any order.
+ * @param siteTimezone - Site timezone, copied onto each end marker so
+ *   `buildMessage` can format the next-irrigation time in site-local.
+ * @param arm - Callback that performs the actual arming with the resolved
+ *   markers. Invoked once per cycle in chronological order.
+ */
+export function armCyclesWithScheduleMarkers(
+    cyclesToArm: ReadonlyArray<{ zone: Zone; cycle: PersistedCycle }>,
+    siteTimezone: string,
+    arm: (input: ArmableCycle) => void,
+): void {
+    if (cyclesToArm.length === 0) return;
+
+    const byNight = new Map<string, Array<{ zone: Zone; cycle: PersistedCycle }>>();
+    for (const c of cyclesToArm) {
+        const group = byNight.get(c.cycle.entryDate) ?? [];
+        group.push(c);
+        byNight.set(c.cycle.entryDate, group);
+    }
+
+    const nights = [...byNight.keys()].sort();
+    for (const group of byNight.values()) {
+        group.sort((a, b) => a.cycle.startTime.getTime() - b.cycle.startTime.getTime());
+    }
+
+    for (let i = 0; i < nights.length; i++) {
+        const night = nights[i]!;
+        const group = byNight.get(night)!;
+        const first = group[0]!;
+        const last = group[group.length - 1]!;
+
+        const perZoneRuntimeMin: Record<string, number> = {};
+        for (const { zone, cycle } of group) {
+            perZoneRuntimeMin[zone.name] = (perZoneRuntimeMin[zone.name] ?? 0) + cycle.durationMin;
+        }
+
+        const nextNight = i + 1 < nights.length ? byNight.get(nights[i + 1]!) : undefined;
+        const nextFirst = nextNight?.[0];
+        const scheduleEnd: ScheduleEndMarker = {
+            scheduleNight: night,
+            perZoneRuntimeMin,
+            siteTimezone,
+            ...(nextFirst ? { nextIrrigation: { zoneName: nextFirst.zone.name, startTime: nextFirst.cycle.startTime } } : {}),
+        };
+        const scheduleStart: ScheduleStartMarker = { scheduleNight: night };
+
+        for (const item of group) {
+            arm({
+                zone: item.zone,
+                cycle: item.cycle,
+                ...(item === first ? { scheduleStart } : {}),
+                ...(item === last ? { scheduleEnd } : {}),
+            });
+        }
+    }
 }

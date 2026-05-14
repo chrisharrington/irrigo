@@ -43,6 +43,7 @@ function buildPair(overrides?: {
             id: overrides?.cycleId ?? 'cycle-001',
             startTime: overrides?.startTime ?? new Date('2026-05-04T11:30:00.000Z'),
             durationMin: overrides?.durationMin ?? 60,
+            entryDate: '2026-05-04',
         },
         zone: buildZone(overrides?.zone),
     };

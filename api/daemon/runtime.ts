@@ -110,6 +110,33 @@ export type RuntimeDb = {
 };
 
 /**
+ * Marker placed on the chronologically earliest cycle of an irrigation
+ * night. When set, `runOpen` emits `schedule-begun` after the cycle's
+ * relay successfully opens.
+ */
+export type ScheduleStartMarker = {
+    /** Irrigation night this cycle opens (YYYY-MM-DD, site timezone). */
+    scheduleNight: string;
+};
+
+/**
+ * Marker placed on the chronologically latest cycle of an irrigation
+ * night. When set, `runClose` emits `schedule-ended` after the cycle's
+ * relay successfully closes, carrying the per-zone runtime summary and a
+ * pointer to the next night's first cycle (if any).
+ */
+export type ScheduleEndMarker = {
+    /** Irrigation night this cycle ends (YYYY-MM-DD, site timezone). */
+    scheduleNight: string;
+    /** Total minutes watered per zone for the night, keyed by zone display name. */
+    perZoneRuntimeMin: Record<string, number>;
+    /** Site timezone used to format `nextIrrigation` for the operator. */
+    siteTimezone: string;
+    /** Earliest cycle of the next night, when one was produced by the same re-plan. */
+    nextIrrigation?: { zoneName: string; startTime: Date };
+};
+
+/**
  * Inputs to `armCycle` — every external collaborator is injected so tests can
  * substitute deterministic stubs.
  */
@@ -124,12 +151,19 @@ export type ArmCycleInputs = {
     notifier: Notifier;
 
     /**
-     * Why this cycle is being armed. `'boot'` cycles fire from the daemon's
-     * startup loop (recovering future cycles from a previous run); `'scheduled'`
-     * fires from a fresh re-plan. Surfaced in notifications so the user can
-     * tell a boot-recovery firing from a freshly planned one.
+     * Set on the chronologically earliest armed cycle of an irrigation
+     * night so `runOpen` can emit the night's `schedule-begun` notification.
+     * Boot-recovery arms leave it undefined — the begun notification, if
+     * applicable, was already emitted by the prior process.
      */
-    armReason?: 'boot' | 'scheduled';
+    scheduleStart?: ScheduleStartMarker;
+
+    /**
+     * Set on the chronologically latest armed cycle of an irrigation night
+     * so `runClose` can emit the night's `schedule-ended` notification with
+     * the per-zone summary. Boot-recovery arms leave it undefined.
+     */
+    scheduleEnd?: ScheduleEndMarker;
 };
 
 /**
@@ -156,7 +190,7 @@ export function armCycle(inputs: ArmCycleInputs): void {
 }
 
 async function runOpen(inputs: ArmCycleInputs): Promise<void> {
-    const { db, clock, registry, zone, cycle, openZone, closeZone, notifier, armReason } = inputs;
+    const { db, clock, registry, zone, cycle, openZone, closeZone, notifier, scheduleStart, scheduleEnd } = inputs;
 
     try {
         await openZone(zone);
@@ -169,16 +203,16 @@ async function runOpen(inputs: ArmCycleInputs): Promise<void> {
     const firedAt = clock.now();
     await db.update(irrigationCycles).set({ firedAt }).where(eq(irrigationCycles.id, cycle.id));
     console.log(`daemon: opened zone ${zone.id} for cycle ${cycle.id} at ${firedAt.toISOString()}.`);
-    await notifier('watering-started', {
-        zoneName: zone.name,
-        durationMin: cycle.durationMin,
-        ...(armReason === 'boot' ? { reason: 'boot' } : {}),
-    });
+
+    if (scheduleStart) {
+        console.log(`daemon: emitting schedule-begun for night ${scheduleStart.scheduleNight}.`);
+        await notifier('schedule-begun', { scheduleNight: scheduleStart.scheduleNight });
+    }
 
     const closeDelay = cycle.durationMin * 60_000;
     const endTime = new Date(firedAt.getTime() + closeDelay);
     const closeHandle = clock.setTimeout(() => {
-        runClose({ db, clock, registry, zone, cycle, closeZone, notifier }).catch(err => {
+        runClose({ db, clock, registry, zone, cycle, closeZone, notifier, scheduleEnd }).catch(err => {
             console.error(`daemon: unhandled error in cycle close path for ${cycle.id}.`, err);
         });
     }, closeDelay);
@@ -234,10 +268,12 @@ type RunCloseInputs = {
     cycle: PersistedCycle;
     closeZone: (zone: Zone) => Promise<void>;
     notifier: Notifier;
+    /** Set on the last cycle of an irrigation night so close emits `schedule-ended`. */
+    scheduleEnd?: ScheduleEndMarker;
 };
 
 async function runClose(inputs: RunCloseInputs): Promise<void> {
-    const { db, clock, registry, zone, cycle, closeZone, notifier } = inputs;
+    const { db, clock, registry, zone, cycle, closeZone, notifier, scheduleEnd } = inputs;
 
     try {
         await closeZone(zone);
@@ -252,7 +288,16 @@ async function runClose(inputs: RunCloseInputs): Promise<void> {
     await db.update(irrigationCycles).set({ closedAt }).where(eq(irrigationCycles.id, cycle.id));
     registry.clearInFlight(cycle.id);
     console.log(`daemon: closed zone ${zone.id} for cycle ${cycle.id} at ${closedAt.toISOString()}.`);
-    await notifier('watering-ended', { zoneName: zone.name });
+
+    if (scheduleEnd) {
+        console.log(`daemon: emitting schedule-ended for night ${scheduleEnd.scheduleNight}.`);
+        await notifier('schedule-ended', {
+            scheduleNight: scheduleEnd.scheduleNight,
+            perZoneRuntimeMin: scheduleEnd.perZoneRuntimeMin,
+            siteTimezone: scheduleEnd.siteTimezone,
+            ...(scheduleEnd.nextIrrigation ? { nextIrrigation: scheduleEnd.nextIrrigation } : {}),
+        });
+    }
 }
 
 /**
@@ -278,7 +323,6 @@ export async function closeAllInFlight(inputs: {
         try {
             await closeZone(zone);
             await db.update(irrigationCycles).set({ closedAt: clock.now() }).where(eq(irrigationCycles.id, cycleId));
-            await notifier('watering-ended', { zoneName: zone.name, reason: 'shutdown' });
         } catch (err) {
             console.error(`daemon: shutdown closeZone failed for cycle ${cycleId} on zone ${zone.id}.`, err);
             await notifier('error', { zoneName: zone.name, operation: 'shutdown-close', reason: errorMessage(err) });
