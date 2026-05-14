@@ -82,13 +82,20 @@ export async function getWeatherData(params: WeatherDataParams): Promise<DailyWe
         url.searchParams.set('apikey', apiKey);
     }
 
-    const response = await fetch(url.toString());
-
-    if (!response.ok) {
-        throw new Error(`Open-Meteo API request failed: ${response.status} ${response.statusText}`);
+    let response: Response;
+    try {
+        response = await fetch(url.toString());
+    } catch (err) {
+        const detail = err instanceof Error ? err.message : String(err);
+        console.error(`weather: Open-Meteo network error: ${detail}`);
+        throw new Error(`Open-Meteo network error: ${detail}`);
     }
 
-    const data = await response.json() as OpenMeteoResponse;
+    if (!response.ok) {
+        const message = `Open-Meteo API request failed: ${response.status} ${response.statusText}`;
+        console.error(`weather: ${message}`);
+        throw new Error(message);
+    }
 
     // Parse a time string in the correct timezone so that downstream dayjs
     // operations (startOf('day'), isoWeekday, hour comparisons) all use the
@@ -96,13 +103,19 @@ export async function getWeatherData(params: WeatherDataParams): Promise<DailyWe
     const parseTime = (t: string): dayjs.Dayjs =>
         timezone ? dayjs.tz(t, timezone) : dayjs(t);
 
-    const dailyData: DailyWeather[] = data.daily.time.map((time, index) => ({
-        date: parseTime(time),
-        sunrise: parseTime(data.daily.sunrise[index]!),
-        sunset: parseTime(data.daily.sunset[index]!),
-        rainfallMm: data.daily.rain_sum[index],
-        evapotranspirationMmPerDay: data.daily.et0_fao_evapotranspiration[index],
-    }));
+    try {
+        const data = await response.json() as OpenMeteoResponse;
 
-    return dailyData;
+        return data.daily.time.map((time, index) => ({
+            date: parseTime(time),
+            sunrise: parseTime(data.daily.sunrise[index]!),
+            sunset: parseTime(data.daily.sunset[index]!),
+            rainfallMm: data.daily.rain_sum[index],
+            evapotranspirationMmPerDay: data.daily.et0_fao_evapotranspiration[index],
+        }));
+    } catch (err) {
+        const detail = err instanceof Error ? err.message : String(err);
+        console.error(`weather: Open-Meteo response could not be parsed: ${detail}`);
+        throw new Error(`Open-Meteo response parse error: ${detail}`);
+    }
 }
