@@ -3,13 +3,13 @@ import utc from 'dayjs/plugin/utc';
 import timezone from 'dayjs/plugin/timezone';
 import { and, eq, gte, isNull } from 'drizzle-orm';
 import { irrigationCycles, scheduleEntries, sites, zones } from '@/db/schema';
+import type { db as DbType } from '@/db';
 
 dayjs.extend(utc);
 dayjs.extend(timezone);
 
-const NEXT_RUNS_LIMIT = 5;
 const ZONE_COL_WIDTH = 30;
-const TIME_COL_WIDTH = 25; // 'YYYY-MM-DDTHH:mm:ss±HH:mm' is always 25 chars
+const TIME_COL_WIDTH = 26;
 
 export type NextRun = {
     zoneName: string;
@@ -20,7 +20,7 @@ export type NextRun = {
 };
 
 export type NextRunsCliDeps = {
-    loadRuns: (now: Date, limit: number) => Promise<NextRun[]>;
+    loadRuns: (now: Date) => Promise<NextRun[]>;
     log: (message: string) => void;
     error: (message: string) => void;
 };
@@ -28,7 +28,7 @@ export type NextRunsCliDeps = {
 export async function nextRunsCli(deps: NextRunsCliDeps): Promise<0 | 1> {
     let runs: NextRun[];
     try {
-        runs = await deps.loadRuns(new Date(), NEXT_RUNS_LIMIT);
+        runs = await deps.loadRuns(new Date());
     } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
         deps.error(`next-runs: failed to load upcoming cycles — ${message}`);
@@ -56,54 +56,53 @@ function formatHeader(): string {
 }
 
 function formatRun(run: NextRun): string {
-    const startFmt = dayjs(run.startTime).tz(run.siteTimezone).format('YYYY-MM-DDTHH:mm:ssZ');
-    const endFmt = dayjs(run.endTime).tz(run.siteTimezone).format('YYYY-MM-DDTHH:mm:ssZ');
+    const fmt = (d: Date) => dayjs(d).tz(run.siteTimezone).format('ddd MMM D, YYYY h:mma');
     return (
         run.zoneName.padEnd(ZONE_COL_WIDTH) + '  ' +
-        startFmt.padEnd(TIME_COL_WIDTH) + '  ' +
-        endFmt
+        fmt(run.startTime).padEnd(TIME_COL_WIDTH) + '  ' +
+        fmt(run.endTime)
     );
 }
 
+export async function loadNextRuns(db: typeof DbType, now: Date): Promise<NextRun[]> {
+    const rows = await db
+        .select({
+            startTime: irrigationCycles.startTime,
+            durationMin: irrigationCycles.durationMin,
+            zoneName: zones.name,
+            zoneSlug: zones.slug,
+            siteTimezone: sites.timezone,
+        })
+        .from(irrigationCycles)
+        .innerJoin(scheduleEntries, eq(irrigationCycles.scheduleEntryId, scheduleEntries.id))
+        .innerJoin(zones, eq(scheduleEntries.zoneId, zones.id))
+        .innerJoin(sites, eq(zones.siteId, sites.id))
+        .where(
+            and(
+                isNull(irrigationCycles.firedAt),
+                gte(irrigationCycles.startTime, now),
+                eq(zones.isEnabled, true),
+            ),
+        );
+
+    return rows
+        .sort((a, b) => {
+            const diff = a.startTime.getTime() - b.startTime.getTime();
+            return diff !== 0 ? diff : a.zoneSlug.localeCompare(b.zoneSlug);
+        })
+        .map(row => ({
+            zoneName: row.zoneName,
+            zoneSlug: row.zoneSlug,
+            startTime: row.startTime,
+            endTime: new Date(row.startTime.getTime() + row.durationMin * 60_000),
+            siteTimezone: row.siteTimezone,
+        }));
+}
+
 if (import.meta.main) {
+    const { db } = await import('@/db');
     const deps: NextRunsCliDeps = {
-        loadRuns: async (now, limit) => {
-            const { db } = await import('@/db');
-
-            const rows = await db
-                .select({
-                    startTime: irrigationCycles.startTime,
-                    durationMin: irrigationCycles.durationMin,
-                    zoneName: zones.name,
-                    zoneSlug: zones.slug,
-                    siteTimezone: sites.timezone,
-                })
-                .from(irrigationCycles)
-                .innerJoin(scheduleEntries, eq(irrigationCycles.scheduleEntryId, scheduleEntries.id))
-                .innerJoin(zones, eq(scheduleEntries.zoneId, zones.id))
-                .innerJoin(sites, eq(zones.siteId, sites.id))
-                .where(
-                    and(
-                        isNull(irrigationCycles.firedAt),
-                        gte(irrigationCycles.startTime, now),
-                        eq(zones.isEnabled, true),
-                    ),
-                );
-
-            return rows
-                .sort((a, b) => {
-                    const diff = a.startTime.getTime() - b.startTime.getTime();
-                    return diff !== 0 ? diff : a.zoneSlug.localeCompare(b.zoneSlug);
-                })
-                .slice(0, limit)
-                .map(row => ({
-                    zoneName: row.zoneName,
-                    zoneSlug: row.zoneSlug,
-                    startTime: row.startTime,
-                    endTime: new Date(row.startTime.getTime() + row.durationMin * 60_000),
-                    siteTimezone: row.siteTimezone,
-                }));
-        },
+        loadRuns: (now) => loadNextRuns(db, now),
         log: m => console.log(m),
         error: m => console.error(m),
     };

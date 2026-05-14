@@ -110,7 +110,7 @@
         "description": "Higher clay content with sand and silt. Good water storage, slower drainage.",
         "texture": "moderately fine",
         "availableWaterHoldingCapacityMmPerM": 165,
-        "infiltrationRateMmPerHr": 13,
+        "infiltrationRateMmPerHr": 5,
         "characteristics": {
             "drainage": "moderate to slow",
             "waterRetention": "very good",

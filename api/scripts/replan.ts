@@ -28,10 +28,22 @@ async function postReplan(): Promise<void> {
 }
 
 if (import.meta.main) {
-    const deps: ReplanCliDeps = {
+    const { db } = await import('@/db');
+    const { nextRunsCli, loadNextRuns } = await import('./next-runs');
+
+    const code = await replanCli({
         triggerReplan: postReplan,
         log: m => console.log(m),
         error: m => console.error(m),
-    };
-    replanCli(deps).then(code => process.exit(code));
+    });
+
+    if (code === 0) {
+        await nextRunsCli({
+            loadRuns: (now) => loadNextRuns(db, now),
+            log: m => console.log(m),
+            error: m => console.error(m),
+        });
+    }
+
+    process.exit(code);
 }

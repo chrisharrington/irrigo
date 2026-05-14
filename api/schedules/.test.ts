@@ -120,19 +120,21 @@ describe('runScheduleForZone', () => {
             location: { lat: 51.0447, lon: -114.0719 },
         });
 
-        // First, baseline plan without busy windows — capture the cycle's natural start.
+        // Baseline plan without busy windows — captures the natural cycle placement.
         stubSuccess();
         const baseline = await runScheduleForZone(zone);
         const baselineCycle = baseline.entries[0]!.cycles[0]!;
+        const baselineDay = baseline.entries[0]!.date.format('YYYY-MM-DD');
 
-        // Now plan again with a busy window covering the baseline cycle's start.
+        // Apply a busy window that straddles the cycle's natural start, pushing it past
+        // sunrise — the planner drops that day's entry entirely.
         const busyStart = baselineCycle.startTime.subtract(15, 'minute').toDate();
         const busyEnd = baselineCycle.startTime.add(20, 'minute').toDate();
 
         const { entries } = await runScheduleForZone(zone, { busyWindows: [{ start: busyStart, end: busyEnd }] });
 
-        const shifted = entries[0]!.cycles[0]!;
-        expect(shifted.startTime.toDate().getTime()).toBe(busyEnd.getTime());
+        // Day 0 entry is absent — the busy window displaced its cycle past sunrise.
+        expect(entries.find(e => e.date.format('YYYY-MM-DD') === baselineDay)).toBeUndefined();
     });
 
     it('forwards schedule restrictions to the planner so disallowed days drop their cycles', async () => {

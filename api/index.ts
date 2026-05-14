@@ -1,16 +1,21 @@
-import path from 'node:path';
-import { fileURLToPath } from 'node:url';
-import Fastify, { type FastifyInstance, type FastifyReply } from 'fastify';
 import Config from '@/config';
 import { start as daemonStart, type DaemonControl, type DaemonDb, type DaemonStatus } from '@/daemon';
 import { realClock } from '@/daemon/runtime';
+import {
+    disableSchedule as defaultDisableSchedule,
+    enableSchedule as defaultEnableSchedule,
+    type Schedule,
+    type ScheduleManagerDb,
+} from '@/daemon/schedule-manager';
 import { loadZoneById } from '@/daemon/zones';
 import { closeZone, getZoneState, openZone } from '@/data/home-assistant';
 import { queryLatestMigrationViaDrizzle, readJournalFile, verifyMigrations } from '@/db/verify-migrations';
 import { BusyError, createManualController, type ManualController } from '@/manual';
 import type { Zone } from '@/models';
 import { createNotifier } from '@/notifications';
-import { disableSchedule as defaultDisableSchedule, enableSchedule as defaultEnableSchedule, type Schedule, type ScheduleManagerDb } from '@/daemon/schedule-manager';
+import Fastify, { type FastifyInstance, type FastifyReply } from 'fastify';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 const shutdownStarted = new WeakSet<FastifyInstance>();
 
@@ -113,11 +118,7 @@ export function buildApp(opts: BuildAppOptions): FastifyInstance {
     return app;
 }
 
-function registerReplanRoute(
-    app: FastifyInstance,
-    replan: () => Promise<void>,
-    getStatus: () => DaemonStatus,
-): void {
+function registerReplanRoute(app: FastifyInstance, replan: () => Promise<void>, getStatus: () => DaemonStatus): void {
     /**
      * `POST /replan` — forces the daemon to re-plan immediately. Used by the
      * CLI scripts to make schedule changes take effect within seconds rather
@@ -304,12 +305,38 @@ if (import.meta.main) {
     console.log('startup: database schema verified.');
 
     const notifier = createNotifier();
-    const daemon = await daemonStart(db as unknown as DaemonDb, { notifier, getZoneState });
+    const dryRun = process.env.DRY_RUN === 'true';
+    if (dryRun) {
+        console.log(
+            'startup: DRY_RUN=true — HA relay calls are disabled; cycles will be planned and logged but sprinklers will not activate.',
+        );
+    } else {
+        console.log('startup: DRY_RUN=false - HA relay calls are enabled');
+    }
+    const effectiveOpenZone: typeof openZone =
+        dryRun ?
+            async zone => {
+                console.log(`dry-run: would open zone ${zone.id} (${zone.name}).`);
+            }
+        :   openZone;
+    const effectiveCloseZone: typeof closeZone =
+        dryRun ?
+            async zone => {
+                console.log(`dry-run: would close zone ${zone.id} (${zone.name}).`);
+            }
+        :   closeZone;
+    const effectiveGetZoneState: typeof getZoneState = dryRun ? async _zone => 'off' as const : getZoneState;
+    const daemon = await daemonStart(db as unknown as DaemonDb, {
+        notifier,
+        openZone: effectiveOpenZone,
+        closeZone: effectiveCloseZone,
+        getZoneState: effectiveGetZoneState,
+    });
     const manual = createManualController({
         db: db as unknown as Parameters<typeof createManualController>[0]['db'],
         clock: realClock,
-        openZone,
-        closeZone,
+        openZone: effectiveOpenZone,
+        closeZone: effectiveCloseZone,
         notifier,
         isAnyScheduledInFlight: () => daemon.getStatus().activeZones.length > 0,
     });
