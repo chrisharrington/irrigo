@@ -11,6 +11,7 @@ import {
     schedules,
     sites,
     soilTypes,
+    systemState,
     weatherState,
     zones,
 } from '@/db/schema';
@@ -1773,6 +1774,11 @@ type DaemonStubInputs = {
     siteTimezones?: ReadonlyArray<{ timezone: string }>;
     /** Seed value the weather_state stub returns; `undefined` ⇒ no row ⇒ stale. */
     lastSuccessfulFetchAt?: Date | null;
+    /**
+     * Seed value the system_state stub returns. Defaults to enabled with a
+     * fixed `since` so the existing tests don't have to plumb it.
+     */
+    systemState?: { irrigationEnabled: boolean; since: Date };
     activeSchedules?: ReadonlyArray<{ schedule: {
         id: string;
         siteId: string;
@@ -1870,6 +1876,18 @@ function createDaemonDbStub(inputs?: DaemonStubInputs) {
                                     ? [{ lastSuccessfulFetchAt: inputs.lastSuccessfulFetchAt }]
                                     : [],
                             ),
+                        }),
+                    }),
+                } as never;
+            }
+            // SystemStateDb shape: `irrigationEnabled` + `since`. Defaults to
+            // enabled with a fixed `since` so legacy tests don't have to plumb it.
+            if ('irrigationEnabled' in cols && 'since' in cols) {
+                const seed = inputs?.systemState ?? { irrigationEnabled: true, since: new Date('2026-05-04T00:00:00.000Z') };
+                return {
+                    from: () => ({
+                        where: () => ({
+                            limit: () => Promise.resolve([seed]),
                         }),
                     }),
                 } as never;
@@ -3205,6 +3223,117 @@ describe('start', () => {
             expect(ordering.clearStale).not.toBeNull();
             expect(ordering.activeScheduleRead).not.toBeNull();
             expect(ordering.clearStale!).toBeLessThan(ordering.activeScheduleRead!);
+        });
+    });
+
+    describe('master kill switch', () => {
+        it('does NOT arm future cycles at boot when the system is disabled, but still runs reconcile', async () => {
+            const futureRow = buildFutureCycleRow({
+                cycle: {
+                    id: 'cycle-future-disabled',
+                    startTime: new Date('2026-05-04T13:00:00.000Z'),
+                    durationMin: 10,
+                    firedAt: null,
+                },
+            });
+            const inFlightRow = buildFutureCycleRow({
+                cycle: {
+                    id: 'cycle-inflight',
+                    startTime: new Date('2026-05-04T11:00:00.000Z'),
+                    durationMin: 90,
+                    firedAt: new Date('2026-05-04T11:00:00.000Z'),
+                    closedAt: null,
+                },
+                zone: { id: 'zone-inflight' },
+            });
+            const { db } = createDaemonDbStub({
+                futureCycles: [futureRow],
+                inFlightCycles: [inFlightRow],
+                systemState: { irrigationEnabled: false, since: new Date('2026-05-04T08:00:00.000Z') },
+            });
+            const { clock, advanceTo, getPendingCount } = createFakeClock(NOW);
+            const opens: string[] = [];
+            const stateQueries: string[] = [];
+
+            await start(db, {
+                clock,
+                rePlanHourLocal: 4,
+                runPlan: async () => ({ entries: [], projectedNextDepletionMm: 0 }),
+                openZone: async (z) => { opens.push(z.id); },
+                closeZone: async () => {},
+                getZoneState: async (z) => {
+                    stateQueries.push(z.id);
+                    return 'off';
+                },
+            });
+
+            // Reconcile still runs (it inspected the in-flight zone's relay state).
+            expect(stateQueries).toContain('zone-inflight');
+
+            // Advance well past the future cycle's start time — it must NOT fire.
+            const pendingBefore = getPendingCount();
+            await advanceTo(new Date('2026-05-04T14:00:00.000Z'));
+            expect(opens).toEqual([]);
+
+            // The only timer that should remain pending is the next re-plan tick
+            // (not the future-cycle arming, which we skipped).
+            expect(pendingBefore).toBeLessThanOrEqual(1);
+        });
+
+        it('rePlan() skips planning when the system is disabled but still advances lastRePlanAt', async () => {
+            const enabledRow = buildJoinedRow({ zone: { id: 'zone-disabled', siteId: 'site-001' } });
+            const { db, inserts } = createDaemonDbStub({
+                enabledZones: [enabledRow],
+                systemState: { irrigationEnabled: false, since: new Date('2026-05-04T08:00:00.000Z') },
+            });
+            const { clock } = createFakeClock(NOW);
+            const planCalls: string[] = [];
+
+            const control = await start(db, {
+                clock,
+                rePlanHourLocal: 4,
+                runPlan: async (z) => {
+                    planCalls.push(z.id);
+                    return { entries: [], projectedNextDepletionMm: 0 };
+                },
+                openZone: async () => {},
+                closeZone: async () => {},
+                getZoneState: async () => 'off',
+            });
+
+            await control.rePlan();
+
+            // No runPlan calls, no schedule_entries inserts.
+            expect(planCalls).toEqual([]);
+            expect(inserts.filter(c => c.table === scheduleEntries)).toHaveLength(0);
+            // lastRePlanAt still advances so /health reflects the attempt.
+            expect(control.getStatus().lastRePlanAt).toBe(NOW.toISOString());
+        });
+
+        it('rePlan() with system enabled runs the planner normally (regression)', async () => {
+            const enabledRow = buildJoinedRow({ zone: { id: 'zone-enabled', siteId: 'site-001' } });
+            const { db } = createDaemonDbStub({
+                enabledZones: [enabledRow],
+                systemState: { irrigationEnabled: true, since: new Date('2026-05-04T08:00:00.000Z') },
+            });
+            const { clock } = createFakeClock(NOW);
+            const planCalls: string[] = [];
+
+            const control = await start(db, {
+                clock,
+                rePlanHourLocal: 4,
+                runPlan: async (z) => {
+                    planCalls.push(z.id);
+                    return { entries: [], projectedNextDepletionMm: 0 };
+                },
+                openZone: async () => {},
+                closeZone: async () => {},
+                getZoneState: async () => 'off',
+            });
+
+            await control.rePlan();
+
+            expect(planCalls).toEqual(['zone-enabled']);
         });
     });
 
