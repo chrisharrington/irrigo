@@ -16,6 +16,7 @@ function buildSchedule(overrides?: Partial<Schedule>): Schedule {
         rootDepthMOverride: null,
         allowableDepletionFractionOverride: null,
         endBySunrise: null,
+        skippedNightDate: null,
         createdAt: NOW,
         updatedAt: NOW,
         ...overrides,
