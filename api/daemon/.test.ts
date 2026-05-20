@@ -8,6 +8,7 @@ import {
     grassTypes,
     irrigationCycles,
     scheduleEntries,
+    schedules,
     sites,
     soilTypes,
     weatherState,
@@ -1783,6 +1784,7 @@ type DaemonStubInputs = {
         rootDepthMOverride: number | null;
         allowableDepletionFractionOverride: number | null;
         endBySunrise: boolean | null;
+        skippedNightDate: string | null;
         createdAt: Date;
         updatedAt: Date;
     } }>;
@@ -1836,10 +1838,16 @@ function createDaemonDbStub(inputs?: DaemonStubInputs) {
             rootDepthMOverride: null,
             allowableDepletionFractionOverride: null,
             endBySunrise: null,
+            skippedNightDate: null,
             createdAt: NOW_FOR_SCHEDULES,
             updatedAt: NOW_FOR_SCHEDULES,
         },
     }];
+
+    const schedulesTableUpdates: Array<{ set: Record<string, unknown>; cond: unknown }> = [];
+    let callOrder = 0;
+    let firstClearStaleCallOrder: number | null = null;
+    let firstActiveScheduleReadOrder: number | null = null;
 
     const db: DaemonDb = {
         select(columns) {
@@ -1870,7 +1878,10 @@ function createDaemonDbStub(inputs?: DaemonStubInputs) {
             if ('schedule' in cols && Object.keys(cols).length === 1) {
                 return {
                     from: () => ({
-                        where: () => Promise.resolve([...activeScheduleRows]),
+                        where: () => {
+                            if (firstActiveScheduleReadOrder === null) firstActiveScheduleReadOrder = ++callOrder;
+                            return Promise.resolve([...activeScheduleRows]);
+                        },
                     }),
                 } as never;
             }
@@ -1932,10 +1943,16 @@ function createDaemonDbStub(inputs?: DaemonStubInputs) {
         update(table) {
             const isZonesUpdate = table === zones;
             const isAlertsUpdate = table === alerts;
+            const isSchedulesUpdate = table === schedules;
             return {
                 set(values) {
                     return {
                         async where(cond) {
+                            if (isSchedulesUpdate) {
+                                if (firstClearStaleCallOrder === null) firstClearStaleCallOrder = ++callOrder;
+                                schedulesTableUpdates.push({ set: values, cond });
+                                return Promise.resolve(undefined);
+                            }
                             if (isZonesUpdate) {
                                 const zoneId = extractZoneId(cond);
                                 const currentDepletionMm = values['currentDepletionMm'];
@@ -1967,7 +1984,17 @@ function createDaemonDbStub(inputs?: DaemonStubInputs) {
         },
     };
 
-    return { db, updates, zoneUpdates, inserts, deletes, weatherStateUpserts, alertTableUpdates };
+    return {
+        db,
+        updates,
+        zoneUpdates,
+        inserts,
+        deletes,
+        weatherStateUpserts,
+        alertTableUpdates,
+        schedulesTableUpdates,
+        getOrdering: () => ({ clearStale: firstClearStaleCallOrder, activeScheduleRead: firstActiveScheduleReadOrder }),
+    };
 }
 
 // Walks an `eq(zones.id, X)` condition the same way `extractCycleId` walks the cycle equivalent.
@@ -3077,6 +3104,107 @@ describe('start', () => {
             } finally {
                 warnSpy.mockRestore();
             }
+        });
+
+        it(`forwards the active schedule's skippedNightDate to runPlan restrictions`, async () => {
+            const enabledRow = buildJoinedRow({ zone: { id: 'zone-skip', siteId: 'site-Skip' } });
+            const { db } = createDaemonDbStub({
+                enabledZones: [enabledRow],
+                activeSchedules: [{
+                    schedule: {
+                        id: 'sched-skip', siteId: 'site-Skip', slug: 'maintenance', name: 'Maintenance',
+                        isActive: true,
+                        allowedDays: null, allowedTimeWindows: null,
+                        rootDepthMOverride: null, allowableDepletionFractionOverride: null,
+                        endBySunrise: null,
+                        skippedNightDate: '2099-05-04',
+                        createdAt: NOW, updatedAt: NOW,
+                    },
+                }],
+            });
+            const { clock } = createFakeClock(NOW);
+            const planCalls: Array<{ skippedNightDate: unknown }> = [];
+
+            const control = await start(db, {
+                clock,
+                rePlanHourLocal: 4,
+                runPlan: async (_z, opts) => {
+                    planCalls.push({ skippedNightDate: opts?.restrictions?.skippedNightDate });
+                    return { entries: [], projectedNextDepletionMm: 0 };
+                },
+                openZone: async () => {},
+                closeZone: async () => {},
+                getZoneState: async () => 'off',
+            });
+
+            await control.rePlan();
+
+            expect(planCalls).toHaveLength(1);
+            // Default stub today is 2026-05-04 (NOW). The 2099 marker is in the future
+            // so it survives `clearStaleSkipMarkers` and is forwarded to the planner.
+            expect(planCalls[0]?.skippedNightDate).toBe('2099-05-04');
+        });
+
+        it('forwards skippedNightDate: null when the active schedule has no marker', async () => {
+            const enabledRow = buildJoinedRow({ zone: { id: 'zone-clean', siteId: 'site-Clean' } });
+            const { db } = createDaemonDbStub({
+                enabledZones: [enabledRow],
+                activeSchedules: [{
+                    schedule: {
+                        id: 'sched-clean', siteId: 'site-Clean', slug: 'maintenance', name: 'Maintenance',
+                        isActive: true,
+                        allowedDays: null, allowedTimeWindows: null,
+                        rootDepthMOverride: null, allowableDepletionFractionOverride: null,
+                        endBySunrise: null,
+                        skippedNightDate: null,
+                        createdAt: NOW, updatedAt: NOW,
+                    },
+                }],
+            });
+            const { clock } = createFakeClock(NOW);
+            const planCalls: Array<{ skippedNightDate: unknown }> = [];
+
+            const control = await start(db, {
+                clock,
+                rePlanHourLocal: 4,
+                runPlan: async (_z, opts) => {
+                    planCalls.push({ skippedNightDate: opts?.restrictions?.skippedNightDate });
+                    return { entries: [], projectedNextDepletionMm: 0 };
+                },
+                openZone: async () => {},
+                closeZone: async () => {},
+                getZoneState: async () => 'off',
+            });
+
+            await control.rePlan();
+
+            expect(planCalls).toHaveLength(1);
+            expect(planCalls[0]?.skippedNightDate).toBeNull();
+        });
+
+        it('issues a clearStaleSkipMarkers update before reading active schedules', async () => {
+            const enabledRow = buildJoinedRow({ zone: { id: 'zone-order', siteId: 'site-001' } });
+            const { db, schedulesTableUpdates, getOrdering } = createDaemonDbStub({ enabledZones: [enabledRow] });
+            const { clock } = createFakeClock(NOW);
+
+            const control = await start(db, {
+                clock,
+                rePlanHourLocal: 4,
+                runPlan: async () => ({ entries: [], projectedNextDepletionMm: 0 }),
+                openZone: async () => {},
+                closeZone: async () => {},
+                getZoneState: async () => 'off',
+            });
+
+            await control.rePlan();
+
+            // First schedules-table update is the clearStaleSkipMarkers call.
+            expect(schedulesTableUpdates.length).toBeGreaterThanOrEqual(1);
+            expect(schedulesTableUpdates[0]?.set).toEqual({ skippedNightDate: null });
+            const ordering = getOrdering();
+            expect(ordering.clearStale).not.toBeNull();
+            expect(ordering.activeScheduleRead).not.toBeNull();
+            expect(ordering.clearStale!).toBeLessThan(ordering.activeScheduleRead!);
         });
     });
 
