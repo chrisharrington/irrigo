@@ -519,4 +519,41 @@ describe('reconcileCycleAndRelayState — alert recording', () => {
 
         expect(alertCalls).toEqual([]);
     });
+
+    it('records a ha-call-failed alert when the defensive sweep getZoneState throws', async () => {
+        const sweep = buildZone({ id: 'zone-sweep' });
+        const { deps, alertCalls } = buildDeps({
+            managedZones: [sweep],
+            state: async () => { throw new Error('HA sweep timeout'); },
+        });
+
+        await reconcileCycleAndRelayState(deps);
+
+        expect(alertCalls).toHaveLength(1);
+        expect(alertCalls[0]).toMatchObject({
+            class: 'ha-call-failed',
+            tone: 'danger',
+            title: 'HA state query failed (sweep)',
+            zoneId: 'zone-sweep',
+        });
+    });
+
+    it('records a ha-call-failed alert when the orphan-close call itself throws', async () => {
+        const orphan = buildZone({ id: 'zone-bad' });
+        const { deps, alertCalls } = buildDeps({
+            managedZones: [orphan],
+            state: async (): Promise<ZoneRelayState> => 'on',
+            closeFn: async () => { throw new Error('HA 504'); },
+        });
+
+        await reconcileCycleAndRelayState(deps);
+
+        expect(alertCalls).toHaveLength(1);
+        expect(alertCalls[0]).toMatchObject({
+            class: 'ha-call-failed',
+            tone: 'danger',
+            title: 'HA close failed (orphan)',
+            zoneId: 'zone-bad',
+        });
+    });
 });
