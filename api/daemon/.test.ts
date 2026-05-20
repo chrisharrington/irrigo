@@ -673,7 +673,7 @@ describe('replaceZoneSchedule', () => {
         const { db, deleteCalls, insertCalls } = createScheduleWriterStub();
         const entry = buildEntry('2026-05-04', [{ startTime: '2026-05-04T05:00:00Z', durationMin: 20 }]);
 
-        await replaceZoneSchedule(db, 'zone-001', [entry], '2026-05-04', 0, 'sched-default');
+        await replaceZoneSchedule(db, 'zone-001', [entry], dayjs('2026-05-04'), 0, 'sched-default');
 
         expect(deleteCalls).toHaveLength(1);
         expect(deleteCalls[0]?.table).toBe(scheduleEntries);
@@ -687,7 +687,7 @@ describe('replaceZoneSchedule', () => {
             buildEntry('2026-05-06', [{ startTime: '2026-05-06T05:00:00Z', durationMin: 25 }]),
         ];
 
-        await replaceZoneSchedule(db, 'zone-001', entries, '2026-05-04', 0, 'sched-overseed');
+        await replaceZoneSchedule(db, 'zone-001', entries, dayjs('2026-05-04'), 0, 'sched-overseed');
 
         const entryInserts = insertCalls.filter(c => c.table === scheduleEntries);
         expect(entryInserts).toHaveLength(2);
@@ -703,7 +703,7 @@ describe('replaceZoneSchedule', () => {
             buildEntry('2026-05-06', [{ startTime: '2026-05-06T05:00:00Z', durationMin: 25 }]),
         ];
 
-        await replaceZoneSchedule(db, 'zone-001', entries, '2026-05-04', 0, 'sched-default');
+        await replaceZoneSchedule(db, 'zone-001', entries, dayjs('2026-05-04'), 0, 'sched-default');
 
         const entryInserts = insertCalls.filter(c => c.table === scheduleEntries);
         expect(entryInserts).toHaveLength(2);
@@ -724,7 +724,7 @@ describe('replaceZoneSchedule', () => {
             { startTime: '2026-05-04T05:30:00Z', durationMin: 15 },
         ]);
 
-        await replaceZoneSchedule(db, 'zone-001', [entry], '2026-05-04', 0, 'sched-default');
+        await replaceZoneSchedule(db, 'zone-001', [entry], dayjs('2026-05-04'), 0, 'sched-default');
 
         const cycleInserts = insertCalls.filter(c => c.table === irrigationCycles);
         expect(cycleInserts).toHaveLength(1);
@@ -746,7 +746,7 @@ describe('replaceZoneSchedule', () => {
             { startTime: '2026-05-04T05:30:00Z', durationMin: 15 },
         ]);
 
-        const result = await replaceZoneSchedule(db, 'zone-001', [entry], '2026-05-04', 0, 'sched-default');
+        const result = await replaceZoneSchedule(db, 'zone-001', [entry], dayjs('2026-05-04'), 0, 'sched-default');
 
         expect(result.cycles).toHaveLength(2);
         expect(result.cycles[0]?.id).toBe('cycle-A1');
@@ -767,7 +767,7 @@ describe('replaceZoneSchedule', () => {
             buildEntry('2026-05-05', [{ startTime: '2026-05-05T05:00:00Z', durationMin: 15 }]),
         ];
 
-        const result = await replaceZoneSchedule(db, 'zone-001', entries, '2026-05-04', 0, 'sched-default');
+        const result = await replaceZoneSchedule(db, 'zone-001', entries, dayjs('2026-05-04'), 0, 'sched-default');
 
         expect(result.cycles).toHaveLength(2);
         expect(result.cycles[0]?.entryDate).toBe('2026-05-04');
@@ -777,7 +777,7 @@ describe('replaceZoneSchedule', () => {
     it('still issues the delete and inserts no rows when given an empty entries array', async () => {
         const { db, deleteCalls, insertCalls } = createScheduleWriterStub();
 
-        const result = await replaceZoneSchedule(db, 'zone-001', [], '2026-05-04', 0, 'sched-default');
+        const result = await replaceZoneSchedule(db, 'zone-001', [], dayjs('2026-05-04'), 0, 'sched-default');
 
         expect(deleteCalls).toHaveLength(1);
         expect(insertCalls).toHaveLength(0);
@@ -788,7 +788,7 @@ describe('replaceZoneSchedule', () => {
         const { db, insertCalls } = createScheduleWriterStub({ entries: ['entry-A'] });
         const entry = buildEntry('2026-05-04', []);
 
-        const result = await replaceZoneSchedule(db, 'zone-001', [entry], '2026-05-04', 0, 'sched-default');
+        const result = await replaceZoneSchedule(db, 'zone-001', [entry], dayjs('2026-05-04'), 0, 'sched-default');
 
         expect(insertCalls.filter(c => c.table === scheduleEntries)).toHaveLength(1);
         expect(insertCalls.filter(c => c.table === irrigationCycles)).toHaveLength(0);
@@ -799,7 +799,7 @@ describe('replaceZoneSchedule', () => {
         const { db, updateCalls } = createScheduleWriterStub();
         const entry = buildEntry('2026-05-04', [{ startTime: '2026-05-04T05:00:00Z', durationMin: 20 }]);
 
-        await replaceZoneSchedule(db, 'zone-001', [entry], '2026-05-04', 7.5, 'sched-default');
+        await replaceZoneSchedule(db, 'zone-001', [entry], dayjs('2026-05-04'), 7.5, 'sched-default');
 
         expect(updateCalls).toHaveLength(1);
         expect(updateCalls[0]?.table).toBe(zones);
@@ -809,7 +809,7 @@ describe('replaceZoneSchedule', () => {
     it('writes the depletion update even when the entries array is empty', async () => {
         const { db, updateCalls } = createScheduleWriterStub();
 
-        await replaceZoneSchedule(db, 'zone-002', [], '2026-05-04', 12.3, 'sched-default');
+        await replaceZoneSchedule(db, 'zone-002', [], dayjs('2026-05-04'), 12.3, 'sched-default');
 
         expect(updateCalls).toHaveLength(1);
         expect(updateCalls[0]?.values).toEqual({ currentDepletionMm: 12.3 });

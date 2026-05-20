@@ -189,11 +189,10 @@ export async function start(db: DaemonDb, options?: DaemonOptions): Promise<Daem
         console.log('daemon: re-plan starting.');
         registry.cancelOpenTimers(clock);
 
-        const todayDayjs = dayjs(clock.now());
-        const today = todayDayjs.format('YYYY-MM-DD');
+        const today = dayjs(clock.now());
         // Wipe markers from past nights before snapshotting active schedules so
         // a stale entry can't accidentally apply to the new night's plan.
-        await clearStaleSkipMarkers(db, todayDayjs);
+        await clearStaleSkipMarkers(db, today);
 
         const enabledZones = await loadEnabledZones(db);
         const activeSchedulesBySite: Map<string, Schedule> = await loadActiveSchedulesBySite(db);
