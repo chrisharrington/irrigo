@@ -1,4 +1,5 @@
 import { eq } from 'drizzle-orm';
+import type { Alerter } from '@/alerts';
 import { irrigationCycles } from '@/db/schema';
 import type { Zone } from '@/models';
 import type { Notifier } from '@/notifications';
@@ -149,6 +150,7 @@ export type ArmCycleInputs = {
     openZone: (zone: Zone) => Promise<void>;
     closeZone: (zone: Zone) => Promise<void>;
     notifier: Notifier;
+    alerter: Alerter;
 
     /**
      * Set on the chronologically earliest armed cycle of an irrigation
@@ -190,13 +192,21 @@ export function armCycle(inputs: ArmCycleInputs): void {
 }
 
 async function runOpen(inputs: ArmCycleInputs): Promise<void> {
-    const { db, clock, registry, zone, cycle, openZone, closeZone, notifier, scheduleStart, scheduleEnd } = inputs;
+    const { db, clock, registry, zone, cycle, openZone, closeZone, notifier, alerter, scheduleStart, scheduleEnd } = inputs;
 
     try {
         await openZone(zone);
     } catch (err) {
+        const reason = errorMessage(err);
         console.error(`daemon: openZone failed for cycle ${cycle.id} on zone ${zone.id}; leaving fired_at NULL.`, err);
-        await notifier('error', { zoneName: zone.name, operation: 'open', reason: errorMessage(err) });
+        await alerter({
+            class: 'ha-call-failed',
+            tone: 'danger',
+            title: 'HA open failed',
+            sub: `${zone.name} · ${reason}`,
+            zoneId: zone.id,
+            zoneName: zone.name,
+        });
         return;
     }
 
@@ -212,7 +222,7 @@ async function runOpen(inputs: ArmCycleInputs): Promise<void> {
     const closeDelay = cycle.durationMin * 60_000;
     const endTime = new Date(firedAt.getTime() + closeDelay);
     const closeHandle = clock.setTimeout(() => {
-        runClose({ db, clock, registry, zone, cycle, closeZone, notifier, scheduleEnd }).catch(err => {
+        runClose({ db, clock, registry, zone, cycle, closeZone, notifier, alerter, scheduleEnd }).catch(err => {
             console.error(`daemon: unhandled error in cycle close path for ${cycle.id}.`, err);
         });
     }, closeDelay);
@@ -234,6 +244,7 @@ export type ArmCloseOnlyInputs = {
     cycle: PersistedCycle;
     closeZone: (zone: Zone) => Promise<void>;
     notifier: Notifier;
+    alerter: Alerter;
 
     /** Wall-clock time at which the close should fire. Past times fire immediately. */
     plannedCloseAt: Date;
@@ -249,11 +260,11 @@ export type ArmCloseOnlyInputs = {
  * @param inputs - Collaborators and the cycle/zone whose close is being re-armed.
  */
 export function armCloseOnly(inputs: ArmCloseOnlyInputs): void {
-    const { db, clock, registry, zone, cycle, closeZone, notifier, plannedCloseAt } = inputs;
+    const { db, clock, registry, zone, cycle, closeZone, notifier, alerter, plannedCloseAt } = inputs;
     const closeDelay = Math.max(0, plannedCloseAt.getTime() - clock.now().getTime());
 
     const closeHandle = clock.setTimeout(() => {
-        runClose({ db, clock, registry, zone, cycle, closeZone, notifier }).catch(err => {
+        runClose({ db, clock, registry, zone, cycle, closeZone, notifier, alerter }).catch(err => {
             console.error(`daemon: unhandled error in close-only path for cycle ${cycle.id}.`, err);
         });
     }, closeDelay);
@@ -268,19 +279,28 @@ type RunCloseInputs = {
     cycle: PersistedCycle;
     closeZone: (zone: Zone) => Promise<void>;
     notifier: Notifier;
+    alerter: Alerter;
     /** Set on the last cycle of an irrigation night so close emits `schedule-ended`. */
     scheduleEnd?: ScheduleEndMarker;
 };
 
 async function runClose(inputs: RunCloseInputs): Promise<void> {
-    const { db, clock, registry, zone, cycle, closeZone, notifier, scheduleEnd } = inputs;
+    const { db, clock, registry, zone, cycle, closeZone, notifier, alerter, scheduleEnd } = inputs;
 
     try {
         await closeZone(zone);
     } catch (err) {
+        const reason = errorMessage(err);
         console.error(`daemon: closeZone failed for cycle ${cycle.id} on zone ${zone.id}; leaving closed_at NULL.`, err);
         registry.clearInFlight(cycle.id);
-        await notifier('error', { zoneName: zone.name, operation: 'close', reason: errorMessage(err) });
+        await alerter({
+            class: 'ha-call-failed',
+            tone: 'danger',
+            title: 'HA close failed',
+            sub: `${zone.name} · ${reason}`,
+            zoneId: zone.id,
+            zoneName: zone.name,
+        });
         return;
     }
 
@@ -311,9 +331,9 @@ export async function closeAllInFlight(inputs: {
     clock: Clock;
     registry: TimerRegistry;
     closeZone: (zone: Zone) => Promise<void>;
-    notifier: Notifier;
+    alerter: Alerter;
 }): Promise<void> {
-    const { db, clock, registry, closeZone, notifier } = inputs;
+    const { db, clock, registry, closeZone, alerter } = inputs;
     const inFlight = registry.snapshotInFlight();
 
     if (inFlight.length === 0) return;
@@ -324,8 +344,16 @@ export async function closeAllInFlight(inputs: {
             await closeZone(zone);
             await db.update(irrigationCycles).set({ closedAt: clock.now() }).where(eq(irrigationCycles.id, cycleId));
         } catch (err) {
+            const reason = errorMessage(err);
             console.error(`daemon: shutdown closeZone failed for cycle ${cycleId} on zone ${zone.id}.`, err);
-            await notifier('error', { zoneName: zone.name, operation: 'shutdown-close', reason: errorMessage(err) });
+            await alerter({
+                class: 'ha-call-failed',
+                tone: 'danger',
+                title: 'HA close failed (shutdown)',
+                sub: `${zone.name} · ${reason}`,
+                zoneId: zone.id,
+                zoneName: zone.name,
+            });
         }
         registry.clearInFlight(cycleId);
     }

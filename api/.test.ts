@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'bun:test';
+import type { AlertDto } from '@/alerts';
 import { buildApp, gracefulShutdown, wrapScheduleWithReplan, type ScheduleApi } from '@/index';
 import type { DaemonControl, DaemonStatus } from '@/daemon';
 import type { ZoneSummary } from '@/daemon/zones';
@@ -700,5 +701,116 @@ describe('buildApp GET /zones', () => {
         expect(first.json()).toMatchObject({ zones: [{ id: 'call-1' }] });
         expect(second.json()).toMatchObject({ zones: [{ id: 'call-2' }] });
         await app.close();
+    });
+});
+
+describe('buildApp alert routes', () => {
+    function buildAlert(overrides?: Partial<AlertDto>): AlertDto {
+        return {
+            id: 'alert-001',
+            class: 'ha-call-failed',
+            tone: 'danger',
+            title: 'HA close failed',
+            sub: 'North · ECONNREFUSED',
+            when: '2026-05-20T12:00:00.000Z',
+            zoneId: 'zone-001',
+            ack: false,
+            ...overrides,
+        };
+    }
+
+    describe('GET /alerts', () => {
+        it('returns 200 with the wrapped alerts array from the loader', async () => {
+            const list = [buildAlert(), buildAlert({ id: 'alert-002', class: 'weather-stale', tone: 'warn', title: 'Weather API stale', zoneId: null })];
+            const app = buildApp({
+                getStatus: () => buildStatus(),
+                alerts: { list: async () => list, ack: async () => 'not-found' },
+            });
+
+            const res = await app.inject({ method: 'GET', url: '/alerts' });
+
+            expect(res.statusCode).toBe(200);
+            expect(res.json()).toEqual({ alerts: list });
+            await app.close();
+        });
+
+        it('returns 200 with an empty array when there are no active alerts', async () => {
+            const app = buildApp({
+                getStatus: () => buildStatus(),
+                alerts: { list: async () => [], ack: async () => 'not-found' },
+            });
+
+            const res = await app.inject({ method: 'GET', url: '/alerts' });
+
+            expect(res.statusCode).toBe(200);
+            expect(res.json()).toEqual({ alerts: [] });
+            await app.close();
+        });
+
+        it('returns 404 when the alerts handler is not registered', async () => {
+            const app = buildApp({ getStatus: () => buildStatus() });
+
+            const res = await app.inject({ method: 'GET', url: '/alerts' });
+
+            expect(res.statusCode).toBe(404);
+            await app.close();
+        });
+    });
+
+    describe('POST /alerts/:id/ack', () => {
+        it('returns 200 with status "acked" when the alert was flipped', async () => {
+            const app = buildApp({
+                getStatus: () => buildStatus(),
+                alerts: { list: async () => [], ack: async () => 'acked' },
+            });
+
+            const res = await app.inject({ method: 'POST', url: '/alerts/alert-001/ack' });
+
+            expect(res.statusCode).toBe(200);
+            expect(res.json()).toEqual({ status: 'acked' });
+            await app.close();
+        });
+
+        it('returns 200 with status "already-acked" when the alert was previously acked (idempotent)', async () => {
+            const app = buildApp({
+                getStatus: () => buildStatus(),
+                alerts: { list: async () => [], ack: async () => 'already-acked' },
+            });
+
+            const res = await app.inject({ method: 'POST', url: '/alerts/alert-001/ack' });
+
+            expect(res.statusCode).toBe(200);
+            expect(res.json()).toEqual({ status: 'already-acked' });
+            await app.close();
+        });
+
+        it('returns 404 when the alert id is unknown', async () => {
+            const app = buildApp({
+                getStatus: () => buildStatus(),
+                alerts: { list: async () => [], ack: async () => 'not-found' },
+            });
+
+            const res = await app.inject({ method: 'POST', url: '/alerts/alert-missing/ack' });
+
+            expect(res.statusCode).toBe(404);
+            expect(res.json()).toMatchObject({ error: 'not-found' });
+            await app.close();
+        });
+
+        it('passes the route param verbatim to the ack handler', async () => {
+            const acked: string[] = [];
+            const app = buildApp({
+                getStatus: () => buildStatus(),
+                alerts: {
+                    list: async () => [],
+                    ack: async (id) => { acked.push(id); return 'acked'; },
+                },
+            });
+
+            await app.inject({ method: 'POST', url: '/alerts/my-id-here/ack' });
+
+            expect(acked).toEqual(['my-id-here']);
+            await app.close();
+        });
     });
 });

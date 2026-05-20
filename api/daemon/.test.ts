@@ -1,13 +1,16 @@
 import { afterEach, beforeEach, describe, it, expect, spyOn } from 'bun:test';
+import { noopAlerter, type AlertEvent, type Alerter } from '@/alerts';
 import dayjs from 'dayjs';
 import utc from 'dayjs/plugin/utc';
 import timezone from 'dayjs/plugin/timezone';
 import {
+    alerts,
     grassTypes,
     irrigationCycles,
     scheduleEntries,
     sites,
     soilTypes,
+    weatherState,
     zones,
 } from '@/db/schema';
 
@@ -1213,7 +1216,7 @@ describe('armCycle', () => {
         const openZone = async (z: Zone) => { opens.push(z); };
         const closeZone = async (z: Zone) => { closes.push(z); };
 
-        armCycle({ db, clock, registry, zone, cycle, openZone, closeZone, notifier: noopNotifier });
+        armCycle({ db, clock, registry, zone, cycle, openZone, closeZone, notifier: noopNotifier, alerter: noopAlerter });
 
         await advanceTo(new Date('2026-05-04T13:30:01.000Z'));
 
@@ -1240,7 +1243,7 @@ describe('armCycle', () => {
         const openZone = async () => { throw new Error('HA down'); };
         const closeZone = async (z: Zone) => { closes.push(z); };
 
-        armCycle({ db, clock, registry, zone, cycle, openZone, closeZone, notifier: noopNotifier });
+        armCycle({ db, clock, registry, zone, cycle, openZone, closeZone, notifier: noopNotifier, alerter: noopAlerter });
         await advanceTo(new Date('2026-05-04T13:30:00.000Z'));
 
         expect(closes).toEqual([]);
@@ -1261,7 +1264,7 @@ describe('armCycle', () => {
         const openZone = async () => { /* success */ };
         const closeZone = async () => { throw new Error('close failed'); };
 
-        armCycle({ db, clock, registry, zone, cycle, openZone, closeZone, notifier: noopNotifier });
+        armCycle({ db, clock, registry, zone, cycle, openZone, closeZone, notifier: noopNotifier, alerter: noopAlerter });
         await advanceTo(new Date('2026-05-04T13:30:00.000Z'));
 
         expect(updates).toHaveLength(1);
@@ -1284,7 +1287,7 @@ describe('armCycle', () => {
         const openZone = async (z: Zone) => { opens.push(z); };
         const closeZone = async () => { /* success */ };
 
-        armCycle({ db, clock, registry, zone, cycle, openZone, closeZone, notifier: noopNotifier });
+        armCycle({ db, clock, registry, zone, cycle, openZone, closeZone, notifier: noopNotifier, alerter: noopAlerter });
         await advanceTo(new Date('2026-05-04T12:05:01.000Z'));
 
         expect(opens).toHaveLength(1);
@@ -1304,6 +1307,7 @@ describe('armCycle', () => {
             openZone: async () => {},
             closeZone: async () => {},
             notifier,
+            alerter: noopAlerter,
             scheduleStart: { scheduleNight: '2026-05-04' },
         });
         await advanceTo(new Date('2026-05-04T13:00:30.000Z'));
@@ -1322,14 +1326,14 @@ describe('armCycle', () => {
         const cycle = buildPersistedCycle({ id: 'cycle-N', startTime: new Date('2026-05-04T13:00:00.000Z'), durationMin: 12 });
         const { notifier, calls } = recordingNotifier();
 
-        armCycle({ db, clock, registry, zone, cycle, openZone: async () => {}, closeZone: async () => {}, notifier });
+        armCycle({ db, clock, registry, zone, cycle, openZone: async () => {}, closeZone: async () => {}, notifier, alerter: noopAlerter });
         await advanceTo(new Date('2026-05-04T13:00:30.000Z'));
 
         expect(calls.some(c => c.event === 'schedule-begun')).toBe(false);
         expect(calls.some(c => c.event === 'watering-started')).toBe(false);
     });
 
-    it('emits an error notification when openZone fails', async () => {
+    it('does not emit schedule-begun when openZone fails', async () => {
         const { clock, advanceTo } = createFakeClock(NOW);
         const { db } = createRuntimeDbStub();
         const registry = new TimerRegistry();
@@ -1342,14 +1346,15 @@ describe('armCycle', () => {
             openZone: async () => { throw new Error('HA 502'); },
             closeZone: async () => {},
             notifier,
+            alerter: noopAlerter,
             scheduleStart: { scheduleNight: '2026-05-04' },
         });
         await advanceTo(new Date('2026-05-04T13:00:30.000Z'));
 
         // Open failed, so the schedule-begun notification never fired.
+        // The HA-failed error notification is exercised through the alert
+        // alerter's own tests — see api/alerts/.test.ts.
         expect(calls.some(c => c.event === 'schedule-begun')).toBe(false);
-        const errorCall = calls.find(c => c.event === 'error');
-        expect(errorCall?.context).toEqual({ zoneName: 'Front Lawn', operation: 'open', reason: 'HA 502' });
     });
 
     it('emits schedule-ended on natural close when scheduleEnd marker is set', async () => {
@@ -1371,6 +1376,7 @@ describe('armCycle', () => {
             openZone: async () => {},
             closeZone: async () => {},
             notifier,
+            alerter: noopAlerter,
             scheduleEnd,
         });
         await advanceTo(new Date('2026-05-04T13:05:30.000Z'));
@@ -1388,7 +1394,7 @@ describe('armCycle', () => {
         const cycle = buildPersistedCycle({ id: 'cycle-OK', startTime: new Date('2026-05-04T13:00:00.000Z'), durationMin: 5 });
         const { notifier, calls } = recordingNotifier();
 
-        armCycle({ db, clock, registry, zone, cycle, openZone: async () => {}, closeZone: async () => {}, notifier });
+        armCycle({ db, clock, registry, zone, cycle, openZone: async () => {}, closeZone: async () => {}, notifier, alerter: noopAlerter });
         await advanceTo(new Date('2026-05-04T13:05:30.000Z'));
 
         expect(calls.some(c => c.event === 'schedule-ended')).toBe(false);
@@ -1408,6 +1414,7 @@ describe('armCycle', () => {
             openZone: async () => {},
             closeZone: async () => {},
             notifier,
+            alerter: noopAlerter,
             scheduleEnd: {
                 scheduleNight: '2026-05-04',
                 perZoneRuntimeMin: { 'Front Lawn': 5 },
@@ -1420,7 +1427,7 @@ describe('armCycle', () => {
         expect(ended?.context).not.toHaveProperty('nextIrrigation');
     });
 
-    it('emits an error notification when closeZone fails after a successful open', async () => {
+    it('does not emit schedule-ended when closeZone fails after a successful open', async () => {
         const { clock, advanceTo } = createFakeClock(NOW);
         const { db } = createRuntimeDbStub();
         const registry = new TimerRegistry();
@@ -1433,6 +1440,7 @@ describe('armCycle', () => {
             openZone: async () => {},
             closeZone: async () => { throw new Error('close failed'); },
             notifier,
+            alerter: noopAlerter,
             scheduleEnd: {
                 scheduleNight: '2026-05-04',
                 perZoneRuntimeMin: { 'Front Lawn': 5 },
@@ -1442,9 +1450,9 @@ describe('armCycle', () => {
         await advanceTo(new Date('2026-05-04T13:30:00.000Z'));
 
         // Close failed, so schedule-ended never fired even though the marker was set.
+        // The HA-failed error notification is exercised through the alert
+        // alerter's own tests — see api/alerts/.test.ts.
         expect(calls.some(c => c.event === 'schedule-ended')).toBe(false);
-        const errorCall = calls.find(c => c.event === 'error');
-        expect(errorCall?.context).toEqual({ zoneName: 'Front Lawn', operation: 'close', reason: 'close failed' });
     });
 
     it('snapshotInFlight includes endTime equal to firedAt + durationMin after a successful open', async () => {
@@ -1456,7 +1464,7 @@ describe('armCycle', () => {
         const startTime = new Date('2026-05-04T13:00:00.000Z');
         const cycle = buildPersistedCycle({ id: 'cycle-snap', startTime, durationMin });
 
-        armCycle({ db, clock, registry, zone, cycle, openZone: async () => {}, closeZone: async () => {}, notifier: noopNotifier });
+        armCycle({ db, clock, registry, zone, cycle, openZone: async () => {}, closeZone: async () => {}, notifier: noopNotifier, alerter: noopAlerter });
         await advanceTo(new Date('2026-05-04T13:00:01.000Z'));
 
         const snapshot = registry.snapshotInFlight();
@@ -1531,13 +1539,12 @@ describe('armCloseOnly', () => {
         expect(updates[0]?.closedAt).toEqual(NOW);
     });
 
-    it('clears the registry entry and emits an error notification when closeZone rejects', async () => {
+    it('clears the registry entry when closeZone rejects', async () => {
         const { clock, advanceTo } = createFakeClock(NOW);
         const { db, updates } = createRuntimeDbStub();
         const registry = new TimerRegistry();
         const zone = buildZoneModel({ id: 'zone-fail', name: 'Fail Zone' });
         const cycle = buildPersistedCycle({ id: 'cycle-fail' });
-        const { notifier, calls } = recordingNotifier();
 
         armCloseOnly({
             db,
@@ -1546,16 +1553,18 @@ describe('armCloseOnly', () => {
             zone,
             cycle,
             closeZone: async () => { throw new Error('HA timeout'); },
-            notifier,
+            notifier: noopNotifier,
+            alerter: noopAlerter,
             plannedCloseAt: new Date('2026-05-04T12:30:00.000Z'),
         });
 
         await advanceTo(new Date('2026-05-04T12:30:30.000Z'));
 
+        // closed_at stays NULL on failure; the registry entry is still cleared so
+        // a subsequent shutdown doesn't try to close again. Error notification is
+        // exercised through the alerter's own tests.
         expect(updates).toHaveLength(0);
         expect(registry.snapshotInFlight()).toHaveLength(0);
-        const errorCall = calls.find(c => c.event === 'error');
-        expect(errorCall?.context).toEqual({ zoneName: 'Fail Zone', operation: 'close', reason: 'HA timeout' });
     });
 });
 
@@ -1573,7 +1582,7 @@ describe('closeAllInFlight', () => {
         const closes: Zone[] = [];
         const closeZone = async (z: Zone) => { closes.push(z); };
 
-        await closeAllInFlight({ db, clock, registry, closeZone, notifier: noopNotifier });
+        await closeAllInFlight({ db, clock, registry, closeZone, notifier: noopNotifier, alerter: noopAlerter });
 
         expect(closes.map(z => z.id)).toEqual(['zone-A', 'zone-B']);
         expect(updates.filter(u => u.closedAt instanceof Date)).toHaveLength(2);
@@ -1592,7 +1601,7 @@ describe('closeAllInFlight', () => {
             if (calls === 1) throw new Error('HA flaky');
         };
 
-        await closeAllInFlight({ db, clock, registry, closeZone, notifier: noopNotifier });
+        await closeAllInFlight({ db, clock, registry, closeZone, notifier: noopNotifier, alerter: noopAlerter });
 
         expect(calls).toBe(2);
         expect(updates).toHaveLength(1); // only the second one updated closedAt
@@ -1605,7 +1614,7 @@ describe('closeAllInFlight', () => {
         const registry = new TimerRegistry();
         const closes: Zone[] = [];
 
-        await closeAllInFlight({ db, clock, registry, closeZone: async (z) => { closes.push(z); }, notifier: noopNotifier });
+        await closeAllInFlight({ db, clock, registry, closeZone: async (z) => { closes.push(z); }, notifier: noopNotifier, alerter: noopAlerter });
 
         expect(closes).toEqual([]);
         expect(updates).toEqual([]);
@@ -1624,28 +1633,134 @@ describe('closeAllInFlight', () => {
         registry.addInFlight('cycle-Y', zoneB, 998, new Date(NOW.getTime() + 60 * 60_000));
         const { notifier, calls } = recordingNotifier();
 
-        await closeAllInFlight({ db, clock, registry, closeZone: async () => {}, notifier });
+        await closeAllInFlight({ db, clock, registry, closeZone: async () => {}, notifier, alerter: noopAlerter });
 
         expect(calls).toEqual([]);
     });
 
-    it('notifies an error when shutdown closeZone fails for a relay', async () => {
+    it('does not emit watering-* events on shutdown closeZone failure', async () => {
         const { clock } = createFakeClock(NOW);
         const { db } = createRuntimeDbStub();
         const registry = new TimerRegistry();
         const zone = buildZoneModel({ id: 'zone-A', name: 'Front Lawn' });
         registry.addInFlight('cycle-X', zone, 999, new Date(NOW.getTime() + 60 * 60_000));
-        const { notifier, calls } = recordingNotifier();
+        const { calls } = recordingNotifier();
 
         await closeAllInFlight({
             db, clock, registry,
             closeZone: async () => { throw new Error('HA flaky'); },
-            notifier,
+            alerter: noopAlerter,
         });
 
-        const errorCall = calls.find(c => c.event === 'error');
-        expect(errorCall?.context).toEqual({ zoneName: 'Front Lawn', operation: 'shutdown-close', reason: 'HA flaky' });
+        // The HA-failed error notification is exercised through the alert
+        // alerter's own tests — see api/alerts/.test.ts.
         expect(calls.some(c => c.event === 'watering-ended')).toBe(false);
+    });
+});
+
+function recordingAlerter(): { alerter: Alerter; calls: AlertEvent[] } {
+    const calls: AlertEvent[] = [];
+    return { alerter: async (event) => { calls.push(event); }, calls };
+}
+
+describe('armCycle + closeAllInFlight alert recording', () => {
+    it('records a ha-call-failed alert when openZone fails', async () => {
+        const { clock, advanceTo } = createFakeClock(NOW);
+        const { db } = createRuntimeDbStub();
+        const registry = new TimerRegistry();
+        const zone = buildZoneModel({ id: 'zone-001', name: 'Front Lawn' });
+        const cycle = buildPersistedCycle({ id: 'cycle-A', startTime: new Date('2026-05-04T13:00:00.000Z'), durationMin: 10 });
+        const { alerter, calls: alertCalls } = recordingAlerter();
+
+        armCycle({
+            db, clock, registry, zone, cycle,
+            openZone: async () => { throw new Error('HA 502'); },
+            closeZone: async () => {},
+            notifier: noopNotifier,
+            alerter,
+        });
+        await advanceTo(new Date('2026-05-04T13:00:30.000Z'));
+
+        expect(alertCalls).toHaveLength(1);
+        expect(alertCalls[0]).toEqual({
+            class: 'ha-call-failed',
+            tone: 'danger',
+            title: 'HA open failed',
+            sub: 'Front Lawn · HA 502',
+            zoneId: 'zone-001',
+            zoneName: 'Front Lawn',
+        });
+    });
+
+    it('records a ha-call-failed alert when closeZone fails after a successful open', async () => {
+        const { clock, advanceTo } = createFakeClock(NOW);
+        const { db } = createRuntimeDbStub();
+        const registry = new TimerRegistry();
+        const zone = buildZoneModel({ id: 'zone-001', name: 'Front Lawn' });
+        const cycle = buildPersistedCycle({ id: 'cycle-B', startTime: new Date('2026-05-04T13:00:00.000Z'), durationMin: 5 });
+        const { alerter, calls: alertCalls } = recordingAlerter();
+
+        armCycle({
+            db, clock, registry, zone, cycle,
+            openZone: async () => {},
+            closeZone: async () => { throw new Error('close failed'); },
+            notifier: noopNotifier,
+            alerter,
+        });
+        await advanceTo(new Date('2026-05-04T13:06:00.000Z'));
+
+        expect(alertCalls).toHaveLength(1);
+        expect(alertCalls[0]).toMatchObject({
+            class: 'ha-call-failed',
+            tone: 'danger',
+            title: 'HA close failed',
+            zoneId: 'zone-001',
+        });
+        expect(alertCalls[0]!.sub).toContain('close failed');
+    });
+
+    it('records no alerts when open and close both succeed', async () => {
+        const { clock, advanceTo } = createFakeClock(NOW);
+        const { db } = createRuntimeDbStub();
+        const registry = new TimerRegistry();
+        const zone = buildZoneModel({ id: 'zone-001' });
+        const cycle = buildPersistedCycle({ id: 'cycle-OK', startTime: new Date('2026-05-04T13:00:00.000Z'), durationMin: 5 });
+        const { alerter, calls: alertCalls } = recordingAlerter();
+
+        armCycle({
+            db, clock, registry, zone, cycle,
+            openZone: async () => {},
+            closeZone: async () => {},
+            notifier: noopNotifier,
+            alerter,
+        });
+        await advanceTo(new Date('2026-05-04T13:06:00.000Z'));
+
+        expect(alertCalls).toEqual([]);
+    });
+
+    it('records a ha-call-failed alert when closeAllInFlight closeZone throws on shutdown', async () => {
+        const { clock } = createFakeClock(NOW);
+        const { db } = createRuntimeDbStub();
+        const registry = new TimerRegistry();
+        const zone = buildZoneModel({ id: 'zone-A', name: 'Front Lawn' });
+        registry.addInFlight('cycle-X', zone, 999, new Date(NOW.getTime() + 60 * 60_000));
+        const { alerter, calls: alertCalls } = recordingAlerter();
+
+        await closeAllInFlight({
+            db, clock, registry,
+            closeZone: async () => { throw new Error('HA flaky'); },
+            notifier: noopNotifier,
+            alerter,
+        });
+
+        expect(alertCalls).toHaveLength(1);
+        expect(alertCalls[0]).toMatchObject({
+            class: 'ha-call-failed',
+            tone: 'danger',
+            title: 'HA close failed (shutdown)',
+            zoneId: 'zone-A',
+        });
     });
 });
 
@@ -1655,6 +1770,8 @@ type DaemonStubInputs = {
     enabledZones?: ZoneJoinedRow[];
     zoneCounts?: { total: number; enabled: number };
     siteTimezones?: ReadonlyArray<{ timezone: string }>;
+    /** Seed value the weather_state stub returns; `undefined` ⇒ no row ⇒ stale. */
+    lastSuccessfulFetchAt?: Date | null;
     activeSchedules?: ReadonlyArray<{ schedule: {
         id: string;
         siteId: string;
@@ -1694,6 +1811,8 @@ function createDaemonDbStub(inputs?: DaemonStubInputs) {
     const deletes: DeleteCall[] = [];
     const whereCallsZone: WhereCall[] = [];
     const whereCallsCycles: WhereCall[] = [];
+    const weatherStateUpserts: Array<Record<string, unknown>> = [];
+    const alertTableUpdates: Array<{ set: Record<string, unknown>; cond: unknown }> = [];
     const counts = inputs?.zoneCounts ?? { total: 1, enabled: 1 };
     // Mutable copy of the seed enabledZones so depletion writes from rePlan
     // are reflected by subsequent loadEnabledZones calls (day-N reads day-(N-1)).
@@ -1731,6 +1850,21 @@ function createDaemonDbStub(inputs?: DaemonStubInputs) {
             // SiteTimezoneDb shape: a single `timezone` column, no other keys.
             if ('timezone' in cols && Object.keys(cols).length === 1) {
                 return { from: () => Promise.resolve([...siteTimezoneRows]) } as never;
+            }
+            // WeatherStateDb shape: single `lastSuccessfulFetchAt` column. Returns
+            // the configured timestamp (null → "never fetched, treated as stale").
+            if ('lastSuccessfulFetchAt' in cols && Object.keys(cols).length === 1) {
+                return {
+                    from: () => ({
+                        where: () => ({
+                            limit: () => Promise.resolve(
+                                inputs?.lastSuccessfulFetchAt !== undefined
+                                    ? [{ lastSuccessfulFetchAt: inputs.lastSuccessfulFetchAt }]
+                                    : [],
+                            ),
+                        }),
+                    }),
+                } as never;
             }
             // Schedule manager shape: a single `schedule` column.
             if ('schedule' in cols && Object.keys(cols).length === 1) {
@@ -1770,6 +1904,12 @@ function createDaemonDbStub(inputs?: DaemonStubInputs) {
         insert(table) {
             return {
                 values(rows) {
+                    // weatherState uses .values(row).onConflictDoUpdate(...) — record and
+                    // resolve. The daemon doesn't read back the result.
+                    if (table === weatherState) {
+                        weatherStateUpserts.push(rows as Record<string, unknown>);
+                        return { onConflictDoUpdate: async () => undefined };
+                    }
                     return {
                         returning() {
                             inserts.push({ table, rows });
@@ -1791,6 +1931,7 @@ function createDaemonDbStub(inputs?: DaemonStubInputs) {
         },
         update(table) {
             const isZonesUpdate = table === zones;
+            const isAlertsUpdate = table === alerts;
             return {
                 set(values) {
                     return {
@@ -1809,6 +1950,10 @@ function createDaemonDbStub(inputs?: DaemonStubInputs) {
                                 }
                                 return Promise.resolve(undefined);
                             }
+                            if (isAlertsUpdate) {
+                                alertTableUpdates.push({ set: values, cond });
+                                return Promise.resolve(undefined);
+                            }
                             expect(table).toBe(irrigationCycles);
                             const update: CycleUpdate = { cycleId: extractCycleId(cond) };
                             if (values['firedAt'] instanceof Date) update.firedAt = values['firedAt'];
@@ -1822,7 +1967,7 @@ function createDaemonDbStub(inputs?: DaemonStubInputs) {
         },
     };
 
-    return { db, updates, zoneUpdates, inserts, deletes };
+    return { db, updates, zoneUpdates, inserts, deletes, weatherStateUpserts, alertTableUpdates };
 }
 
 // Walks an `eq(zones.id, X)` condition the same way `extractCycleId` walks the cycle equivalent.
@@ -1976,6 +2121,84 @@ describe('start', () => {
 
         // Only zone-good should have produced inserts.
         expect(inserts.filter(c => c.table === scheduleEntries)).toHaveLength(1);
+    });
+
+    it('rePlan() marks weather-fetch-successful and clears weather-stale alerts after a successful zone plan', async () => {
+        const enabledRows = [buildJoinedRow({ zone: { id: 'zone-good' } })];
+        const { db, weatherStateUpserts, alertTableUpdates } = createDaemonDbStub({ enabledZones: enabledRows });
+        const { clock } = createFakeClock(NOW);
+        const planned = buildEntry('2026-05-04', [{ startTime: '2026-05-04T13:00:00Z', durationMin: 15 }]);
+
+        const control = await start(db, {
+            clock,
+            rePlanHourLocal: 4,
+            runPlan: async () => ({ entries: [planned], projectedNextDepletionMm: 0 }),
+            getZoneState: async () => 'off',
+            openZone: async () => {},
+            closeZone: async () => {},
+        });
+
+        await control.rePlan();
+
+        expect(weatherStateUpserts).toHaveLength(1);
+        expect(weatherStateUpserts[0]).toMatchObject({ id: 'singleton' });
+        expect(weatherStateUpserts[0]!['lastSuccessfulFetchAt']).toBeInstanceOf(Date);
+        // clearAlertsByClass sets ack=true; verify exactly that update fired.
+        expect(alertTableUpdates).toHaveLength(1);
+        expect(alertTableUpdates[0]!.set).toEqual({ ack: true });
+    });
+
+    it('rePlan() records a weather-stale alert when the planner throws and no recent fetch is on record', async () => {
+        const enabledRows = [buildJoinedRow({ zone: { id: 'zone-bad', name: 'North' } })];
+        const { db } = createDaemonDbStub({
+            enabledZones: enabledRows,
+            // lastSuccessfulFetchAt omitted → stale by default.
+        });
+        const { clock } = createFakeClock(NOW);
+        const { alerter, calls: alertCalls } = recordingAlerter();
+
+        const control = await start(db, {
+            clock,
+            rePlanHourLocal: 4,
+            runPlan: async () => { throw new Error('weather: Open-Meteo network error'); },
+            getZoneState: async () => 'off',
+            openZone: async () => {},
+            closeZone: async () => {},
+            alerter,
+        });
+
+        await control.rePlan();
+
+        const weatherAlerts = alertCalls.filter(a => a.class === 'weather-stale');
+        expect(weatherAlerts).toHaveLength(1);
+        expect(weatherAlerts[0]).toMatchObject({ class: 'weather-stale', tone: 'warn', title: 'Weather API stale' });
+        // Global alert — no zoneId pinned.
+        expect(weatherAlerts[0]!.zoneId).toBeUndefined();
+    });
+
+    it('rePlan() does NOT record a weather-stale alert when a recent successful fetch is on record', async () => {
+        const enabledRows = [buildJoinedRow({ zone: { id: 'zone-bad' } })];
+        const { db } = createDaemonDbStub({
+            enabledZones: enabledRows,
+            // Fetched 60 seconds ago — well within the 24h threshold.
+            lastSuccessfulFetchAt: new Date(NOW.getTime() - 60_000),
+        });
+        const { clock } = createFakeClock(NOW);
+        const { alerter, calls: alertCalls } = recordingAlerter();
+
+        const control = await start(db, {
+            clock,
+            rePlanHourLocal: 4,
+            runPlan: async () => { throw new Error('transient error'); },
+            getZoneState: async () => 'off',
+            openZone: async () => {},
+            closeZone: async () => {},
+            alerter,
+        });
+
+        await control.rePlan();
+
+        expect(alertCalls.some(a => a.class === 'weather-stale')).toBe(false);
     });
 
     it('shutdown() cancels pending timers and closes any in-flight relay', async () => {
@@ -2280,28 +2503,11 @@ describe('start', () => {
         expect(ended[1]?.context).not.toHaveProperty('nextIrrigation');
     });
 
-    it('emits an error notification when the planner throws for a zone during rePlan', async () => {
-        const enabledRow = buildJoinedRow({ zone: { id: 'zone-bad', name: 'Bad Zone' } });
-        const { db } = createDaemonDbStub({ enabledZones: [enabledRow] });
-        const { clock } = createFakeClock(NOW);
-        const { notifier, calls } = recordingNotifier();
-
-        const control = await start(db, {
-            clock,
-            rePlanHourLocal: 4,
-            siteTimezone: 'UTC',
-            notifier,
-            runPlan: async () => { throw new Error('forecast unavailable'); },
-            openZone: async () => {},
-            closeZone: async () => {},
-            getZoneState: async () => 'off',
-        });
-
-        await control.rePlan();
-
-        const errorCall = calls.find(c => c.event === 'error');
-        expect(errorCall?.context).toEqual({ zoneName: 'Bad Zone', operation: 're-plan', reason: 'forecast unavailable' });
-    });
+    // Re-plan failures are now surfaced exclusively through the alerter
+    // (see the weather-stale alert tests below). The unconditional notifier('error')
+    // call that used to fire on every per-zone planner throw is gone — its HA push
+    // is now a side effect of recording a weather-stale alert, which only fires
+    // when the planner is genuinely on stale data.
 
     describe('cross-zone deconfliction', () => {
         type RunPlanCall = {
