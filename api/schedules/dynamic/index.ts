@@ -2,6 +2,7 @@ import dayjs from 'dayjs';
 import type { Zone, DailyWeather, IrrigationScheduleEntry, IrrigationCycle } from '../../models';
 import {
     isDayAllowed,
+    isNightSkipped,
     type ScheduleRestrictions,
 } from './restrictions';
 
@@ -223,6 +224,11 @@ function tryPlaceIrrigationForDay(inputs: PlaceIrrigationInputs): PlaceIrrigatio
 
     if (!isDayAllowed(restrictions, date.isoWeekday())) {
         console.warn(`planner: zone ${zone.id} (${zone.name}): day ${date.format('YYYY-MM-DD')} (isoWeekday ${date.isoWeekday()}) disallowed by schedule restrictions — skipping irrigation.`);
+        return null;
+    }
+
+    if (isNightSkipped(restrictions, date)) {
+        console.warn(`planner: zone ${zone.id} (${zone.name}): day ${date.format('YYYY-MM-DD')} is skip-marked — skipping irrigation.`);
         return null;
     }
 
