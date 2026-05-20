@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'bun:test';
+import type { AlertEvent, AlertRecorder } from '@/alerts';
 import { irrigationCycles } from '@/db/schema';
 import type { ZoneRelayState } from '@/data/home-assistant';
 import type { Zone } from '@/models';
@@ -72,6 +73,7 @@ function buildDeps(overrides: {
     armCalls: ArmCloseOnlyInputs[];
     cycleUpdates: CycleUpdate[];
     notifications: RecordedNotification[];
+    alertCalls: AlertEvent[];
 } {
     const closes: Zone[] = [];
     const armCalls: ArmCloseOnlyInputs[] = [];
@@ -114,16 +116,23 @@ function buildDeps(overrides: {
         notifications.push({ event, context });
     };
 
+    const alertCalls: AlertEvent[] = [];
+    const alertRecorder: AlertRecorder = async (event) => {
+        alertCalls.push(event);
+    };
+
     return {
         closes,
         armCalls,
         cycleUpdates,
         notifications,
+        alertCalls,
         deps: {
             db,
             clock: fakeClock(now),
             registry,
             notifier,
+            alertRecorder,
             closeZone: overrides.closeFn ?? (async (zone) => { closes.push(zone); }),
             getZoneState: async (zone) => {
                 if (!overrides.state) return 'unknown';
@@ -395,5 +404,119 @@ describe('reconcileCycleAndRelayState — aggregates', () => {
         const summary = await reconcileCycleAndRelayState(deps);
 
         expect(summary).toEqual({ resumed: 0, forcedClosed: 0, missedClose: 0, orphansClosed: 0, errors: 0 });
+    });
+});
+
+describe('reconcileCycleAndRelayState — alert recording', () => {
+    it('records a missed-close alert when the relay is already off past planned close', async () => {
+        const pair = buildPair({
+            cycleId: 'cycle-missed',
+            startTime: new Date('2026-05-04T10:00:00.000Z'),
+            durationMin: 30, // planned close 10:30 < now 12:00
+        });
+        const { deps, alertCalls } = buildDeps({
+            inFlight: [pair],
+            state: async (): Promise<ZoneRelayState> => 'off',
+        });
+
+        await reconcileCycleAndRelayState(deps);
+
+        expect(alertCalls).toHaveLength(1);
+        expect(alertCalls[0]).toMatchObject({
+            class: 'missed-close',
+            tone: 'danger',
+            title: 'Missed close',
+            zoneId: pair.zone.id,
+        });
+    });
+
+    it('records a missed-close alert when the relay overran (state on past planned close)', async () => {
+        const pair = buildPair({
+            cycleId: 'cycle-overrun',
+            startTime: new Date('2026-05-04T10:00:00.000Z'),
+            durationMin: 30,
+        });
+        const { deps, alertCalls } = buildDeps({
+            inFlight: [pair],
+            state: async (): Promise<ZoneRelayState> => 'on',
+            closeFn: async () => {},
+        });
+
+        await reconcileCycleAndRelayState(deps);
+
+        expect(alertCalls).toHaveLength(1);
+        expect(alertCalls[0]).toMatchObject({
+            class: 'missed-close',
+            tone: 'danger',
+            title: 'Missed close (relay overran)',
+            zoneId: pair.zone.id,
+        });
+    });
+
+    it('records a ha-call-failed alert when getZoneState throws for an in-flight cycle', async () => {
+        const pair = buildPair({ cycleId: 'cycle-err' });
+        const { deps, alertCalls } = buildDeps({
+            inFlight: [pair],
+            state: async () => { throw new Error('HA timeout'); },
+        });
+
+        await reconcileCycleAndRelayState(deps);
+
+        expect(alertCalls).toHaveLength(1);
+        expect(alertCalls[0]).toMatchObject({
+            class: 'ha-call-failed',
+            tone: 'danger',
+            title: 'HA state query failed',
+            zoneId: pair.zone.id,
+        });
+    });
+
+    it('records a ha-call-failed alert when the force-close call itself throws', async () => {
+        const pair = buildPair({
+            cycleId: 'cycle-force-fail',
+            startTime: new Date('2026-05-04T10:00:00.000Z'),
+            durationMin: 30,
+        });
+        const { deps, alertCalls } = buildDeps({
+            inFlight: [pair],
+            state: async (): Promise<ZoneRelayState> => 'on',
+            closeFn: async () => { throw new Error('HA 504'); },
+        });
+
+        await reconcileCycleAndRelayState(deps);
+
+        expect(alertCalls).toHaveLength(1);
+        expect(alertCalls[0]).toMatchObject({
+            class: 'ha-call-failed',
+            tone: 'danger',
+            title: 'HA close failed (reconcile)',
+            zoneId: pair.zone.id,
+        });
+    });
+
+    it('records a ha-call-failed alert when the orphan sweep closes an unmanaged-open zone', async () => {
+        const orphan = buildZone({ id: 'zone-orphan', name: 'Orphan' });
+        const { deps, alertCalls } = buildDeps({
+            managedZones: [orphan],
+            state: async (): Promise<ZoneRelayState> => 'on',
+            closeFn: async () => {},
+        });
+
+        await reconcileCycleAndRelayState(deps);
+
+        expect(alertCalls).toHaveLength(1);
+        expect(alertCalls[0]).toMatchObject({
+            class: 'ha-call-failed',
+            title: 'Orphan relay closed',
+            zoneId: 'zone-orphan',
+        });
+    });
+
+    it('records no alerts on a fully clean reconciliation pass', async () => {
+        const { deps, alertCalls } = buildDeps({});
+
+        await reconcileCycleAndRelayState(deps);
+
+        expect(alertCalls).toEqual([]);
     });
 });

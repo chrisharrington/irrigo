@@ -1,6 +1,7 @@
 import dayjs from 'dayjs';
 import utc from 'dayjs/plugin/utc';
 import timezone from 'dayjs/plugin/timezone';
+import { clearAlertsByClass, noopAlertRecorder, type AlertRecorder, type AlertsDb } from '@/alerts';
 import {
     closeZone as defaultCloseZone,
     getZoneState as defaultGetZoneState,
@@ -27,6 +28,11 @@ import {
 } from './runtime';
 import type { PersistedCycle } from './schedules';
 import { loadSiteTimezone, type SiteTimezoneDb } from './sites';
+import {
+    isWeatherStale,
+    markWeatherFetchSuccessful,
+    type WeatherStateDb,
+} from './weather-state';
 import { countZones, loadEnabledZones, type ZoneCountDb, type ZoneLoaderDb } from './zones';
 
 dayjs.extend(utc);
@@ -39,7 +45,7 @@ const DEFAULT_REPLAN_HOUR_LOCAL = 4;
  * pass the eager `db` export from `@/db`; tests pass a recording stub that
  * implements the union of the smaller per-helper interfaces.
  */
-export type DaemonDb = ZoneLoaderDb & ScheduleWriterDb & FutureCyclesDb & RuntimeDb & ZoneCountDb & SiteTimezoneDb & ScheduleManagerDb;
+export type DaemonDb = ZoneLoaderDb & ScheduleWriterDb & FutureCyclesDb & RuntimeDb & ZoneCountDb & SiteTimezoneDb & ScheduleManagerDb & WeatherStateDb & AlertsDb;
 
 /**
  * Caller-overridable hooks. Defaults wire to the real planning function and
@@ -69,6 +75,12 @@ export type DaemonOptions = {
 
     /** Override the notifier. Defaults to the no-op so tests don't have to. */
     notifier?: Notifier;
+
+    /**
+     * Override the alert recorder. Defaults to the no-op so tests don't have to
+     * provide a recording stub. Production wires `createAlertRecorder(db)`.
+     */
+    alertRecorder?: AlertRecorder;
 };
 
 /**
@@ -123,6 +135,7 @@ export async function start(db: DaemonDb, options?: DaemonOptions): Promise<Daem
 
     const registry = new TimerRegistry();
     const notifier = options?.notifier ?? noopNotifier;
+    const alertRecorder = options?.alertRecorder ?? noopAlertRecorder;
     let lastRePlanAt: Date | null = null;
     let started = false;
 
@@ -136,6 +149,7 @@ export async function start(db: DaemonDb, options?: DaemonOptions): Promise<Daem
         clock,
         registry,
         notifier,
+        alertRecorder,
         closeZone,
         getZoneState,
         loadInFlightCycles,
@@ -149,7 +163,7 @@ export async function start(db: DaemonDb, options?: DaemonOptions): Promise<Daem
     // and schedule-ended for this night, if applicable, were already emitted by
     // the prior process, and re-emitting on every restart would be misleading.
     for (const { cycle, zone } of futureCycles) {
-        armCycle({ db, clock, registry, zone, cycle, openZone, closeZone, notifier });
+        armCycle({ db, clock, registry, zone, cycle, openZone, closeZone, notifier, alertRecorder });
     }
 
     const { total, enabled } = await countZones(db);
@@ -224,18 +238,30 @@ export async function start(db: DaemonDb, options?: DaemonOptions): Promise<Daem
                     cyclesToArm.push({ zone, cycle });
                     busyWindows.push({ start: cycle.startTime, end: cycleEnd });
                 }
+                // Successful runPlan implies a successful weather fetch — refresh
+                // the staleness timestamp and clear any lingering unacked
+                // weather-stale alert so the UI region collapses on recovery.
+                await Promise.all([
+                    markWeatherFetchSuccessful(db, clock.now()),
+                    clearAlertsByClass(db, 'weather-stale'),
+                ]);
             } catch (err) {
+                const reason = err instanceof Error ? err.message : String(err);
                 console.error(`daemon: re-plan failed for zone ${zone.id}.`, err);
-                await notifier('error', {
-                    zoneName: zone.name,
-                    operation: 're-plan',
-                    reason: err instanceof Error ? err.message : String(err),
-                });
+                await notifier('error', { zoneName: zone.name, operation: 're-plan', reason });
+                if (await isWeatherStale(db, clock.now())) {
+                    await alertRecorder({
+                        class: 'weather-stale',
+                        tone: 'warn',
+                        title: 'Weather API stale',
+                        sub: `Planner on fallback ET₀ · last attempt failed: ${reason}`,
+                    });
+                }
             }
         }
 
         armCyclesWithScheduleMarkers(cyclesToArm, siteTimezone, ({ zone, cycle, scheduleStart, scheduleEnd }) => {
-            armCycle({ db, clock, registry, zone, cycle, openZone, closeZone, notifier, scheduleStart, scheduleEnd });
+            armCycle({ db, clock, registry, zone, cycle, openZone, closeZone, notifier, alertRecorder, scheduleStart, scheduleEnd });
         });
 
         lastRePlanAt = clock.now();
@@ -246,7 +272,7 @@ export async function start(db: DaemonDb, options?: DaemonOptions): Promise<Daem
     const shutdown = async (): Promise<void> => {
         console.log('daemon: shutdown starting.');
         registry.cancelAllTimers(clock);
-        await closeAllInFlight({ db, clock, registry, closeZone, notifier });
+        await closeAllInFlight({ db, clock, registry, closeZone, notifier, alertRecorder });
         console.log('daemon: shutdown complete.');
     };
 
