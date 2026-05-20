@@ -87,6 +87,24 @@ describe('seed zone upsert', () => {
         expect(zoneConflictSets).toHaveLength(1);
         expect('currentDepletionMm' in zoneConflictSets[0]!).toBe(false);
     });
+
+    it('includes the patch variant in zone insert values, sourced from the seed JSON', async () => {
+        const { db, zoneInsertValues } = makeSeedDb();
+
+        await seed({ db, dataDir: SEEDS_DIR });
+
+        const rows = zoneInsertValues[0]!;
+        const patches = rows.map(row => row['patch']);
+        expect(patches).toEqual(['a', 'b', 'c']);
+    });
+
+    it('refreshes the patch column on ON CONFLICT so re-seed picks up JSON edits', async () => {
+        const { db, zoneConflictSets } = makeSeedDb();
+
+        await seed({ db, dataDir: SEEDS_DIR });
+
+        expect('patch' in zoneConflictSets[0]!).toBe(true);
+    });
 });
 
 describe('seed schedule upsert', () => {

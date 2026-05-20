@@ -64,6 +64,7 @@ export const ZoneSeedSchema = z.object({
     longitude: z.number().optional(),
     homeAssistantEntityId: z.string().optional(),
     microclimateFactor: z.number().optional(),
+    patch: z.enum(['a', 'b', 'c']).optional(),
 });
 
 export type GrassTypeSeed = z.infer<typeof GrassTypeSeedSchema>;

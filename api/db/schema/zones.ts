@@ -1,4 +1,5 @@
-import { boolean, doublePrecision, pgTable, real, text, uuid } from 'drizzle-orm/pg-core';
+import { sql } from 'drizzle-orm';
+import { boolean, check, doublePrecision, pgTable, real, text, uuid } from 'drizzle-orm/pg-core';
 import { auditColumns } from './audit-columns';
 import { grassTypes } from './grass-types';
 import { sites } from './sites';
@@ -23,5 +24,6 @@ export const zones = pgTable('zones', {
     longitude: doublePrecision('longitude'),
     homeAssistantEntityId: text('home_assistant_entity_id'),
     microclimateFactor: real('microclimate_factor').notNull().default(1),
+    patch: text('patch').notNull().default('a'),
     ...auditColumns,
-});
+}, (table) => [check('zones_patch_check', sql`${table.patch} in ('a', 'b', 'c')`)]);

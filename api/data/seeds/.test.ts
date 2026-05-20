@@ -135,6 +135,22 @@ describe('parseZones', () => {
     it('rejects entries where a numeric field has the wrong type', () => {
         expect(() => parseZones([{ ...validZone, areaM2: 'big' }])).toThrow(/areaM2/);
     });
+
+    it('accepts a zone with a patch value of "a", "b", or "c"', () => {
+        for (const patch of ['a', 'b', 'c'] as const) {
+            const rows = parseZones([{ ...validZone, patch }]);
+            expect(rows[0]?.patch).toBe(patch);
+        }
+    });
+
+    it('parses successfully when patch is omitted (optional)', () => {
+        const rows = parseZones([validZone]);
+        expect(rows[0]?.patch).toBeUndefined();
+    });
+
+    it('rejects entries with a patch value outside the a/b/c enum', () => {
+        expect(() => parseZones([{ ...validZone, patch: 'd' }])).toThrow(/patch/);
+    });
 });
 
 describe('grass-types.json fixture', () => {

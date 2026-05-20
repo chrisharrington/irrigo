@@ -252,6 +252,7 @@ async function upsertZones(db: SeedDb, rows: ZoneSeed[], lookups: ZoneLookups): 
                 longitude: sql`excluded.longitude`,
                 homeAssistantEntityId: sql`excluded.home_assistant_entity_id`,
                 microclimateFactor: sql`excluded.microclimate_factor`,
+                patch: sql`excluded.patch`,
             },
         })
         .returning({ id: zones.id, slug: zones.slug });
@@ -327,6 +328,7 @@ function resolveZone(row: ZoneSeed, lookups: ZoneLookups) {
         longitude: row.longitude ?? null,
         homeAssistantEntityId: row.homeAssistantEntityId ?? null,
         microclimateFactor: row.microclimateFactor ?? 1,
+        patch: row.patch ?? 'a',
     };
 }
 

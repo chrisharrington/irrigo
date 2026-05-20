@@ -18,12 +18,21 @@ import { computeNextRePlanAt, start, type DaemonDb } from '.';
 import {
     countZones,
     loadEnabledZones,
+    loadLatestScheduleEntries,
     loadZoneById,
+    loadZoneJoinedRowsForSummary,
+    loadZoneSummaries,
+    mapJoinedRowToSummary,
     mapJoinedRowsToZones,
+    type LatestEntriesDb,
+    type LatestZoneFire,
     type SelectJoinChain,
+    type SummaryJoinDb,
+    type SummaryJoinedRow,
     type ZoneCountDb,
     type ZoneJoinedRow,
     type ZoneLoaderDb,
+    type ZoneSummaryDb,
 } from './zones';
 import { loadSiteTimezone, type SiteTimezoneDb } from './sites';
 import { noopNotifier, type NotificationContext, type NotificationEvent, type Notifier } from '@/notifications';
@@ -333,6 +342,250 @@ describe('loadZoneById', () => {
         const result = await loadZoneById(db, 'zone-missing');
 
         expect(result).toBeNull();
+    });
+});
+
+function buildSummaryRow(overrides?: {
+    zone?: Partial<SummaryJoinedRow['zone']>;
+    grassType?: Partial<SummaryJoinedRow['grassType']>;
+    soilType?: Partial<SummaryJoinedRow['soilType']>;
+}): SummaryJoinedRow {
+    const joined = buildJoinedRow({
+        zone: overrides?.zone,
+        grassType: overrides?.grassType,
+        soilType: overrides?.soilType,
+    });
+    return { zone: joined.zone, grassType: joined.grassType, soilType: joined.soilType };
+}
+
+function createSummaryJoinStub(rows: SummaryJoinedRow[]) {
+    const whereCalls: WhereCall[] = [];
+    let selectColumns: unknown;
+
+    const db: SummaryJoinDb = {
+        select(columns) {
+            selectColumns = columns;
+            return { from: () => buildJoinChainStub(whereCalls, rows) };
+        },
+    };
+
+    return { db, whereCalls, getSelectColumns: () => selectColumns };
+}
+
+function createLatestEntriesStub(rows: LatestZoneFire[]) {
+    const orderByCalls: Array<ReadonlyArray<unknown>> = [];
+    const onCalls: Array<ReadonlyArray<unknown>> = [];
+
+    const db: LatestEntriesDb = {
+        selectDistinctOn(on, _columns) {
+            onCalls.push(on);
+            return {
+                from: () => ({
+                    orderBy: (...exprs) => {
+                        orderByCalls.push(exprs);
+                        return Promise.resolve(rows);
+                    },
+                }),
+            };
+        },
+    };
+
+    return { db, orderByCalls, onCalls };
+}
+
+function buildSummaryDb(rows: SummaryJoinedRow[], entries: LatestZoneFire[]): ZoneSummaryDb {
+    const { db: joinDb } = createSummaryJoinStub(rows);
+    const { db: entriesDb } = createLatestEntriesStub(entries);
+    return { ...joinDb, ...entriesDb };
+}
+
+describe('mapJoinedRowToSummary', () => {
+    it('computes rawMm as AWHC × rootDepthM × allowableDepletionFraction (rounded to 2 decimals)', () => {
+        const row = buildSummaryRow({
+            zone: { rootDepthM: 0.3, allowableDepletionFraction: 0.5 },
+            soilType: { availableWaterHoldingCapacityMmPerM: 140 },
+        });
+
+        const summary = mapJoinedRowToSummary(row, null);
+
+        // 140 × 0.3 × 0.5 = 21
+        expect(summary.rawMm).toBe(21);
+    });
+
+    it('rounds rawMm to two decimal places', () => {
+        const row = buildSummaryRow({
+            zone: { rootDepthM: 0.27, allowableDepletionFraction: 0.45 },
+            soilType: { availableWaterHoldingCapacityMmPerM: 137 },
+        });
+
+        const summary = mapJoinedRowToSummary(row, null);
+
+        // 137 × 0.27 × 0.45 = 16.6455 → 16.65
+        expect(summary.rawMm).toBe(16.65);
+    });
+
+    it('emits null lastFiredAt and lastAppliedMm when no fire entry is supplied', () => {
+        const summary = mapJoinedRowToSummary(buildSummaryRow(), null);
+
+        expect(summary.lastFiredAt).toBeNull();
+        expect(summary.lastAppliedMm).toBeNull();
+    });
+
+    it('formats lastFiredAt as YYYY-MM-DD and passes through lastAppliedMm', () => {
+        const summary = mapJoinedRowToSummary(buildSummaryRow(), {
+            zoneId: 'zone-001',
+            date: '2026-05-13',
+            appliedDepthMm: 14,
+        });
+
+        expect(summary.lastFiredAt).toBe('2026-05-13');
+        expect(summary.lastAppliedMm).toBe(14);
+    });
+
+    it('passes the patch variant through from the zone row', () => {
+        const summary = mapJoinedRowToSummary(buildSummaryRow({ zone: { patch: 'b' } }), null);
+
+        expect(summary.patch).toBe('b');
+    });
+
+    it('flattens grass and soil into a name-only nested shape', () => {
+        const summary = mapJoinedRowToSummary(buildSummaryRow({
+            grassType: { name: 'Bermudagrass' },
+            soilType: { name: 'Sandy Loam' },
+        }), null);
+
+        expect(summary.grassType).toEqual({ name: 'Bermudagrass' });
+        expect(summary.soilType).toEqual({ name: 'Sandy Loam' });
+    });
+
+    it('preserves identity, depletion, and HA fields verbatim', () => {
+        const summary = mapJoinedRowToSummary(buildSummaryRow({
+            zone: {
+                id: 'zone-007',
+                slug: 'back-yard',
+                name: 'Back Yard',
+                isEnabled: false,
+                currentDepletionMm: 18.4,
+                homeAssistantEntityId: 'switch.back_yard',
+                precipitationRateMmPerHr: 12.5,
+            },
+        }), null);
+
+        expect(summary.id).toBe('zone-007');
+        expect(summary.slug).toBe('back-yard');
+        expect(summary.name).toBe('Back Yard');
+        expect(summary.isEnabled).toBe(false);
+        expect(summary.currentDepletionMm).toBe(18.4);
+        expect(summary.homeAssistantEntityId).toBe('switch.back_yard');
+        expect(summary.precipitationRateMmPerHr).toBe(12.5);
+    });
+
+    it('emits null for missing homeAssistantEntityId and precipitationRateMmPerHr', () => {
+        const summary = mapJoinedRowToSummary(buildSummaryRow({
+            zone: { homeAssistantEntityId: null, precipitationRateMmPerHr: null },
+        }), null);
+
+        expect(summary.homeAssistantEntityId).toBeNull();
+        expect(summary.precipitationRateMmPerHr).toBeNull();
+    });
+});
+
+describe('loadZoneJoinedRowsForSummary', () => {
+    it('returns the rows produced by the chained join', async () => {
+        const rows = [buildSummaryRow({ zone: { id: 'a' } }), buildSummaryRow({ zone: { id: 'b' } })];
+        const { db } = createSummaryJoinStub(rows);
+
+        const result = await loadZoneJoinedRowsForSummary(db);
+
+        expect(result.map(r => r.zone.id)).toEqual(['a', 'b']);
+    });
+
+    it('selects from zones with grass and soil columns', async () => {
+        const { db, getSelectColumns } = createSummaryJoinStub([]);
+
+        await loadZoneJoinedRowsForSummary(db);
+
+        const cols = getSelectColumns() as Record<string, unknown>;
+        expect(cols['zone']).toBe(zones);
+        expect(cols['grassType']).toBe(grassTypes);
+        expect(cols['soilType']).toBe(soilTypes);
+    });
+});
+
+describe('loadLatestScheduleEntries', () => {
+    it('returns the rows produced by the distinct-on query', async () => {
+        const entries: LatestZoneFire[] = [
+            { zoneId: 'zone-1', date: '2026-05-13', appliedDepthMm: 14 },
+            { zoneId: 'zone-2', date: '2026-05-12', appliedDepthMm: 9 },
+        ];
+        const { db } = createLatestEntriesStub(entries);
+
+        const result = await loadLatestScheduleEntries(db);
+
+        expect(result).toEqual(entries);
+    });
+
+    it('groups the distinct-on result by zoneId and orders descending by date', async () => {
+        const { db, onCalls, orderByCalls } = createLatestEntriesStub([]);
+
+        await loadLatestScheduleEntries(db);
+
+        expect(onCalls).toHaveLength(1);
+        expect(onCalls[0]).toHaveLength(1);
+        expect(orderByCalls).toHaveLength(1);
+        // First arg is the zoneId column expression, second is the desc(date) expression.
+        expect(orderByCalls[0]).toHaveLength(2);
+    });
+});
+
+describe('loadZoneSummaries', () => {
+    it('returns the full summary list with rawMm and last-fire merged in by zone id', async () => {
+        const rows = [
+            buildSummaryRow({
+                zone: { id: 'zone-1', name: 'North', rootDepthM: 0.3, allowableDepletionFraction: 0.5 },
+                soilType: { availableWaterHoldingCapacityMmPerM: 140 },
+            }),
+            buildSummaryRow({
+                zone: { id: 'zone-2', name: 'South', rootDepthM: 0.2, allowableDepletionFraction: 0.45 },
+                soilType: { availableWaterHoldingCapacityMmPerM: 140 },
+            }),
+        ];
+        const entries: LatestZoneFire[] = [
+            { zoneId: 'zone-1', date: '2026-05-13', appliedDepthMm: 14 },
+        ];
+        const db = buildSummaryDb(rows, entries);
+
+        const result = await loadZoneSummaries(db);
+
+        expect(result).toHaveLength(2);
+        expect(result[0]?.name).toBe('North');
+        expect(result[0]?.rawMm).toBe(21);
+        expect(result[0]?.lastFiredAt).toBe('2026-05-13');
+        expect(result[0]?.lastAppliedMm).toBe(14);
+
+        expect(result[1]?.name).toBe('South');
+        // zone-2 has no fire entry → null fields
+        expect(result[1]?.lastFiredAt).toBeNull();
+        expect(result[1]?.lastAppliedMm).toBeNull();
+    });
+
+    it('returns an empty array when no zones exist', async () => {
+        const db = buildSummaryDb([], []);
+
+        const result = await loadZoneSummaries(db);
+
+        expect(result).toEqual([]);
+    });
+
+    it('emits null last-fire fields for every zone when no entries exist', async () => {
+        const rows = [buildSummaryRow({ zone: { id: 'zone-1' } })];
+        const db = buildSummaryDb(rows, []);
+
+        const result = await loadZoneSummaries(db);
+
+        expect(result).toHaveLength(1);
+        expect(result[0]?.lastFiredAt).toBeNull();
+        expect(result[0]?.lastAppliedMm).toBeNull();
     });
 });
 
