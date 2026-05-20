@@ -13,7 +13,7 @@ import { noopNotifier, type Notifier } from '@/notifications';
 import { runScheduleForZone, type RunScheduleForZoneOptions } from '@/schedules';
 import type { PlanZoneScheduleResult } from '@/schedules/dynamic';
 import { reconcileCycleAndRelayState, type ReconcileSummary } from './reconcile';
-import { loadActiveSchedulesBySite, type Schedule, type ScheduleManagerDb } from './schedule-manager';
+import { clearStaleSkipMarkers, loadActiveSchedulesBySite, type Schedule, type ScheduleManagerDb } from './schedule-manager';
 import { loadFutureCycles, loadInFlightCycles, replaceZoneSchedule, type FutureCyclesDb, type ScheduleWriterDb } from './schedules';
 import {
     armCloseOnly,
@@ -189,9 +189,13 @@ export async function start(db: DaemonDb, options?: DaemonOptions): Promise<Daem
         console.log('daemon: re-plan starting.');
         registry.cancelOpenTimers(clock);
 
+        const today = dayjs(clock.now());
+        // Wipe markers from past nights before snapshotting active schedules so
+        // a stale entry can't accidentally apply to the new night's plan.
+        await clearStaleSkipMarkers(db, today);
+
         const enabledZones = await loadEnabledZones(db);
         const activeSchedulesBySite: Map<string, Schedule> = await loadActiveSchedulesBySite(db);
-        const today = dayjs(clock.now()).format('YYYY-MM-DD');
         const now = clock.now();
         const busyWindows: Array<{ start: Date; end: Date }> = registry.snapshotInFlight()
             .map(({ endTime }) => ({ start: now, end: endTime }));
@@ -216,6 +220,7 @@ export async function start(db: DaemonDb, options?: DaemonOptions): Promise<Daem
                     allowedDays: activeSchedule.allowedDays,
                     allowedTimeWindows: activeSchedule.allowedTimeWindows,
                     endBySunrise: activeSchedule.endBySunrise ?? false,
+                    skippedNightDate: activeSchedule.skippedNightDate ?? null,
                 };
                 const overrides = {
                     rootDepthM: activeSchedule.rootDepthMOverride ?? undefined,

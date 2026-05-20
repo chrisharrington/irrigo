@@ -371,12 +371,13 @@ describe('buildApp manual zone routes', () => {
 
 describe('buildApp schedule routes', () => {
     const NOW = new Date('2026-05-08T12:00:00.000Z');
-    const buildSchedule = (overrides?: Partial<{ slug: string; name: string; siteId: string; isActive: boolean }>) => ({
+    const buildSchedule = (overrides?: Partial<{ slug: string; name: string; siteId: string; isActive: boolean; skippedNightDate: string | null }>) => ({
         id: 'sched-1',
         siteId: 'site-A',
         slug: 'maintenance',
         name: 'Maintenance',
         isActive: true,
+        skippedNightDate: null as string | null,
         createdAt: NOW,
         updatedAt: NOW,
         ...overrides,
@@ -458,6 +459,142 @@ describe('buildApp schedule routes', () => {
         await app.close();
     });
 
+    describe('POST /schedule/skip-tonight', () => {
+        it('returns 200 with the post-update schedule on success', async () => {
+            const app = buildApp({
+                getStatus: () => buildStatus(),
+                schedule: {
+                    enable: async () => null,
+                    disable: async () => null,
+                    skipTonight: async () => buildSchedule({ slug: 'maintenance', name: 'Maintenance', siteId: 'site-A', skippedNightDate: '2026-05-20' }),
+                    resumeTonight: async () => null,
+                },
+            });
+
+            const res = await app.inject({ method: 'POST', url: '/schedule/skip-tonight' });
+
+            expect(res.statusCode).toBe(200);
+            expect(res.json()).toEqual({
+                status: 'skipped',
+                schedule: { slug: 'maintenance', name: 'Maintenance', siteId: 'site-A', skippedNightDate: '2026-05-20' },
+            });
+            await app.close();
+        });
+
+        it('returns 404 when no schedule is active', async () => {
+            const app = buildApp({
+                getStatus: () => buildStatus(),
+                schedule: {
+                    enable: async () => null,
+                    disable: async () => null,
+                    skipTonight: async () => null,
+                    resumeTonight: async () => null,
+                },
+            });
+
+            const res = await app.inject({ method: 'POST', url: '/schedule/skip-tonight' });
+
+            expect(res.statusCode).toBe(404);
+            expect(res.json()).toMatchObject({ error: 'not-found' });
+            await app.close();
+        });
+
+        it('returns 502 when the wrapped re-plan rejects', async () => {
+            const base: ScheduleApi = {
+                enable: async () => null,
+                disable: async () => null,
+                skipTonight: async () => buildSchedule({ skippedNightDate: '2026-05-20' }),
+                resumeTonight: async () => null,
+            };
+            const wrapped = wrapScheduleWithReplan(base, async () => { throw new Error('HA 503'); });
+            const app = buildApp({ getStatus: () => buildStatus(), schedule: wrapped });
+
+            const res = await app.inject({ method: 'POST', url: '/schedule/skip-tonight' });
+
+            expect(res.statusCode).toBe(502);
+            expect(res.json()).toMatchObject({ error: 'replan-failed', message: 'HA 503' });
+            await app.close();
+        });
+    });
+
+    describe('POST /schedule/resume-tonight', () => {
+        it('returns 200 with the cleared schedule on success', async () => {
+            const app = buildApp({
+                getStatus: () => buildStatus(),
+                schedule: {
+                    enable: async () => null,
+                    disable: async () => null,
+                    skipTonight: async () => null,
+                    resumeTonight: async () => buildSchedule({ slug: 'maintenance', name: 'Maintenance', siteId: 'site-A', skippedNightDate: null }),
+                },
+            });
+
+            const res = await app.inject({ method: 'POST', url: '/schedule/resume-tonight' });
+
+            expect(res.statusCode).toBe(200);
+            expect(res.json()).toEqual({
+                status: 'resumed',
+                schedule: { slug: 'maintenance', name: 'Maintenance', siteId: 'site-A', skippedNightDate: null },
+            });
+            await app.close();
+        });
+
+        it('is idempotent: returns 200 even when the marker was already null', async () => {
+            // The handler returns the row with skippedNightDate:null whether or not it
+            // was previously set; the route should treat that as success, not a no-op
+            // failure.
+            const app = buildApp({
+                getStatus: () => buildStatus(),
+                schedule: {
+                    enable: async () => null,
+                    disable: async () => null,
+                    skipTonight: async () => null,
+                    resumeTonight: async () => buildSchedule({ skippedNightDate: null }),
+                },
+            });
+
+            const res = await app.inject({ method: 'POST', url: '/schedule/resume-tonight' });
+
+            expect(res.statusCode).toBe(200);
+            expect(res.json()).toMatchObject({ status: 'resumed' });
+            await app.close();
+        });
+
+        it('returns 404 when no schedule is active', async () => {
+            const app = buildApp({
+                getStatus: () => buildStatus(),
+                schedule: {
+                    enable: async () => null,
+                    disable: async () => null,
+                    skipTonight: async () => null,
+                    resumeTonight: async () => null,
+                },
+            });
+
+            const res = await app.inject({ method: 'POST', url: '/schedule/resume-tonight' });
+
+            expect(res.statusCode).toBe(404);
+            await app.close();
+        });
+
+        it('returns 502 when the wrapped re-plan rejects', async () => {
+            const base: ScheduleApi = {
+                enable: async () => null,
+                disable: async () => null,
+                skipTonight: async () => null,
+                resumeTonight: async () => buildSchedule({ skippedNightDate: null }),
+            };
+            const wrapped = wrapScheduleWithReplan(base, async () => { throw new Error('HA 504'); });
+            const app = buildApp({ getStatus: () => buildStatus(), schedule: wrapped });
+
+            const res = await app.inject({ method: 'POST', url: '/schedule/resume-tonight' });
+
+            expect(res.statusCode).toBe(502);
+            expect(res.json()).toMatchObject({ error: 'replan-failed', message: 'HA 504' });
+            await app.close();
+        });
+    });
+
     describe('wrapped with replan', () => {
         it('returns 502 when the wrapped enable closure rejects (re-plan failed)', async () => {
             // Simulate the production wiring: enable throws because replan threw.
@@ -493,7 +630,7 @@ describe('buildApp schedule routes', () => {
 });
 
 describe('wrapScheduleWithReplan', () => {
-    const buildSchedule = (overrides?: Partial<{ slug: string; name: string; siteId: string; isActive: boolean }>) => ({
+    const buildSchedule = (overrides?: Partial<{ slug: string; name: string; siteId: string; isActive: boolean; skippedNightDate: string | null }>) => ({
         id: 'sched-1',
         siteId: 'site-A',
         slug: 'maintenance',
@@ -503,6 +640,7 @@ describe('wrapScheduleWithReplan', () => {
         allowedTimeWindows: null,
         rootDepthMOverride: null,
         allowableDepletionFractionOverride: null,
+        skippedNightDate: null as string | null,
         createdAt: new Date('2026-05-11T18:00:00.000Z'),
         updatedAt: new Date('2026-05-11T18:00:00.000Z'),
         ...overrides,
@@ -571,10 +709,90 @@ describe('wrapScheduleWithReplan', () => {
         const base: ScheduleApi = {
             enable: async (slug) => buildSchedule({ slug }),
             disable: async () => null,
+            skipTonight: async () => null,
+            resumeTonight: async () => null,
         };
         const wrapped = wrapScheduleWithReplan(base, async () => { throw new Error('replan failed'); });
 
         await expect(wrapped.enable('maintenance')).rejects.toThrow('replan failed');
+    });
+
+    it('calls replan after a non-null skipTonight result, awaiting it before returning', async () => {
+        const callOrder: string[] = [];
+        const base: ScheduleApi = {
+            enable: async () => null,
+            disable: async () => null,
+            skipTonight: async () => { callOrder.push('skip'); return buildSchedule({ skippedNightDate: '2026-05-20' }); },
+            resumeTonight: async () => null,
+        };
+        const wrapped = wrapScheduleWithReplan(base, async () => {
+            await Promise.resolve();
+            callOrder.push('replan');
+        });
+
+        const result = await wrapped.skipTonight();
+        callOrder.push('returned');
+
+        expect(result?.skippedNightDate).toBe('2026-05-20');
+        expect(callOrder).toEqual(['skip', 'replan', 'returned']);
+    });
+
+    it('skips replan when skipTonight returns null (no active schedule)', async () => {
+        let replanCalls = 0;
+        const base: ScheduleApi = {
+            enable: async () => null,
+            disable: async () => null,
+            skipTonight: async () => null,
+            resumeTonight: async () => null,
+        };
+        const wrapped = wrapScheduleWithReplan(base, async () => { replanCalls += 1; });
+
+        const result = await wrapped.skipTonight();
+
+        expect(result).toBeNull();
+        expect(replanCalls).toBe(0);
+    });
+
+    it('calls replan after a non-null resumeTonight result', async () => {
+        const callOrder: string[] = [];
+        const base: ScheduleApi = {
+            enable: async () => null,
+            disable: async () => null,
+            skipTonight: async () => null,
+            resumeTonight: async () => { callOrder.push('resume'); return buildSchedule({ skippedNightDate: null }); },
+        };
+        const wrapped = wrapScheduleWithReplan(base, async () => { callOrder.push('replan'); });
+
+        await wrapped.resumeTonight();
+
+        expect(callOrder).toEqual(['resume', 'replan']);
+    });
+
+    it('skips replan when resumeTonight returns null', async () => {
+        let replanCalls = 0;
+        const base: ScheduleApi = {
+            enable: async () => null,
+            disable: async () => null,
+            skipTonight: async () => null,
+            resumeTonight: async () => null,
+        };
+        const wrapped = wrapScheduleWithReplan(base, async () => { replanCalls += 1; });
+
+        await wrapped.resumeTonight();
+
+        expect(replanCalls).toBe(0);
+    });
+
+    it('propagates replan rejections through skipTonight', async () => {
+        const base: ScheduleApi = {
+            enable: async () => null,
+            disable: async () => null,
+            skipTonight: async () => buildSchedule({ skippedNightDate: '2026-05-20' }),
+            resumeTonight: async () => null,
+        };
+        const wrapped = wrapScheduleWithReplan(base, async () => { throw new Error('replan failed'); });
+
+        await expect(wrapped.skipTonight()).rejects.toThrow('replan failed');
     });
 });
 

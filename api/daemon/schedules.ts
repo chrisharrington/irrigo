@@ -1,3 +1,4 @@
+import type dayjs from 'dayjs';
 import { and, eq, gt, gte, isNotNull, isNull } from 'drizzle-orm';
 import {
     grassTypes,
@@ -76,15 +77,16 @@ export async function replaceZoneSchedule(
     db: ScheduleWriterDb,
     zoneId: string,
     entries: ReadonlyArray<IrrigationScheduleEntry>,
-    today: string,
+    today: dayjs.Dayjs,
     projectedNextDepletionMm: number,
     scheduleId: string,
 ): Promise<PersistedScheduleResult> {
-    console.log(`daemon: replacing schedule for zone ${zoneId} from ${today} (${entries.length} entry/entries).`);
+    const todayIso = today.format('YYYY-MM-DD');
+    console.log(`daemon: replacing schedule for zone ${zoneId} from ${todayIso} (${entries.length} entry/entries).`);
 
     await db
         .delete(scheduleEntries)
-        .where(and(eq(scheduleEntries.zoneId, zoneId), gte(scheduleEntries.date, today)));
+        .where(and(eq(scheduleEntries.zoneId, zoneId), gte(scheduleEntries.date, todayIso)));
 
     const persisted: PersistedCycle[] = [];
 

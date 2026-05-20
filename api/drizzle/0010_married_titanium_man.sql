@@ -1,0 +1,1 @@
+ALTER TABLE "schedules" ADD COLUMN "skipped_night_date" date;

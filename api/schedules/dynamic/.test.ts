@@ -1679,4 +1679,80 @@ describe('planZoneSchedule', () => {
             expect(cycle.startTime.valueOf()).toBeGreaterThanOrEqual(NOW_09.valueOf());
         });
     });
+
+    describe('skip-tonight marker', () => {
+        const singleCycleZone = () => createTestZone({
+            currentDepletionMm: 22,
+            soil: { name: 'TestSoil', availableWaterHoldingCapacityMmPerM: 150, infiltrationRateMmPerHr: 100 },
+            precipitationRateMmPerHr: 50,
+        });
+
+        function weatherFromDates(startDate: string, days: number, sunriseHour = 6) {
+            return createWeatherDays(
+                Array.from({ length: days }, () => ({ evapotranspirationMmPerDay: 1.0, rainfallMm: 0 })),
+                dayjs(startDate),
+            ).map((day, idx) => ({
+                ...day,
+                sunrise: dayjs(startDate).add(idx, 'day').hour(sunriseHour).minute(0).second(0).millisecond(0),
+            }));
+        }
+
+        it('drops day 0 cycles when the marker matches and lets depletion accumulate into the next day', () => {
+            const zone = singleCycleZone();
+            // Wednesday 2026-05-06 (day 0), Thursday 2026-05-07 (day 1).
+            const weather = weatherFromDates('2026-05-06', 2);
+
+            const result = planZoneSchedule(zone, weather, [], {
+                allowedDays: null,
+                allowedTimeWindows: null,
+                skippedNightDate: '2026-05-06',
+            });
+
+            expect(result.entries.find(e => e.date.format('YYYY-MM-DD') === '2026-05-06')).toBeUndefined();
+            const thursday = result.entries.find(e => e.date.format('YYYY-MM-DD') === '2026-05-07');
+            expect(thursday).toBeDefined();
+            // Skipped day's depletion (22.85 mm after day 0 ET) carries into Thursday's
+            // pre-irrigation depletion — sanity check it's strictly greater than the
+            // single-day depletion that would have triggered today.
+            expect(thursday?.depletionBeforeMm).toBeGreaterThan(22.85);
+        });
+
+        it('drops a specific future-day match without affecting other days', () => {
+            const zone = singleCycleZone();
+            const weather = weatherFromDates('2026-05-06', 3); // Wed, Thu, Fri
+
+            const result = planZoneSchedule(zone, weather, [], {
+                allowedDays: null,
+                allowedTimeWindows: null,
+                skippedNightDate: '2026-05-07', // skip only Thursday
+            });
+
+            // Wednesday fires normally.
+            expect(result.entries.find(e => e.date.format('YYYY-MM-DD') === '2026-05-06')).toBeDefined();
+            // Thursday is skipped.
+            expect(result.entries.find(e => e.date.format('YYYY-MM-DD') === '2026-05-07')).toBeUndefined();
+        });
+
+        it('is a no-op when the marker is null or matches no planned day (regression)', () => {
+            const zone = singleCycleZone();
+            const weather = weatherFromDates('2026-05-06', 1);
+
+            const baseline = planZoneSchedule(zone, weather);
+            const withNullMarker = planZoneSchedule(zone, weather, [], {
+                allowedDays: null,
+                allowedTimeWindows: null,
+                skippedNightDate: null,
+            });
+            const withUnmatchedMarker = planZoneSchedule(zone, weather, [], {
+                allowedDays: null,
+                allowedTimeWindows: null,
+                skippedNightDate: '1999-01-01',
+            });
+
+            expect(withNullMarker.entries).toHaveLength(baseline.entries.length);
+            expect(withUnmatchedMarker.entries).toHaveLength(baseline.entries.length);
+            expect(withNullMarker.entries[0]?.cycles[0]?.startTime.isSame(baseline.entries[0]?.cycles[0]?.startTime)).toBe(true);
+            expect(withUnmatchedMarker.entries[0]?.cycles[0]?.startTime.isSame(baseline.entries[0]?.cycles[0]?.startTime)).toBe(true);
+        });
+    });
 });

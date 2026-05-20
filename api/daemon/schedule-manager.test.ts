@@ -1,10 +1,14 @@
 import { describe, it, expect } from 'bun:test';
+import dayjs from 'dayjs';
 import { schedules } from '@/db/schema';
 import {
+    clearStaleSkipMarkers,
     disableSchedule,
     enableSchedule,
     loadActiveSchedulesBySite,
     loadScheduleBySlug,
+    resumeActiveScheduleTonight,
+    skipActiveScheduleTonight,
     type Schedule,
     type ScheduleManagerDb,
 } from './schedule-manager';
@@ -26,6 +30,7 @@ function buildSchedule(overrides?: Partial<Schedule>): Schedule {
         rootDepthMOverride: null,
         allowableDepletionFractionOverride: null,
         endBySunrise: null,
+        skippedNightDate: null,
         createdAt: NOW,
         updatedAt: NOW,
         ...overrides,
@@ -215,6 +220,102 @@ describe('disableSchedule', () => {
 
         expect(result).toBeNull();
         expect(updateCalls).toHaveLength(0);
+    });
+});
+
+describe('skipActiveScheduleTonight', () => {
+    it('sets skippedNightDate on the active schedule and returns the row', async () => {
+        const active = buildSchedule({ id: 'sched-active', slug: 'maintenance', isActive: true, skippedNightDate: null });
+        const { db, updateCalls, getRows } = createStub([active]);
+
+        const result = await skipActiveScheduleTonight(db, dayjs('2026-05-20'));
+
+        expect(result?.id).toBe('sched-active');
+        expect(result?.skippedNightDate).toBe('2026-05-20');
+        expect(updateCalls).toHaveLength(1);
+        expect(updateCalls[0]?.values).toEqual({ skippedNightDate: '2026-05-20' });
+        expect(getRows().find(r => r.id === 'sched-active')?.skippedNightDate).toBe('2026-05-20');
+    });
+
+    it('returns null without writing when no schedule is active', async () => {
+        const inactive = buildSchedule({ id: 'sched-1', isActive: false });
+        const { db, updateCalls } = createStub([inactive]);
+
+        const result = await skipActiveScheduleTonight(db, dayjs('2026-05-20'));
+
+        expect(result).toBeNull();
+        expect(updateCalls).toHaveLength(0);
+    });
+
+    it('does not touch inactive rows on the same site', async () => {
+        const active = buildSchedule({ id: 'sched-A', siteId: 'site-A', slug: 'maintenance', isActive: true });
+        const inactive = buildSchedule({ id: 'sched-B', siteId: 'site-A', slug: 'overseeding', isActive: false });
+        const { db, getRows } = createStub([active, inactive]);
+
+        await skipActiveScheduleTonight(db, dayjs('2026-05-20'));
+
+        expect(getRows().find(r => r.id === 'sched-A')?.skippedNightDate).toBe('2026-05-20');
+        expect(getRows().find(r => r.id === 'sched-B')?.skippedNightDate).toBeNull();
+    });
+});
+
+describe('resumeActiveScheduleTonight', () => {
+    it('clears skippedNightDate on the active schedule and returns the row', async () => {
+        const active = buildSchedule({ id: 'sched-active', isActive: true, skippedNightDate: '2026-05-20' });
+        const { db, updateCalls, getRows } = createStub([active]);
+
+        const result = await resumeActiveScheduleTonight(db);
+
+        expect(result?.id).toBe('sched-active');
+        expect(result?.skippedNightDate).toBeNull();
+        expect(updateCalls).toHaveLength(1);
+        expect(updateCalls[0]?.values).toEqual({ skippedNightDate: null });
+        expect(getRows().find(r => r.id === 'sched-active')?.skippedNightDate).toBeNull();
+    });
+
+    it('is idempotent: returns the active row even when no marker is set', async () => {
+        const active = buildSchedule({ id: 'sched-1', isActive: true, skippedNightDate: null });
+        const { db, updateCalls } = createStub([active]);
+
+        const result = await resumeActiveScheduleTonight(db);
+
+        expect(result?.id).toBe('sched-1');
+        expect(result?.skippedNightDate).toBeNull();
+        expect(updateCalls).toHaveLength(1); // still issues UPDATE, idempotent on the row
+    });
+
+    it('returns null without writing when no schedule is active', async () => {
+        const inactive = buildSchedule({ id: 'sched-1', isActive: false });
+        const { db, updateCalls } = createStub([inactive]);
+
+        const result = await resumeActiveScheduleTonight(db);
+
+        expect(result).toBeNull();
+        expect(updateCalls).toHaveLength(0);
+    });
+});
+
+describe('clearStaleSkipMarkers', () => {
+    it('issues one UPDATE with skippedNightDate=null and the lt(today) predicate', async () => {
+        const stale = buildSchedule({ id: 'sched-A', skippedNightDate: '2026-05-19' });
+        const fresh = buildSchedule({ id: 'sched-B', skippedNightDate: '2026-05-20' });
+        const { db, updateCalls } = createStub([stale, fresh]);
+
+        await clearStaleSkipMarkers(db, dayjs('2026-05-20'));
+
+        expect(updateCalls).toHaveLength(1);
+        expect(updateCalls[0]?.values).toEqual({ skippedNightDate: null });
+    });
+
+    it('issues the UPDATE even when no rows have a marker — Drizzle handles the empty match', async () => {
+        const a = buildSchedule({ id: 'sched-A', skippedNightDate: null });
+        const b = buildSchedule({ id: 'sched-B', skippedNightDate: null });
+        const { db, updateCalls } = createStub([a, b]);
+
+        await clearStaleSkipMarkers(db, dayjs('2026-05-20'));
+
+        expect(updateCalls).toHaveLength(1);
+        expect(updateCalls[0]?.values).toEqual({ skippedNightDate: null });
     });
 });
 

@@ -1,5 +1,5 @@
 import { sql } from 'drizzle-orm';
-import { boolean, integer, jsonb, pgTable, real, text, uniqueIndex, uuid } from 'drizzle-orm/pg-core';
+import { boolean, date, integer, jsonb, pgTable, real, text, uniqueIndex, uuid } from 'drizzle-orm/pg-core';
 import { auditColumns } from './audit-columns';
 import { sites } from './sites';
 
@@ -34,6 +34,7 @@ export const schedules = pgTable('schedules', {
     rootDepthMOverride: real('root_depth_m_override'),
     allowableDepletionFractionOverride: real('allowable_depletion_fraction_override'),
     endBySunrise: boolean('end_by_sunrise'),
+    skippedNightDate: date('skipped_night_date'),
     ...auditColumns,
 }, table => [
     uniqueIndex('schedules_site_slug_idx').on(table.siteId, table.slug),

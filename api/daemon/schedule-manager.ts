@@ -1,4 +1,5 @@
-import { and, eq, ne } from 'drizzle-orm';
+import type dayjs from 'dayjs';
+import { and, eq, isNotNull, lt, ne } from 'drizzle-orm';
 import { schedules } from '@/db/schema';
 
 /**
@@ -95,6 +96,79 @@ export async function enableSchedule(db: ScheduleManagerDb, slug: string): Promi
         console.log(`schedule-manager: enabled schedule ${target.id} (${slug}) on site ${target.siteId}.`);
         return { ...target, isActive: true };
     });
+}
+
+/**
+ * Sets `skippedNightDate = todayIso` on the (single) active schedule. Powers
+ * `POST /schedule/skip-tonight` — the operator override for a one-night skip.
+ * Returns the post-update row, or `null` if no schedule is currently active.
+ * The active row is identified by the partial unique index
+ * `schedules_one_active_per_site`, which means there's at most one match per
+ * site; the single-site deploy means there's at most one match overall.
+ */
+export async function skipActiveScheduleTonight(db: ScheduleManagerDb, today: dayjs.Dayjs): Promise<Schedule | null> {
+    const todayIso = today.format('YYYY-MM-DD');
+
+    const rows = await db
+        .select({ schedule: schedules })
+        .from(schedules)
+        .where(eq(schedules.isActive, true));
+
+    const target = rows[0]?.schedule;
+    if (!target) {
+        console.warn('schedule-manager: skip-tonight failed — no active schedule.');
+        return null;
+    }
+
+    await db
+        .update(schedules)
+        .set({ skippedNightDate: todayIso })
+        .where(eq(schedules.id, target.id));
+
+    console.log(`schedule-manager: marked schedule ${target.id} (${target.slug}) skipped for ${todayIso}.`);
+    return { ...target, skippedNightDate: todayIso };
+}
+
+/**
+ * Clears the `skippedNightDate` marker on the (single) active schedule. Powers
+ * `POST /schedule/resume-tonight` — the Undo / Resume button. Idempotent at
+ * the data layer (already-cleared returns success). Returns the post-update
+ * row, or `null` if no schedule is currently active.
+ */
+export async function resumeActiveScheduleTonight(db: ScheduleManagerDb): Promise<Schedule | null> {
+    const rows = await db
+        .select({ schedule: schedules })
+        .from(schedules)
+        .where(eq(schedules.isActive, true));
+
+    const target = rows[0]?.schedule;
+    if (!target) {
+        console.warn('schedule-manager: resume-tonight failed — no active schedule.');
+        return null;
+    }
+
+    await db
+        .update(schedules)
+        .set({ skippedNightDate: null })
+        .where(eq(schedules.id, target.id));
+
+    console.log(`schedule-manager: cleared skip marker on schedule ${target.id} (${target.slug}).`);
+    return { ...target, skippedNightDate: null };
+}
+
+/**
+ * Clears any `skippedNightDate` strictly older than `todayIso`. The daemon
+ * calls this at the top of every `rePlan` so a marker from a past night
+ * doesn't accumulate or accidentally apply to a future plan. The marker is
+ * only meaningful for the night it was created for — by the time tomorrow's
+ * re-plan fires, the marker should be inert and cleaned up.
+ */
+export async function clearStaleSkipMarkers(db: ScheduleManagerDb, today: dayjs.Dayjs): Promise<void> {
+    const todayIso = today.format('YYYY-MM-DD');
+    await db
+        .update(schedules)
+        .set({ skippedNightDate: null })
+        .where(and(isNotNull(schedules.skippedNightDate), lt(schedules.skippedNightDate, todayIso)));
 }
 
 /**

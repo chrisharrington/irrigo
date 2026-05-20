@@ -27,6 +27,13 @@ export type ScheduleRestrictions = {
     allowedDays: number[] | null;
     allowedTimeWindows: ScheduleTimeWindow[] | null;
     endBySunrise?: boolean;
+    /**
+     * One-shot operator override: when set, the planner drops cycles for the
+     * matching entry-date (YYYY-MM-DD). Powers `/schedule/skip-tonight`. The
+     * planner treats the skipped day identically to a disallowed weekday —
+     * depletion carries forward into the next planned day.
+     */
+    skippedNightDate?: string | null;
 };
 
 /**
@@ -46,6 +53,17 @@ export function isDayAllowed(restrictions: ScheduleRestrictions, isoWeekday: num
     const allowed = restrictions.allowedDays;
     if (allowed === null || allowed.length === 0) return true;
     return allowed.includes(isoWeekday);
+}
+
+/**
+ * Returns true when the operator has marked the given day as skipped via
+ * `/schedule/skip-tonight`. Compares the day's `YYYY-MM-DD` against the
+ * restriction's `skippedNightDate`; null/undefined means "no skip marker".
+ */
+export function isNightSkipped(restrictions: ScheduleRestrictions, day: dayjs.Dayjs): boolean {
+    const marker = restrictions.skippedNightDate;
+    if (marker === null || marker === undefined) return false;
+    return day.format('YYYY-MM-DD') === marker;
 }
 
 /**
