@@ -5,5 +5,6 @@ export { scheduleEntries } from './schedule-entries';
 export { schedules } from './schedules';
 export { sites } from './sites';
 export { soilTypes } from './soil-types';
+export { systemState, SYSTEM_STATE_SINGLETON_ID } from './system-state';
 export { weatherState, WEATHER_STATE_SINGLETON_ID } from './weather-state';
 export { zones } from './zones';
