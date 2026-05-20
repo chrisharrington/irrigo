@@ -40,6 +40,51 @@ RUN curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg \
 RUN curl -LsSf https://astral.sh/uv/install.sh \
     | env UV_UNMANAGED_INSTALL=/usr/local/bin sh
 
+# Android toolchain for building Expo development builds locally (avoids EAS
+# queue times). JDK 21 satisfies Android Gradle Plugin 8.x and is the only
+# JDK shipped in the Debian Trixie repos the bun base image uses. The SDK
+# install grabs only command-line tools + one platform + matching build-
+# tools — no NDK, no system images. Gradle/ADB caches persist via named
+# volumes mounted from docker-compose (~/.gradle, ~/.android).
+ENV ANDROID_HOME=/opt/android-sdk \
+    ANDROID_SDK_ROOT=/opt/android-sdk \
+    JAVA_HOME=/usr/lib/jvm/java-21-openjdk-amd64
+ENV PATH="${PATH}:${ANDROID_HOME}/cmdline-tools/latest/bin:${ANDROID_HOME}/platform-tools:${ANDROID_HOME}/build-tools/35.0.0"
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends openjdk-21-jdk-headless unzip \
+    && rm -rf /var/lib/apt/lists/*
+
+ARG ANDROID_CMDLINE_TOOLS=11076708
+# Two platforms: 35 covers the project's targetSdk; 36 is what Expo SDK 54's
+# transitive AGP defaults pull in for compileSdk. Without 36 here, Gradle
+# tries to download it at build time and fails because /opt/android-sdk is
+# root-owned. Same story for build-tools — keep matched pairs.
+ARG ANDROID_PLATFORM=android-35
+ARG ANDROID_PLATFORM_COMPILE=android-36
+ARG ANDROID_BUILD_TOOLS=35.0.0
+ARG ANDROID_BUILD_TOOLS_COMPILE=36.0.0
+# NDK + CMake are required by react-native-reanimated, react-native-gesture-
+# handler, and the Hermes/JSI native bridge. Versions pinned to what Expo
+# SDK 54 / React Native 0.81 default to — bumping React Native typically
+# requires bumping these in lockstep.
+ARG ANDROID_NDK=27.1.12297006
+ARG ANDROID_CMAKE=3.22.1
+RUN mkdir -p ${ANDROID_HOME}/cmdline-tools \
+    && curl -fsSL "https://dl.google.com/android/repository/commandlinetools-linux-${ANDROID_CMDLINE_TOOLS}_latest.zip" -o /tmp/cmdline-tools.zip \
+    && unzip -q /tmp/cmdline-tools.zip -d ${ANDROID_HOME}/cmdline-tools \
+    && mv ${ANDROID_HOME}/cmdline-tools/cmdline-tools ${ANDROID_HOME}/cmdline-tools/latest \
+    && rm /tmp/cmdline-tools.zip \
+    && yes | ${ANDROID_HOME}/cmdline-tools/latest/bin/sdkmanager --licenses > /dev/null \
+    && ${ANDROID_HOME}/cmdline-tools/latest/bin/sdkmanager \
+        "platform-tools" \
+        "platforms;${ANDROID_PLATFORM}" \
+        "platforms;${ANDROID_PLATFORM_COMPILE}" \
+        "build-tools;${ANDROID_BUILD_TOOLS}" \
+        "build-tools;${ANDROID_BUILD_TOOLS_COMPILE}" \
+        "ndk;${ANDROID_NDK}" \
+        "cmake;${ANDROID_CMAKE}" > /dev/null
+
 # Align the dev user's UID/GID with the host's so bind-mount file ownership is
 # consistent. The bun base image already ships a `bun` user at UID 1000, so
 # rename in place when DEV_UID matches an existing user; create fresh otherwise.
@@ -48,12 +93,15 @@ RUN (getent group $DEV_GID > /dev/null 2>&1 || groupadd --gid $DEV_GID $DEV_USER
         && usermod -l $DEV_USER -d /home/$DEV_USER -m $(getent passwd $DEV_UID | cut -d: -f1) \
         || useradd --uid $DEV_UID --gid $DEV_GID --create-home --shell /bin/bash $DEV_USER)
 
-# Pre-create ~/.vscode-server with dev-user ownership. The devcontainer config
-# mounts a named volume at this path; on first mount Docker initializes the
-# (empty) volume from the directory's contents, which copies ownership too.
-# Without this, the volume comes up root-owned and VS Code can't install its
-# server into it.
-RUN install -d -o $DEV_UID -g $DEV_GID /home/${DEV_USER}/.vscode-server
+# Pre-create directories backed by named volumes with dev-user ownership. On
+# first mount Docker initializes the (empty) volume from the directory's
+# contents, which copies ownership too. Without this, volumes come up root-
+# owned. ~/.vscode-server is the VS Code server install; ~/.gradle is the
+# Gradle user home (build cache, wrapper, daemon state); ~/.android is the
+# ADB key + auth state.
+RUN install -d -o $DEV_UID -g $DEV_GID /home/${DEV_USER}/.vscode-server \
+    && install -d -o $DEV_UID -g $DEV_GID /home/${DEV_USER}/.gradle \
+    && install -d -o $DEV_UID -g $DEV_GID /home/${DEV_USER}/.android
 
 WORKDIR /app
 USER ${DEV_USER}

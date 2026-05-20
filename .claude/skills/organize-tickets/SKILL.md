@@ -1,30 +1,36 @@
 ---
 name: organize-tickets
-description: Scan all Backlog tickets in the `api` Plane project and move any that are immediately workable into Todo. Primary criterion is the absence of open blocker relations; secondary criteria flag low-quality tickets that should stay in Backlog.
+description: Scan all Backlog tickets in the `irrigo_api` and `irrigo_app` Plane projects and move any that are immediately workable into Todo. Primary criterion is the absence of open blocker relations; secondary criteria flag low-quality tickets that should stay in Backlog.
 ---
 
 # Organize Tickets
 
-Sweep the `api` Plane project's Backlog and promote ready-to-work tickets into Todo. **No confirmation prompts** — apply the moves once the analysis is complete and report what changed.
+Sweep the Backlog in **both** `irrigo_api` and `irrigo_app` and promote ready-to-work tickets into Todo. **No confirmation prompts** — apply the moves once the analysis is complete and report what changed.
 
-Scope: the `api` project only (project ID `9ace774a-21ba-41a1-9b0e-ceac5e832f8b`). Refer to the `/plane` skill for project IDs, label IDs, and MCP tool patterns.
+Scope:
+- `irrigo_api` (project ID `9ace774a-21ba-41a1-9b0e-ceac5e832f8b`, key `API`)
+- `irrigo_app` (project ID `3d3f88af-b113-4586-a7c5-b3a40dc8bde7`, key `APP`)
 
-## Step 1: Resolve state IDs
+If the user explicitly names one project (e.g. "organize the app backlog"), scope to that one only. Refer to the `/plane` skill for project IDs, label IDs, and MCP tool patterns.
 
-Call `mcp__plane__list_states` for the `api` project and capture:
+Run steps 1–4 **once per project in scope** — the state and label UUIDs differ between projects, so don't reuse them across the loop. State IDs **can** be re-resolved in Step 1 once per project; label IDs only matter for the Epic-skip check in secondary checks.
+
+## Step 1: Resolve state IDs (per project)
+
+For each project, call `mcp__plane__list_states` with that project's UUID and capture:
 - The `Backlog` state UUID (group `backlog`)
 - The `Todo` state UUID (group `unstarted`)
 - Any state with group `completed` or `cancelled` — used later to decide whether a blocker is still open
 
 Match on `group` rather than `name`. State names can be customized; groups are stable.
 
-## Step 2: List Backlog tickets
+## Step 2: List Backlog tickets (per project)
 
-Call `mcp__plane__list_work_items` with:
-- `project_id`: `9ace774a-21ba-41a1-9b0e-ceac5e832f8b`
-- `state`: the Backlog state UUID from Step 1
+For each project, call `mcp__plane__list_work_items` with:
+- `project_id`: that project's UUID
+- `state`: that project's Backlog state UUID from Step 1
 
-Paginate through all results. For each ticket, capture: `id`, `sequence_id`, `name`, `description_html` (or stripped text), `label_ids`.
+Paginate through all results. For each ticket, capture: `id`, `sequence_id`, `name`, `description_html` (or stripped text), `label_ids`, and which project it belongs to (so the final report can group cleanly).
 
 If the response doesn't include relations or comments inline, plan to fetch those per-ticket in Step 3.
 
@@ -44,8 +50,8 @@ If the ticket has no `blocked_by` relations or all of them resolve to completed/
 
 These are weaker signals. Apply them only after the primary check passes. If a secondary check fails, leave the ticket in Backlog and note the reason.
 
-- **No categorization label.** The ticket carries none of the Epic / Feature / Bug / Investigation label IDs (see `/plane` for IDs). Skip.
-- **Epic label.** Epics are containers, not directly workable. Skip.
+- **No categorization label.** The ticket carries none of the Epic / Feature / Bug / Investigation label IDs for its project (see `/plane` for both projects' IDs — they differ). Skip.
+- **Epic label.** Epics are containers, not directly workable. Skip. (Use the Epic label ID that matches the ticket's project.)
 - **Stub description.** `description_html` is empty, or its plaintext is shorter than ~80 characters and lacks any structure (no list, no code, no link). Skip.
 - **Open question in comments.** Optionally call `mcp__plane__list_work_item_comments` and skim for unresolved questions (a comment ending in `?` from the project owner that has no follow-up). Cheap heuristic — don't over-invest. Skip on a clear hit.
 
@@ -54,30 +60,36 @@ A ticket that passes the primary check **and** all secondary checks is **promota
 ## Step 4: Move promotable tickets to Todo
 
 For each promotable ticket, call `mcp__plane__update_work_item` with:
-- `project_id`: the api project UUID
+- `project_id`: the project UUID matching that ticket
 - `work_item_id`: the ticket UUID
-- `state`: the Todo state UUID from Step 1
+- `state`: the Todo state UUID from Step 1 for **that ticket's project**
 
 Run the updates sequentially. If one fails, log the error and continue with the rest — don't abort the batch.
 
 ## Step 5: Report
 
-Print a concise summary:
+Print a concise summary, grouped by project so the two backlogs read separately:
 
 ```
-Promoted to Todo:
-  - API-12 — <ticket name>
-  - API-19 — <ticket name>
+irrigo_api
+  Promoted to Todo:
+    - API-12 — <ticket name>
+    - API-19 — <ticket name>
+  Kept in Backlog:
+    - API-7  — blocked by API-3 (still In Progress)
+    - API-15 — no categorization label
 
-Kept in Backlog:
-  - API-7 — blocked by API-3 (still In Progress)
-  - API-15 — no categorization label
-  - API-22 — stub description
+irrigo_app
+  Promoted to Todo:
+    - APP-26 — <ticket name>
+  Kept in Backlog:
+    - APP-13 — blocked by APP-10 (still Backlog)
+    - APP-22 — stub description
 
 Total: N promoted, M kept.
 ```
 
-Always include each kept ticket's reason. Use ticket URLs (`http://192.168.2.100:7123/irrigo/browse/API-XXX/`) only if the user asks — the summary above is the default.
+Omit a project section entirely if it had no Backlog tickets in scope. Always include each kept ticket's reason. Use ticket URLs (`http://192.168.2.100:7123/irrigo/browse/<KEY-XXX>/`) only if the user asks — the summary above is the default.
 
 ## Guidelines
 

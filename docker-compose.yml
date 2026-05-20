@@ -99,10 +99,46 @@ services:
             # keys, aliases) so commits made inside the container are
             # attributed correctly without per-container configuration.
             - ${HOME}/.gitconfig:/home/${DEV_USER:-chrisharrington}/.gitconfig:ro
+            # Gradle build cache + wrapper dists. Survives image rebuilds so
+            # the first `expo run:android` after a rebuild doesn't re-fetch
+            # the entire AGP/Kotlin/RN toolchain from Maven.
+            - irrigo-gradle:/home/${DEV_USER:-chrisharrington}/.gradle
+            # ADB keys + auth state. Persists the "always allow from this
+            # computer" approval the phone grants on first connect.
+            - irrigo-android:/home/${DEV_USER:-chrisharrington}/.android
         networks:
             # backend → reach the `db` container.
             # frontend → outbound internet for bun install, gh, etc.
             - backend
+            - frontend
+
+    # Metro bundler — long-running Expo dev server so the phone dev build can
+    # connect any time without anyone manually starting Metro in a terminal.
+    # Shares the dev image (already has bun + node); reads the bind-mounted
+    # repo so file changes trigger hot reload like a local Metro would.
+    metro:
+        build:
+            context: .
+            dockerfile: Dockerfile.dev
+            args:
+                DEV_USER: ${DEV_USER:-chrisharrington}
+                DEV_UID: ${DEV_UID:-1000}
+                DEV_GID: ${DEV_GID:-1000}
+        container_name: irrigo_metro
+        restart: unless-stopped
+        working_dir: /app/app
+        environment:
+            # Metro auto-detects a "LAN IP" to embed in bundle/asset URLs;
+            # inside the container it picks the docker bridge IP (172.x.x.x)
+            # which the phone can't reach. Forcing the host's LAN address
+            # makes the URLs the phone receives actually resolve.
+            REACT_NATIVE_PACKAGER_HOSTNAME: ${METRO_HOST:-192.168.2.100}
+        volumes:
+            - .:/app
+        ports:
+            - "9097:9097"
+        command: bunx expo start --dev-client --port 9097
+        networks:
             - frontend
 
     pgadmin:
@@ -124,3 +160,5 @@ services:
 
 volumes:
     db-data:
+    irrigo-gradle:
+    irrigo-android:
