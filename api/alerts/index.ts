@@ -1,0 +1,248 @@
+import { and, desc, eq, isNull, sql } from 'drizzle-orm';
+import { alerts } from '@/db/schema';
+
+/**
+ * Operator-facing failure classes recorded by the daemon. The set is closed:
+ * the schema has a `check (class in ('weather-stale', 'ha-call-failed',
+ * 'missed-close'))` constraint, so widening the union requires both a code
+ * change here and a new migration.
+ */
+export type AlertClass = 'weather-stale' | 'ha-call-failed' | 'missed-close';
+
+/**
+ * Visual severity used by the mobile app to colour the alert row. `warn`
+ * paints amber; `danger` paints red. The schema also constrains this set.
+ */
+export type AlertTone = 'warn' | 'danger';
+
+/**
+ * Payload supplied by writers when a failure is detected. `zoneId` is
+ * optional: zone-scoped failures pin to a zone, global failures (weather
+ * stale) omit it. Dedup uses `(class, zoneId)` as the key.
+ */
+export type AlertEvent = {
+    class: AlertClass;
+    tone: AlertTone;
+    title: string;
+    sub?: string;
+    zoneId?: string;
+};
+
+/**
+ * Writer function signature. The daemon threads one of these alongside the
+ * existing notifier so failure paths fire alerts via dependency injection.
+ * Resolves whether or not persistence succeeded — callers fire-and-forget.
+ */
+export type AlertRecorder = (event: AlertEvent) => Promise<void>;
+
+/**
+ * No-op recorder used as the daemon default and by tests that don't care
+ * about alert side-effects. Never throws, never logs.
+ */
+export const noopAlertRecorder: AlertRecorder = async () => {};
+
+/**
+ * Outcome of an ack attempt. `'acked'` means the row went from unacked to
+ * acked. `'already-acked'` means the row was already acked (a no-op,
+ * idempotent for the HTTP layer). `'not-found'` means no row matched.
+ */
+export type AckResult = 'acked' | 'already-acked' | 'not-found';
+
+/**
+ * Wire shape served by `GET /alerts`. `when` is ISO-8601 UTC; the underlying
+ * `whenAt` column is a `timestamptz`. `sub` and `zoneId` are nullable on the
+ * wire — `null` rather than missing-key so the JSON parser doesn't need
+ * special-cased presence checks.
+ */
+export type AlertDto = {
+    id: string;
+    class: AlertClass;
+    tone: AlertTone;
+    title: string;
+    sub: string | null;
+    when: string;
+    zoneId: string | null;
+    ack: boolean;
+};
+
+type AlertRow = typeof alerts.$inferSelect;
+
+/**
+ * Composite db interface for all four alert operations. The production
+ * Drizzle `db` satisfies this directly; tests pass a recording stub.
+ */
+export type AlertsDb = {
+    select: (...args: unknown[]) => unknown;
+    insert: (...args: unknown[]) => unknown;
+    update: (...args: unknown[]) => unknown;
+};
+
+function rowToDto(row: AlertRow): AlertDto {
+    return {
+        id: row.id,
+        class: row.class as AlertClass,
+        tone: row.tone as AlertTone,
+        title: row.title,
+        sub: row.sub,
+        when: row.whenAt.toISOString(),
+        zoneId: row.zoneId,
+        ack: row.ack,
+    };
+}
+
+/**
+ * Builds the production `AlertRecorder` bound to the supplied Drizzle client.
+ * Dedupes by `(class, zoneId)`: if an unacked row already exists for that key
+ * the recorder updates `whenAt = now()`, `title`, `sub`, and `tone`. Acked
+ * rows are left alone so the next failure creates a fresh row visible to the
+ * UI again.
+ *
+ * @param db - Drizzle client (typed loosely so tests can supply a recording stub).
+ * @returns An `AlertRecorder` closure that persists to the `alerts` table.
+ */
+export function createAlertRecorder(db: AlertsDb): AlertRecorder {
+    return async event => {
+        const matchExisting = and(
+            eq(alerts.class, event.class),
+            eq(alerts.ack, false),
+            event.zoneId !== undefined ? eq(alerts.zoneId, event.zoneId) : isNull(alerts.zoneId),
+        );
+
+        const existing = await (db as unknown as AlertRecorderDb)
+            .select({ id: alerts.id })
+            .from(alerts)
+            .where(matchExisting)
+            .limit(1);
+
+        if (existing.length > 0) {
+            const id = existing[0]!.id;
+            await (db as unknown as AlertRecorderDb)
+                .update(alerts)
+                .set({
+                    whenAt: sql`now()`,
+                    title: event.title,
+                    sub: event.sub ?? null,
+                    tone: event.tone,
+                })
+                .where(eq(alerts.id, id));
+            console.log(`alerts: refreshed ${event.class} alert ${id}.`);
+            return;
+        }
+
+        await (db as unknown as AlertRecorderDb).insert(alerts).values({
+            class: event.class,
+            tone: event.tone,
+            title: event.title,
+            sub: event.sub ?? null,
+            zoneId: event.zoneId ?? null,
+        });
+        console.log(`alerts: inserted new ${event.class} alert.`);
+    };
+}
+
+/**
+ * Returns every unacked alert as a DTO, newest first. Used by the
+ * `GET /alerts` endpoint.
+ *
+ * @param db - Drizzle client (or compatible stub).
+ * @returns The list of `AlertDto`s.
+ */
+export async function listActiveAlerts(db: AlertsDb): Promise<AlertDto[]> {
+    const rows = await (db as unknown as AlertReaderDb)
+        .select()
+        .from(alerts)
+        .where(eq(alerts.ack, false))
+        .orderBy(desc(alerts.whenAt));
+    return rows.map(rowToDto);
+}
+
+/**
+ * Flips `ack = true` on the matching row and reports whether the row existed
+ * and whether it was already acked. Lets the HTTP route map outcomes to
+ * status codes — 200 for acked / already-acked (idempotent), 404 for
+ * not-found.
+ *
+ * @param db - Drizzle client (or compatible stub).
+ * @param id - The alert UUID.
+ * @returns `'acked'`, `'already-acked'`, or `'not-found'`.
+ */
+export async function acknowledgeAlert(db: AlertsDb, id: string): Promise<AckResult> {
+    const updated = await (db as unknown as AlertAckDb)
+        .update(alerts)
+        .set({ ack: true })
+        .where(and(eq(alerts.id, id), eq(alerts.ack, false)))
+        .returning({ id: alerts.id });
+    if (updated.length > 0) return 'acked';
+
+    const existing = await (db as unknown as AlertAckDb)
+        .select({ id: alerts.id })
+        .from(alerts)
+        .where(eq(alerts.id, id))
+        .limit(1);
+    return existing.length > 0 ? 'already-acked' : 'not-found';
+}
+
+/**
+ * Marks every unacked row of `class` as acked. Used by the weather-recovery
+ * path so the alert region collapses automatically when the next successful
+ * forecast lands.
+ *
+ * @param db - Drizzle client (or compatible stub).
+ * @param klass - Which alert class to clear.
+ */
+export async function clearAlertsByClass(db: AlertsDb, klass: AlertClass): Promise<void> {
+    await (db as unknown as AlertAckDb)
+        .update(alerts)
+        .set({ ack: true })
+        .where(and(eq(alerts.class, klass), eq(alerts.ack, false)));
+}
+
+/**
+ * Narrow db interfaces used internally. The composite `AlertsDb` covers them
+ * all; these aliases describe the per-operation surface for clarity in tests
+ * and for anyone tracing query shapes.
+ */
+export type AlertRecorderDb = {
+    select: (cols: { id: typeof alerts.id }) => {
+        from: (table: typeof alerts) => {
+            where: (cond: unknown) => {
+                limit: (n: number) => Promise<Array<{ id: string }>>;
+            };
+        };
+    };
+    insert: (table: typeof alerts) => {
+        values: (row: Record<string, unknown>) => Promise<unknown>;
+    };
+    update: (table: typeof alerts) => {
+        set: (values: Record<string, unknown>) => {
+            where: (cond: unknown) => Promise<unknown>;
+        };
+    };
+};
+
+export type AlertReaderDb = {
+    select: () => {
+        from: (table: typeof alerts) => {
+            where: (cond: unknown) => {
+                orderBy: (...exprs: unknown[]) => Promise<AlertRow[]>;
+            };
+        };
+    };
+};
+
+export type AlertAckDb = {
+    update: (table: typeof alerts) => {
+        set: (values: Record<string, unknown>) => {
+            where: (cond: unknown) => {
+                returning: (cols: { id: typeof alerts.id }) => Promise<Array<{ id: string }>>;
+            } & Promise<unknown>;
+        };
+    };
+    select: (cols: { id: typeof alerts.id }) => {
+        from: (table: typeof alerts) => {
+            where: (cond: unknown) => {
+                limit: (n: number) => Promise<Array<{ id: string }>>;
+            };
+        };
+    };
+};
