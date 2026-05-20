@@ -12,9 +12,12 @@ import { realClock } from '@/daemon/runtime';
 import {
     disableSchedule as defaultDisableSchedule,
     enableSchedule as defaultEnableSchedule,
+    resumeActiveScheduleTonight as defaultResumeActiveScheduleTonight,
+    skipActiveScheduleTonight as defaultSkipActiveScheduleTonight,
     type Schedule,
     type ScheduleManagerDb,
 } from '@/daemon/schedule-manager';
+import dayjs from 'dayjs';
 import { loadZoneById, loadZoneSummaries, type ZoneSummary, type ZoneSummaryDb } from '@/daemon/zones';
 import { closeZone, getZoneState, openZone } from '@/data/home-assistant';
 import { queryLatestMigrationViaDrizzle, readJournalFile, verifyMigrations } from '@/db/verify-migrations';
@@ -40,6 +43,8 @@ const shutdownStarted = new WeakSet<FastifyInstance>();
 export type ScheduleApi = {
     enable: (slug: string) => Promise<Schedule | null>;
     disable: (slug: string) => Promise<Schedule | null>;
+    skipTonight: () => Promise<Schedule | null>;
+    resumeTonight: () => Promise<Schedule | null>;
 };
 
 /**
@@ -65,6 +70,16 @@ export function wrapScheduleWithReplan(base: ScheduleApi, replan: () => Promise<
         },
         disable: async slug => {
             const result = await base.disable(slug);
+            if (result !== null) await replan();
+            return result;
+        },
+        skipTonight: async () => {
+            const result = await base.skipTonight();
+            if (result !== null) await replan();
+            return result;
+        },
+        resumeTonight: async () => {
+            const result = await base.resumeTonight();
             if (result !== null) await replan();
             return result;
         },
@@ -266,6 +281,60 @@ function registerScheduleRoutes(app: FastifyInstance, schedule: ScheduleApi): vo
             schedule: { slug: result.slug, name: result.name, siteId: result.siteId },
         });
     });
+
+    /**
+     * `POST /schedule/skip-tonight` — sets a one-night skip marker on the active
+     * schedule so the planner drops tonight's cycles. 404 if no schedule is
+     * currently active; 502 if the wrapped re-plan rejects.
+     */
+    app.post('/schedule/skip-tonight', async (_req, reply) => {
+        let result;
+        try {
+            result = await schedule.skipTonight();
+        } catch (err) {
+            const message = err instanceof Error ? err.message : String(err);
+            return reply.code(502).send({ error: 'replan-failed', message });
+        }
+        if (result === null) {
+            return reply.code(404).send({ error: 'not-found', message: 'No active schedule.' });
+        }
+        return reply.code(200).send({
+            status: 'skipped',
+            schedule: {
+                slug: result.slug,
+                name: result.name,
+                siteId: result.siteId,
+                skippedNightDate: result.skippedNightDate,
+            },
+        });
+    });
+
+    /**
+     * `POST /schedule/resume-tonight` — clears the skip marker on the active
+     * schedule. Idempotent (already-cleared returns success). 404 if no
+     * schedule is active; 502 if the wrapped re-plan rejects.
+     */
+    app.post('/schedule/resume-tonight', async (_req, reply) => {
+        let result;
+        try {
+            result = await schedule.resumeTonight();
+        } catch (err) {
+            const message = err instanceof Error ? err.message : String(err);
+            return reply.code(502).send({ error: 'replan-failed', message });
+        }
+        if (result === null) {
+            return reply.code(404).send({ error: 'not-found', message: 'No active schedule.' });
+        }
+        return reply.code(200).send({
+            status: 'resumed',
+            schedule: {
+                slug: result.slug,
+                name: result.name,
+                siteId: result.siteId,
+                skippedNightDate: result.skippedNightDate,
+            },
+        });
+    });
 }
 
 function registerManualRoutes(
@@ -437,6 +506,8 @@ if (import.meta.main) {
     const baseSchedule: ScheduleApi = {
         enable: slug => defaultEnableSchedule(scheduleDb, slug),
         disable: slug => defaultDisableSchedule(scheduleDb, slug),
+        skipTonight: () => defaultSkipActiveScheduleTonight(scheduleDb, dayjs(realClock.now()).format('YYYY-MM-DD')),
+        resumeTonight: () => defaultResumeActiveScheduleTonight(scheduleDb),
     };
     const app = buildApp({
         getStatus: daemon.getStatus,
