@@ -11,7 +11,8 @@
         "flowRateLPerMin": 25,
         "areaM2": 80,
         "microclimateFactor": 0.85,
-        "homeAssistantEntityId": "switch.sprinkler_controller_north_zone"
+        "homeAssistantEntityId": "switch.sprinkler_controller_north_zone",
+        "patch": "a"
     },
     {
         "slug": "south",
@@ -25,7 +26,8 @@
         "flowRateLPerMin": 25,
         "areaM2": 60,
         "microclimateFactor": 1.1,
-        "homeAssistantEntityId": "switch.sprinkler_controller_south_zone"
+        "homeAssistantEntityId": "switch.sprinkler_controller_south_zone",
+        "patch": "b"
     },
     {
         "slug": "east",
@@ -39,6 +41,7 @@
         "flowRateLPerMin": 25,
         "areaM2": 120,
         "microclimateFactor": 1.0,
-        "homeAssistantEntityId": "switch.sprinkler_controller_east_zone"
+        "homeAssistantEntityId": "switch.sprinkler_controller_east_zone",
+        "patch": "c"
     }
 ]
