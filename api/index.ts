@@ -7,7 +7,7 @@ import {
     type Schedule,
     type ScheduleManagerDb,
 } from '@/daemon/schedule-manager';
-import { loadZoneById } from '@/daemon/zones';
+import { loadZoneById, loadZoneSummaries, type ZoneSummary, type ZoneSummaryDb } from '@/daemon/zones';
 import { closeZone, getZoneState, openZone } from '@/data/home-assistant';
 import { queryLatestMigrationViaDrizzle, readJournalFile, verifyMigrations } from '@/db/verify-migrations';
 import { BusyError, createManualController, type ManualController } from '@/manual';
@@ -76,6 +76,15 @@ export type BuildAppOptions = {
      * `daemon.rePlan` here.
      */
     replan?: () => Promise<void>;
+
+    /**
+     * Optional. When supplied, registers `GET /zones` which returns the
+     * mobile-app zone summary list. The loader fans out to two read queries
+     * (zones × grass × soil, and the latest schedule-entry per zone) so
+     * production callers should pass the Drizzle `db`. Routes that don't
+     * need this surface can omit the field.
+     */
+    zonesSummary?: () => Promise<ZoneSummary[]>;
 };
 
 /**
@@ -115,7 +124,28 @@ export function buildApp(opts: BuildAppOptions): FastifyInstance {
         registerReplanRoute(app, opts.replan, opts.getStatus);
     }
 
+    if (opts.zonesSummary) {
+        registerZonesSummaryRoute(app, opts.zonesSummary);
+    }
+
     return app;
+}
+
+function registerZonesSummaryRoute(
+    app: FastifyInstance,
+    zonesSummary: () => Promise<ZoneSummary[]>,
+): void {
+    /**
+     * `GET /zones` — returns the zone summary list driving the mobile app's
+     * Home zone-tile list and Zone detail header. Each entry includes grass
+     * and soil names, computed `rawMm`, the latest fire summary, and the
+     * `patch` variant. Errors propagate as Fastify's default 500 — there is
+     * no external dependency to wrap as a 502 here.
+     */
+    app.get('/zones', async (_req, reply) => {
+        const zones = await zonesSummary();
+        return reply.code(200).send({ zones });
+    });
 }
 
 function registerReplanRoute(app: FastifyInstance, replan: () => Promise<void>, getStatus: () => DaemonStatus): void {
@@ -358,6 +388,7 @@ if (import.meta.main) {
         zoneById: zoneId => loadZoneById(db as unknown as Parameters<typeof loadZoneById>[0], zoneId),
         schedule: wrapScheduleWithReplan(baseSchedule, () => daemon.rePlan()),
         replan: () => daemon.rePlan(),
+        zonesSummary: () => loadZoneSummaries(db as unknown as ZoneSummaryDb),
     });
 
     const onSignal = (signal: NodeJS.Signals): void => {

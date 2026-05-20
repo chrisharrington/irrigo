@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'bun:test';
 import { buildApp, gracefulShutdown, wrapScheduleWithReplan, type ScheduleApi } from '@/index';
 import type { DaemonControl, DaemonStatus } from '@/daemon';
+import type { ZoneSummary } from '@/daemon/zones';
 import { BusyError, type ManualController } from '@/manual';
 import type { Zone } from '@/models';
 
@@ -615,6 +616,89 @@ describe('buildApp /replan route', () => {
         const res = await app.inject({ method: 'POST', url: '/replan' });
 
         expect(res.statusCode).toBe(404);
+        await app.close();
+    });
+});
+
+describe('buildApp GET /zones', () => {
+    function buildSummary(overrides?: Partial<ZoneSummary>): ZoneSummary {
+        return {
+            id: 'zone-001',
+            slug: 'north',
+            name: 'North',
+            isEnabled: true,
+            grassType: { name: 'Kentucky Bluegrass' },
+            soilType: { name: 'Clay Loam' },
+            areaM2: 80,
+            rootDepthM: 0.3,
+            allowableDepletionFraction: 0.5,
+            irrigationEfficiency: 0.675,
+            microclimateFactor: 0.85,
+            precipitationRateMmPerHr: null,
+            currentDepletionMm: 12.4,
+            rawMm: 21,
+            lastFiredAt: '2026-05-13',
+            lastAppliedMm: 14,
+            homeAssistantEntityId: 'switch.sprinkler_controller_north_zone',
+            patch: 'a',
+            ...overrides,
+        };
+    }
+
+    it('returns 200 with the wrapped zones array from the loader', async () => {
+        const summaries = [
+            buildSummary({ id: 'zone-001', slug: 'north', name: 'North' }),
+            buildSummary({ id: 'zone-002', slug: 'south', name: 'South', patch: 'b' }),
+        ];
+        const app = buildApp({
+            getStatus: () => buildStatus(),
+            zonesSummary: async () => summaries,
+        });
+
+        const res = await app.inject({ method: 'GET', url: '/zones' });
+
+        expect(res.statusCode).toBe(200);
+        expect(res.json()).toEqual({ zones: summaries });
+        await app.close();
+    });
+
+    it('returns 200 with an empty array when no zones exist', async () => {
+        const app = buildApp({
+            getStatus: () => buildStatus(),
+            zonesSummary: async () => [],
+        });
+
+        const res = await app.inject({ method: 'GET', url: '/zones' });
+
+        expect(res.statusCode).toBe(200);
+        expect(res.json()).toEqual({ zones: [] });
+        await app.close();
+    });
+
+    it('does not register the route when zonesSummary is omitted', async () => {
+        const app = buildApp({ getStatus: () => buildStatus() });
+
+        const res = await app.inject({ method: 'GET', url: '/zones' });
+
+        expect(res.statusCode).toBe(404);
+        await app.close();
+    });
+
+    it('re-evaluates the loader on each request rather than memoizing', async () => {
+        let counter = 0;
+        const app = buildApp({
+            getStatus: () => buildStatus(),
+            zonesSummary: async () => {
+                counter++;
+                return [buildSummary({ id: `call-${counter}` })];
+            },
+        });
+
+        const first = await app.inject({ method: 'GET', url: '/zones' });
+        const second = await app.inject({ method: 'GET', url: '/zones' });
+
+        expect(first.json()).toMatchObject({ zones: [{ id: 'call-1' }] });
+        expect(second.json()).toMatchObject({ zones: [{ id: 'call-2' }] });
         await app.close();
     });
 });
