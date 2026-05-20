@@ -1333,7 +1333,7 @@ describe('armCycle', () => {
         expect(calls.some(c => c.event === 'watering-started')).toBe(false);
     });
 
-    it('emits an error notification when openZone fails', async () => {
+    it('does not emit schedule-begun when openZone fails', async () => {
         const { clock, advanceTo } = createFakeClock(NOW);
         const { db } = createRuntimeDbStub();
         const registry = new TimerRegistry();
@@ -1352,9 +1352,9 @@ describe('armCycle', () => {
         await advanceTo(new Date('2026-05-04T13:00:30.000Z'));
 
         // Open failed, so the schedule-begun notification never fired.
+        // The HA-failed error notification is exercised through the alert
+        // recorder's own tests — see api/alerts/.test.ts.
         expect(calls.some(c => c.event === 'schedule-begun')).toBe(false);
-        const errorCall = calls.find(c => c.event === 'error');
-        expect(errorCall?.context).toEqual({ zoneName: 'Front Lawn', operation: 'open', reason: 'HA 502' });
     });
 
     it('emits schedule-ended on natural close when scheduleEnd marker is set', async () => {
@@ -1427,7 +1427,7 @@ describe('armCycle', () => {
         expect(ended?.context).not.toHaveProperty('nextIrrigation');
     });
 
-    it('emits an error notification when closeZone fails after a successful open', async () => {
+    it('does not emit schedule-ended when closeZone fails after a successful open', async () => {
         const { clock, advanceTo } = createFakeClock(NOW);
         const { db } = createRuntimeDbStub();
         const registry = new TimerRegistry();
@@ -1450,9 +1450,9 @@ describe('armCycle', () => {
         await advanceTo(new Date('2026-05-04T13:30:00.000Z'));
 
         // Close failed, so schedule-ended never fired even though the marker was set.
+        // The HA-failed error notification is exercised through the alert
+        // recorder's own tests — see api/alerts/.test.ts.
         expect(calls.some(c => c.event === 'schedule-ended')).toBe(false);
-        const errorCall = calls.find(c => c.event === 'error');
-        expect(errorCall?.context).toEqual({ zoneName: 'Front Lawn', operation: 'close', reason: 'close failed' });
     });
 
     it('snapshotInFlight includes endTime equal to firedAt + durationMin after a successful open', async () => {
@@ -1539,13 +1539,12 @@ describe('armCloseOnly', () => {
         expect(updates[0]?.closedAt).toEqual(NOW);
     });
 
-    it('clears the registry entry and emits an error notification when closeZone rejects', async () => {
+    it('clears the registry entry when closeZone rejects', async () => {
         const { clock, advanceTo } = createFakeClock(NOW);
         const { db, updates } = createRuntimeDbStub();
         const registry = new TimerRegistry();
         const zone = buildZoneModel({ id: 'zone-fail', name: 'Fail Zone' });
         const cycle = buildPersistedCycle({ id: 'cycle-fail' });
-        const { notifier, calls } = recordingNotifier();
 
         armCloseOnly({
             db,
@@ -1554,16 +1553,18 @@ describe('armCloseOnly', () => {
             zone,
             cycle,
             closeZone: async () => { throw new Error('HA timeout'); },
-            notifier,
+            notifier: noopNotifier,
+            alertRecorder: noopAlertRecorder,
             plannedCloseAt: new Date('2026-05-04T12:30:00.000Z'),
         });
 
         await advanceTo(new Date('2026-05-04T12:30:30.000Z'));
 
+        // closed_at stays NULL on failure; the registry entry is still cleared so
+        // a subsequent shutdown doesn't try to close again. Error notification is
+        // exercised through the alert recorder's own tests.
         expect(updates).toHaveLength(0);
         expect(registry.snapshotInFlight()).toHaveLength(0);
-        const errorCall = calls.find(c => c.event === 'error');
-        expect(errorCall?.context).toEqual({ zoneName: 'Fail Zone', operation: 'close', reason: 'HA timeout' });
     });
 });
 
@@ -1637,23 +1638,22 @@ describe('closeAllInFlight', () => {
         expect(calls).toEqual([]);
     });
 
-    it('notifies an error when shutdown closeZone fails for a relay', async () => {
+    it('does not emit watering-* events on shutdown closeZone failure', async () => {
         const { clock } = createFakeClock(NOW);
         const { db } = createRuntimeDbStub();
         const registry = new TimerRegistry();
         const zone = buildZoneModel({ id: 'zone-A', name: 'Front Lawn' });
         registry.addInFlight('cycle-X', zone, 999, new Date(NOW.getTime() + 60 * 60_000));
-        const { notifier, calls } = recordingNotifier();
+        const { calls } = recordingNotifier();
 
         await closeAllInFlight({
             db, clock, registry,
             closeZone: async () => { throw new Error('HA flaky'); },
-            notifier,
             alertRecorder: noopAlertRecorder,
         });
 
-        const errorCall = calls.find(c => c.event === 'error');
-        expect(errorCall?.context).toEqual({ zoneName: 'Front Lawn', operation: 'shutdown-close', reason: 'HA flaky' });
+        // The HA-failed error notification is exercised through the alert
+        // recorder's own tests — see api/alerts/.test.ts.
         expect(calls.some(c => c.event === 'watering-ended')).toBe(false);
     });
 });
@@ -1688,6 +1688,7 @@ describe('armCycle + closeAllInFlight alert recording', () => {
             title: 'HA open failed',
             sub: 'Front Lawn · HA 502',
             zoneId: 'zone-001',
+            zoneName: 'Front Lawn',
         });
     });
 
@@ -2502,28 +2503,11 @@ describe('start', () => {
         expect(ended[1]?.context).not.toHaveProperty('nextIrrigation');
     });
 
-    it('emits an error notification when the planner throws for a zone during rePlan', async () => {
-        const enabledRow = buildJoinedRow({ zone: { id: 'zone-bad', name: 'Bad Zone' } });
-        const { db } = createDaemonDbStub({ enabledZones: [enabledRow] });
-        const { clock } = createFakeClock(NOW);
-        const { notifier, calls } = recordingNotifier();
-
-        const control = await start(db, {
-            clock,
-            rePlanHourLocal: 4,
-            siteTimezone: 'UTC',
-            notifier,
-            runPlan: async () => { throw new Error('forecast unavailable'); },
-            openZone: async () => {},
-            closeZone: async () => {},
-            getZoneState: async () => 'off',
-        });
-
-        await control.rePlan();
-
-        const errorCall = calls.find(c => c.event === 'error');
-        expect(errorCall?.context).toEqual({ zoneName: 'Bad Zone', operation: 're-plan', reason: 'forecast unavailable' });
-    });
+    // Re-plan failures are now surfaced exclusively through the alert recorder
+    // (see the weather-stale alert tests below). The unconditional notifier('error')
+    // call that used to fire on every per-zone planner throw is gone — its HA push
+    // is now a side effect of recording a weather-stale alert, which only fires
+    // when the planner is genuinely on stale data.
 
     describe('cross-zone deconfliction', () => {
         type RunPlanCall = {

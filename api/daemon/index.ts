@@ -248,13 +248,13 @@ export async function start(db: DaemonDb, options?: DaemonOptions): Promise<Daem
             } catch (err) {
                 const reason = err instanceof Error ? err.message : String(err);
                 console.error(`daemon: re-plan failed for zone ${zone.id}.`, err);
-                await notifier('error', { zoneName: zone.name, operation: 're-plan', reason });
                 if (await isWeatherStale(db, clock.now())) {
                     await alertRecorder({
                         class: 'weather-stale',
                         tone: 'warn',
                         title: 'Weather API stale',
                         sub: `Planner on fallback ET₀ · last attempt failed: ${reason}`,
+                        zoneName: zone.name,
                     });
                 }
             }
@@ -272,7 +272,7 @@ export async function start(db: DaemonDb, options?: DaemonOptions): Promise<Daem
     const shutdown = async (): Promise<void> => {
         console.log('daemon: shutdown starting.');
         registry.cancelAllTimers(clock);
-        await closeAllInFlight({ db, clock, registry, closeZone, notifier, alertRecorder });
+        await closeAllInFlight({ db, clock, registry, closeZone, alertRecorder });
         console.log('daemon: shutdown complete.');
     };
 

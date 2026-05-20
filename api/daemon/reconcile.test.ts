@@ -198,7 +198,7 @@ describe('reconcileCycleAndRelayState — in-flight cycle handling', () => {
             startTime: new Date('2026-05-04T10:00:00.000Z'),
             durationMin: 30, // closes at 10:30, well before now=12:00
         });
-        const { deps, closes, cycleUpdates, notifications } = buildDeps({
+        const { deps, closes, cycleUpdates } = buildDeps({
             inFlight: [pair],
             state: async (): Promise<ZoneRelayState> => 'on',
         });
@@ -208,8 +208,6 @@ describe('reconcileCycleAndRelayState — in-flight cycle handling', () => {
         expect(summary).toMatchObject({ resumed: 0, forcedClosed: 1, missedClose: 0, orphansClosed: 0 });
         expect(closes).toHaveLength(1);
         expect(cycleUpdates).toEqual([{ cycleId: 'cycle-overrun', closedAt: NOW }]);
-        const overrunNote = notifications.find(n => n.context?.operation === 'reconcile-overrun');
-        expect(overrunNote).toBeDefined();
     });
 
     it(`records closed_at = plannedCloseAt when HA is 'off' and the planned close is earlier than now`, async () => {
@@ -264,7 +262,7 @@ describe('reconcileCycleAndRelayState — in-flight cycle handling', () => {
 
     it('counts an error and skips the cycle when getZoneState throws', async () => {
         const pair = buildPair({ cycleId: 'cycle-err' });
-        const { deps, cycleUpdates, closes, notifications } = buildDeps({
+        const { deps, cycleUpdates, closes } = buildDeps({
             inFlight: [pair],
             state: async () => { throw new Error('HA timeout'); },
         });
@@ -274,15 +272,13 @@ describe('reconcileCycleAndRelayState — in-flight cycle handling', () => {
         expect(summary).toMatchObject({ errors: 1 });
         expect(cycleUpdates).toHaveLength(0);
         expect(closes).toHaveLength(0);
-        const errNote = notifications.find(n => n.context?.operation === 'reconcile-state');
-        expect(errNote?.context?.reason).toBe('HA timeout');
     });
 });
 
 describe('reconcileCycleAndRelayState — defensive sweep', () => {
     it(`force-closes a managed zone HA reports 'on' with no in-flight cycle`, async () => {
         const orphan = buildZone({ id: 'zone-orphan', name: 'Orphan' });
-        const { deps, closes, notifications } = buildDeps({
+        const { deps, closes } = buildDeps({
             managedZones: [orphan],
             state: async (): Promise<ZoneRelayState> => 'on',
         });
@@ -291,8 +287,6 @@ describe('reconcileCycleAndRelayState — defensive sweep', () => {
 
         expect(summary).toMatchObject({ orphansClosed: 1 });
         expect(closes).toEqual([orphan]);
-        const orphanNote = notifications.find(n => n.context?.operation === 'reconcile-orphan-close');
-        expect(orphanNote?.context?.zoneName).toBe('Orphan');
     });
 
     it(`takes no action for a managed zone HA reports 'off'`, async () => {
@@ -342,7 +336,7 @@ describe('reconcileCycleAndRelayState — defensive sweep', () => {
 
     it('counts an error when the orphan close itself fails', async () => {
         const orphan = buildZone({ id: 'zone-bad' });
-        const { deps, notifications } = buildDeps({
+        const { deps } = buildDeps({
             managedZones: [orphan],
             state: async (): Promise<ZoneRelayState> => 'on',
             closeFn: async () => { throw new Error('HA 504'); },
@@ -351,8 +345,6 @@ describe('reconcileCycleAndRelayState — defensive sweep', () => {
         const summary = await reconcileCycleAndRelayState(deps);
 
         expect(summary).toMatchObject({ errors: 1, orphansClosed: 0 });
-        const errNote = notifications.find(n => n.context?.operation === 'reconcile-orphan-close' && n.context?.reason === 'HA 504');
-        expect(errNote).toBeDefined();
     });
 });
 

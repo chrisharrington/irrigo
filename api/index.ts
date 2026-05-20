@@ -417,7 +417,7 @@ if (import.meta.main) {
         :   closeZone;
     const effectiveGetZoneState: typeof getZoneState = dryRun ? async _zone => 'off' as const : getZoneState;
     const alertsDb = db as unknown as AlertsDb;
-    const alertRecorder = createAlertRecorder(alertsDb);
+    const alertRecorder = createAlertRecorder(alertsDb, notifier);
     const daemon = await daemonStart(db as unknown as DaemonDb, {
         notifier,
         alertRecorder,

@@ -199,13 +199,13 @@ async function runOpen(inputs: ArmCycleInputs): Promise<void> {
     } catch (err) {
         const reason = errorMessage(err);
         console.error(`daemon: openZone failed for cycle ${cycle.id} on zone ${zone.id}; leaving fired_at NULL.`, err);
-        await notifier('error', { zoneName: zone.name, operation: 'open', reason });
         await alertRecorder({
             class: 'ha-call-failed',
             tone: 'danger',
             title: 'HA open failed',
             sub: `${zone.name} · ${reason}`,
             zoneId: zone.id,
+            zoneName: zone.name,
         });
         return;
     }
@@ -293,13 +293,13 @@ async function runClose(inputs: RunCloseInputs): Promise<void> {
         const reason = errorMessage(err);
         console.error(`daemon: closeZone failed for cycle ${cycle.id} on zone ${zone.id}; leaving closed_at NULL.`, err);
         registry.clearInFlight(cycle.id);
-        await notifier('error', { zoneName: zone.name, operation: 'close', reason });
         await alertRecorder({
             class: 'ha-call-failed',
             tone: 'danger',
             title: 'HA close failed',
             sub: `${zone.name} · ${reason}`,
             zoneId: zone.id,
+            zoneName: zone.name,
         });
         return;
     }
@@ -331,10 +331,9 @@ export async function closeAllInFlight(inputs: {
     clock: Clock;
     registry: TimerRegistry;
     closeZone: (zone: Zone) => Promise<void>;
-    notifier: Notifier;
     alertRecorder: AlertRecorder;
 }): Promise<void> {
-    const { db, clock, registry, closeZone, notifier, alertRecorder } = inputs;
+    const { db, clock, registry, closeZone, alertRecorder } = inputs;
     const inFlight = registry.snapshotInFlight();
 
     if (inFlight.length === 0) return;
@@ -347,13 +346,13 @@ export async function closeAllInFlight(inputs: {
         } catch (err) {
             const reason = errorMessage(err);
             console.error(`daemon: shutdown closeZone failed for cycle ${cycleId} on zone ${zone.id}.`, err);
-            await notifier('error', { zoneName: zone.name, operation: 'shutdown-close', reason });
             await alertRecorder({
                 class: 'ha-call-failed',
                 tone: 'danger',
                 title: 'HA close failed (shutdown)',
                 sub: `${zone.name} · ${reason}`,
                 zoneId: zone.id,
+                zoneName: zone.name,
             });
         }
         registry.clearInFlight(cycleId);

@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'bun:test';
 import { alerts } from '@/db/schema';
+import type { NotificationContext, NotificationEvent, Notifier } from '@/notifications';
 import {
     acknowledgeAlert,
     clearAlertsByClass,
@@ -146,6 +147,64 @@ describe('createAlertRecorder', () => {
         await createAlertRecorder(db)(event());
 
         expect(calls.selects).toHaveLength(2);
+    });
+
+    describe('with notifier wired in', () => {
+        function recordingNotifier(): { notifier: Notifier; calls: Array<{ event: NotificationEvent; context?: NotificationContext }> } {
+            const calls: Array<{ event: NotificationEvent; context?: NotificationContext }> = [];
+            return { notifier: async (event, context) => { calls.push({ event, context }); }, calls };
+        }
+
+        it('fires the notifier with operation=class and reason=sub on a brand-new insert', async () => {
+            const { db } = createRecorderStub([]);
+            const { notifier, calls: notifications } = recordingNotifier();
+
+            await createAlertRecorder(db, notifier)(event({ zoneName: 'North' }));
+
+            expect(notifications).toHaveLength(1);
+            expect(notifications[0]).toEqual({
+                event: 'error',
+                context: {
+                    zoneName: 'North',
+                    operation: 'ha-call-failed',
+                    reason: 'North · ECONNREFUSED',
+                },
+            });
+        });
+
+        it('falls back to title when sub is omitted', async () => {
+            const { db } = createRecorderStub([]);
+            const { notifier, calls: notifications } = recordingNotifier();
+
+            await createAlertRecorder(db, notifier)(event({ sub: undefined, title: 'HA open failed' }));
+
+            expect(notifications[0]?.context?.reason).toBe('HA open failed');
+        });
+
+        it('omits zoneName from the context when the event has none (global alert)', async () => {
+            const { db } = createRecorderStub([]);
+            const { notifier, calls: notifications } = recordingNotifier();
+
+            await createAlertRecorder(db, notifier)(event({ zoneName: undefined, zoneId: undefined }));
+
+            expect(notifications[0]?.context).not.toHaveProperty('zoneName');
+            expect(notifications[0]?.context?.operation).toBe('ha-call-failed');
+        });
+
+        it('does NOT fire the notifier when an existing unacked alert is updated (dedup hit)', async () => {
+            const { db } = createRecorderStub([{ id: 'existing-001' }]);
+            const { notifier, calls: notifications } = recordingNotifier();
+
+            await createAlertRecorder(db, notifier)(event());
+
+            expect(notifications).toEqual([]);
+        });
+
+        it('still works (no error) when notifier is omitted at construction', async () => {
+            const { db } = createRecorderStub([]);
+
+            await expect(createAlertRecorder(db)(event())).resolves.toBeUndefined();
+        });
     });
 });
 
