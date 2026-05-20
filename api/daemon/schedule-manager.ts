@@ -1,3 +1,4 @@
+import type dayjs from 'dayjs';
 import { and, eq, isNotNull, lt, ne } from 'drizzle-orm';
 import { schedules } from '@/db/schema';
 
@@ -105,7 +106,9 @@ export async function enableSchedule(db: ScheduleManagerDb, slug: string): Promi
  * `schedules_one_active_per_site`, which means there's at most one match per
  * site; the single-site deploy means there's at most one match overall.
  */
-export async function skipActiveScheduleTonight(db: ScheduleManagerDb, todayIso: string): Promise<Schedule | null> {
+export async function skipActiveScheduleTonight(db: ScheduleManagerDb, today: dayjs.Dayjs): Promise<Schedule | null> {
+    const todayIso = today.format('YYYY-MM-DD');
+
     const rows = await db
         .select({ schedule: schedules })
         .from(schedules)
@@ -160,7 +163,8 @@ export async function resumeActiveScheduleTonight(db: ScheduleManagerDb): Promis
  * only meaningful for the night it was created for — by the time tomorrow's
  * re-plan fires, the marker should be inert and cleaned up.
  */
-export async function clearStaleSkipMarkers(db: ScheduleManagerDb, todayIso: string): Promise<void> {
+export async function clearStaleSkipMarkers(db: ScheduleManagerDb, today: dayjs.Dayjs): Promise<void> {
+    const todayIso = today.format('YYYY-MM-DD');
     await db
         .update(schedules)
         .set({ skippedNightDate: null })

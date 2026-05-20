@@ -506,7 +506,7 @@ if (import.meta.main) {
     const baseSchedule: ScheduleApi = {
         enable: slug => defaultEnableSchedule(scheduleDb, slug),
         disable: slug => defaultDisableSchedule(scheduleDb, slug),
-        skipTonight: () => defaultSkipActiveScheduleTonight(scheduleDb, dayjs(realClock.now()).format('YYYY-MM-DD')),
+        skipTonight: () => defaultSkipActiveScheduleTonight(scheduleDb, dayjs(realClock.now())),
         resumeTonight: () => defaultResumeActiveScheduleTonight(scheduleDb),
     };
     const app = buildApp({

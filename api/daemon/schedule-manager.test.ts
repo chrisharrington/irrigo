@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'bun:test';
+import dayjs from 'dayjs';
 import { schedules } from '@/db/schema';
 import {
     clearStaleSkipMarkers,
@@ -227,7 +228,7 @@ describe('skipActiveScheduleTonight', () => {
         const active = buildSchedule({ id: 'sched-active', slug: 'maintenance', isActive: true, skippedNightDate: null });
         const { db, updateCalls, getRows } = createStub([active]);
 
-        const result = await skipActiveScheduleTonight(db, '2026-05-20');
+        const result = await skipActiveScheduleTonight(db, dayjs('2026-05-20'));
 
         expect(result?.id).toBe('sched-active');
         expect(result?.skippedNightDate).toBe('2026-05-20');
@@ -240,7 +241,7 @@ describe('skipActiveScheduleTonight', () => {
         const inactive = buildSchedule({ id: 'sched-1', isActive: false });
         const { db, updateCalls } = createStub([inactive]);
 
-        const result = await skipActiveScheduleTonight(db, '2026-05-20');
+        const result = await skipActiveScheduleTonight(db, dayjs('2026-05-20'));
 
         expect(result).toBeNull();
         expect(updateCalls).toHaveLength(0);
@@ -251,7 +252,7 @@ describe('skipActiveScheduleTonight', () => {
         const inactive = buildSchedule({ id: 'sched-B', siteId: 'site-A', slug: 'overseeding', isActive: false });
         const { db, getRows } = createStub([active, inactive]);
 
-        await skipActiveScheduleTonight(db, '2026-05-20');
+        await skipActiveScheduleTonight(db, dayjs('2026-05-20'));
 
         expect(getRows().find(r => r.id === 'sched-A')?.skippedNightDate).toBe('2026-05-20');
         expect(getRows().find(r => r.id === 'sched-B')?.skippedNightDate).toBeNull();
@@ -300,7 +301,7 @@ describe('clearStaleSkipMarkers', () => {
         const fresh = buildSchedule({ id: 'sched-B', skippedNightDate: '2026-05-20' });
         const { db, updateCalls } = createStub([stale, fresh]);
 
-        await clearStaleSkipMarkers(db, '2026-05-20');
+        await clearStaleSkipMarkers(db, dayjs('2026-05-20'));
 
         expect(updateCalls).toHaveLength(1);
         expect(updateCalls[0]?.values).toEqual({ skippedNightDate: null });
@@ -311,7 +312,7 @@ describe('clearStaleSkipMarkers', () => {
         const b = buildSchedule({ id: 'sched-B', skippedNightDate: null });
         const { db, updateCalls } = createStub([a, b]);
 
-        await clearStaleSkipMarkers(db, '2026-05-20');
+        await clearStaleSkipMarkers(db, dayjs('2026-05-20'));
 
         expect(updateCalls).toHaveLength(1);
         expect(updateCalls[0]?.values).toEqual({ skippedNightDate: null });
