@@ -22,7 +22,7 @@ export type AlertTone = 'warn' | 'danger';
  * stale) omit it. Dedup uses `(class, zoneId)` as the key.
  *
  * `zoneName` is transport-only context for the optional HA push fired by the
- * recorder — it is not persisted on the alert row (the same name is already
+ * alerter — it is not persisted on the alert row (the same name is already
  * baked into `sub` for the UI to render). Callers pass it alongside `zoneId`
  * when they have a `Zone` in hand at the failure site.
  */
@@ -40,13 +40,13 @@ export type AlertEvent = {
  * existing notifier so failure paths fire alerts via dependency injection.
  * Resolves whether or not persistence succeeded — callers fire-and-forget.
  */
-export type AlertRecorder = (event: AlertEvent) => Promise<void>;
+export type Alerter = (event: AlertEvent) => Promise<void>;
 
 /**
- * No-op recorder used as the daemon default and by tests that don't care
+ * No-op alerter used as the daemon default and by tests that don't care
  * about alert side-effects. Never throws, never logs.
  */
-export const noopAlertRecorder: AlertRecorder = async () => {};
+export const noopAlerter: Alerter = async () => {};
 
 /**
  * Outcome of an ack attempt. `'acked'` means the row went from unacked to
@@ -98,13 +98,13 @@ function rowToDto(row: AlertRow): AlertDto {
 }
 
 /**
- * Builds the production `AlertRecorder` bound to the supplied Drizzle client.
+ * Builds the production `Alerter` bound to the supplied Drizzle client.
  * Dedupes by `(class, zoneId)`: if an unacked row already exists for that key
- * the recorder updates `whenAt = now()`, `title`, `sub`, and `tone`. Acked
+ * the alerter updates `whenAt = now()`, `title`, `sub`, and `tone`. Acked
  * rows are left alone so the next failure creates a fresh row visible to the
  * UI again.
  *
- * If `notifier` is supplied, the recorder also fires an HA push notification
+ * If `notifier` is supplied, the alerter also fires an HA push notification
  * — but **only on insert** (a brand-new alert), not on update (a duplicate of
  * an active condition). This keeps push notifications "loud once, quiet until
  * acked," matching the design's *"loud when present, gone when not"* intent
@@ -112,9 +112,9 @@ function rowToDto(row: AlertRow): AlertDto {
  *
  * @param db - Drizzle client (typed loosely so tests can supply a recording stub).
  * @param notifier - Optional HA push channel. Fires on new alerts only.
- * @returns An `AlertRecorder` closure that persists to the `alerts` table.
+ * @returns An `Alerter` closure that persists to the `alerts` table.
  */
-export function createAlertRecorder(db: AlertsDb, notifier?: Notifier): AlertRecorder {
+export function createAlerter(db: AlertsDb, notifier?: Notifier): Alerter {
     return async event => {
         const matchExisting = and(
             eq(alerts.class, event.class),
@@ -122,7 +122,7 @@ export function createAlertRecorder(db: AlertsDb, notifier?: Notifier): AlertRec
             event.zoneId !== undefined ? eq(alerts.zoneId, event.zoneId) : isNull(alerts.zoneId),
         );
 
-        const existing = await (db as unknown as AlertRecorderDb)
+        const existing = await (db as unknown as AlerterDb)
             .select({ id: alerts.id })
             .from(alerts)
             .where(matchExisting)
@@ -130,7 +130,7 @@ export function createAlertRecorder(db: AlertsDb, notifier?: Notifier): AlertRec
 
         if (existing.length > 0) {
             const id = existing[0]!.id;
-            await (db as unknown as AlertRecorderDb)
+            await (db as unknown as AlerterDb)
                 .update(alerts)
                 .set({
                     whenAt: sql`now()`,
@@ -143,7 +143,7 @@ export function createAlertRecorder(db: AlertsDb, notifier?: Notifier): AlertRec
             return;
         }
 
-        await (db as unknown as AlertRecorderDb).insert(alerts).values({
+        await (db as unknown as AlerterDb).insert(alerts).values({
             class: event.class,
             tone: event.tone,
             title: event.title,
@@ -224,7 +224,7 @@ export async function clearAlertsByClass(db: AlertsDb, klass: AlertClass): Promi
  * all; these aliases describe the per-operation surface for clarity in tests
  * and for anyone tracing query shapes.
  */
-export type AlertRecorderDb = {
+export type AlerterDb = {
     select: (cols: { id: typeof alerts.id }) => {
         from: (table: typeof alerts) => {
             where: (cond: unknown) => {

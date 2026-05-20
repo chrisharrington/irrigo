@@ -1,5 +1,5 @@
 import { eq } from 'drizzle-orm';
-import type { AlertRecorder } from '@/alerts';
+import type { Alerter } from '@/alerts';
 import { irrigationCycles } from '@/db/schema';
 import type { ZoneRelayState } from '@/data/home-assistant';
 import type { Zone } from '@/models';
@@ -41,7 +41,7 @@ export type ReconcileDeps = {
     clock: Clock;
     registry: TimerRegistry;
     notifier: Notifier;
-    alertRecorder: AlertRecorder;
+    alerter: Alerter;
     closeZone: (zone: Zone) => Promise<void>;
     getZoneState: (zone: Zone) => Promise<ZoneRelayState>;
     loadInFlightCycles: (db: ReconcileDb, now: Date) => Promise<FutureCyclePair[]>;
@@ -69,7 +69,7 @@ export type ReconcileDeps = {
  * @returns Counters describing what changed.
  */
 export async function reconcileCycleAndRelayState(deps: ReconcileDeps): Promise<ReconcileSummary> {
-    const { db, clock, registry, notifier, alertRecorder, closeZone, getZoneState, loadInFlightCycles, armCloseOnly, managedZones } = deps;
+    const { db, clock, registry, notifier, alerter, closeZone, getZoneState, loadInFlightCycles, armCloseOnly, managedZones } = deps;
 
     const summary: ReconcileSummary = { resumed: 0, forcedClosed: 0, missedClose: 0, orphansClosed: 0, errors: 0 };
     const handledZoneIds = new Set<string>();
@@ -86,7 +86,7 @@ export async function reconcileCycleAndRelayState(deps: ReconcileDeps): Promise<
         } catch (err) {
             const reason = errorMessage(err);
             console.error(`daemon: reconcile getZoneState failed for cycle ${cycle.id} on zone ${zone.id}; skipping.`, err);
-            await alertRecorder({
+            await alerter({
                 class: 'ha-call-failed',
                 tone: 'danger',
                 title: 'HA state query failed',
@@ -104,7 +104,7 @@ export async function reconcileCycleAndRelayState(deps: ReconcileDeps): Promise<
         }
 
         if (state === 'on' && plannedCloseAt.getTime() > now.getTime()) {
-            armCloseOnly({ db, clock, registry, zone, cycle, closeZone, notifier, alertRecorder, plannedCloseAt });
+            armCloseOnly({ db, clock, registry, zone, cycle, closeZone, notifier, alerter, plannedCloseAt });
             handledZoneIds.add(zone.id);
             summary.resumed += 1;
             console.log(`daemon: reconcile resumed cycle ${cycle.id} on zone ${zone.id} (closes at ${plannedCloseAt.toISOString()}).`);
@@ -117,7 +117,7 @@ export async function reconcileCycleAndRelayState(deps: ReconcileDeps): Promise<
             } catch (err) {
                 const reason = errorMessage(err);
                 console.error(`daemon: reconcile force-close failed for cycle ${cycle.id} on zone ${zone.id}.`, err);
-                await alertRecorder({
+                await alerter({
                     class: 'ha-call-failed',
                     tone: 'danger',
                     title: 'HA close failed (reconcile)',
@@ -133,7 +133,7 @@ export async function reconcileCycleAndRelayState(deps: ReconcileDeps): Promise<
             handledZoneIds.add(zone.id);
             summary.forcedClosed += 1;
             console.warn(`daemon: reconcile force-closed cycle ${cycle.id} on zone ${zone.id} — relay was open past planned close ${plannedCloseAt.toISOString()}.`);
-            await alertRecorder({
+            await alerter({
                 class: 'missed-close',
                 tone: 'danger',
                 title: 'Missed close (relay overran)',
@@ -150,7 +150,7 @@ export async function reconcileCycleAndRelayState(deps: ReconcileDeps): Promise<
         handledZoneIds.add(zone.id);
         summary.missedClose += 1;
         console.log(`daemon: reconcile recorded missed close for cycle ${cycle.id} on zone ${zone.id} (set closed_at=${closedAt.toISOString()}).`);
-        await alertRecorder({
+        await alerter({
             class: 'missed-close',
             tone: 'danger',
             title: 'Missed close',
@@ -170,7 +170,7 @@ export async function reconcileCycleAndRelayState(deps: ReconcileDeps): Promise<
         } catch (err) {
             const reason = errorMessage(err);
             console.error(`daemon: reconcile getZoneState failed during defensive sweep for zone ${zone.id}; skipping.`, err);
-            await alertRecorder({
+            await alerter({
                 class: 'ha-call-failed',
                 tone: 'danger',
                 title: 'HA state query failed (sweep)',
@@ -189,7 +189,7 @@ export async function reconcileCycleAndRelayState(deps: ReconcileDeps): Promise<
         } catch (err) {
             const reason = errorMessage(err);
             console.error(`daemon: reconcile orphan-close failed for zone ${zone.id}.`, err);
-            await alertRecorder({
+            await alerter({
                 class: 'ha-call-failed',
                 tone: 'danger',
                 title: 'HA close failed (orphan)',
@@ -202,7 +202,7 @@ export async function reconcileCycleAndRelayState(deps: ReconcileDeps): Promise<
         }
         summary.orphansClosed += 1;
         console.warn(`daemon: reconcile force-closed unmanaged-open zone ${zone.id} (${zone.homeAssistantEntityId}); no in-flight cycle backed it.`);
-        await alertRecorder({
+        await alerter({
             class: 'ha-call-failed',
             tone: 'danger',
             title: 'Orphan relay closed',

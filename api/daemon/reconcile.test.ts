@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'bun:test';
-import type { AlertEvent, AlertRecorder } from '@/alerts';
+import type { AlertEvent, Alerter } from '@/alerts';
 import { irrigationCycles } from '@/db/schema';
 import type { ZoneRelayState } from '@/data/home-assistant';
 import type { Zone } from '@/models';
@@ -117,7 +117,7 @@ function buildDeps(overrides: {
     };
 
     const alertCalls: AlertEvent[] = [];
-    const alertRecorder: AlertRecorder = async (event) => {
+    const alerter: Alerter = async (event) => {
         alertCalls.push(event);
     };
 
@@ -132,7 +132,7 @@ function buildDeps(overrides: {
             clock: fakeClock(now),
             registry,
             notifier,
-            alertRecorder,
+            alerter,
             closeZone: overrides.closeFn ?? (async (zone) => { closes.push(zone); }),
             getZoneState: async (zone) => {
                 if (!overrides.state) return 'unknown';

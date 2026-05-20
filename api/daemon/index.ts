@@ -1,7 +1,7 @@
 import dayjs from 'dayjs';
 import utc from 'dayjs/plugin/utc';
 import timezone from 'dayjs/plugin/timezone';
-import { clearAlertsByClass, noopAlertRecorder, type AlertRecorder, type AlertsDb } from '@/alerts';
+import { clearAlertsByClass, noopAlerter, type Alerter, type AlertsDb } from '@/alerts';
 import {
     closeZone as defaultCloseZone,
     getZoneState as defaultGetZoneState,
@@ -78,9 +78,9 @@ export type DaemonOptions = {
 
     /**
      * Override the alert recorder. Defaults to the no-op so tests don't have to
-     * provide a recording stub. Production wires `createAlertRecorder(db)`.
+     * provide a recording stub. Production wires `createAlerter(db)`.
      */
-    alertRecorder?: AlertRecorder;
+    alerter?: Alerter;
 };
 
 /**
@@ -135,7 +135,7 @@ export async function start(db: DaemonDb, options?: DaemonOptions): Promise<Daem
 
     const registry = new TimerRegistry();
     const notifier = options?.notifier ?? noopNotifier;
-    const alertRecorder = options?.alertRecorder ?? noopAlertRecorder;
+    const alerter = options?.alerter ?? noopAlerter;
     let lastRePlanAt: Date | null = null;
     let started = false;
 
@@ -149,7 +149,7 @@ export async function start(db: DaemonDb, options?: DaemonOptions): Promise<Daem
         clock,
         registry,
         notifier,
-        alertRecorder,
+        alerter,
         closeZone,
         getZoneState,
         loadInFlightCycles,
@@ -163,7 +163,7 @@ export async function start(db: DaemonDb, options?: DaemonOptions): Promise<Daem
     // and schedule-ended for this night, if applicable, were already emitted by
     // the prior process, and re-emitting on every restart would be misleading.
     for (const { cycle, zone } of futureCycles) {
-        armCycle({ db, clock, registry, zone, cycle, openZone, closeZone, notifier, alertRecorder });
+        armCycle({ db, clock, registry, zone, cycle, openZone, closeZone, notifier, alerter });
     }
 
     const { total, enabled } = await countZones(db);
@@ -249,7 +249,7 @@ export async function start(db: DaemonDb, options?: DaemonOptions): Promise<Daem
                 const reason = err instanceof Error ? err.message : String(err);
                 console.error(`daemon: re-plan failed for zone ${zone.id}.`, err);
                 if (await isWeatherStale(db, clock.now())) {
-                    await alertRecorder({
+                    await alerter({
                         class: 'weather-stale',
                         tone: 'warn',
                         title: 'Weather API stale',
@@ -261,7 +261,7 @@ export async function start(db: DaemonDb, options?: DaemonOptions): Promise<Daem
         }
 
         armCyclesWithScheduleMarkers(cyclesToArm, siteTimezone, ({ zone, cycle, scheduleStart, scheduleEnd }) => {
-            armCycle({ db, clock, registry, zone, cycle, openZone, closeZone, notifier, alertRecorder, scheduleStart, scheduleEnd });
+            armCycle({ db, clock, registry, zone, cycle, openZone, closeZone, notifier, alerter, scheduleStart, scheduleEnd });
         });
 
         lastRePlanAt = clock.now();
@@ -272,7 +272,7 @@ export async function start(db: DaemonDb, options?: DaemonOptions): Promise<Daem
     const shutdown = async (): Promise<void> => {
         console.log('daemon: shutdown starting.');
         registry.cancelAllTimers(clock);
-        await closeAllInFlight({ db, clock, registry, closeZone, alertRecorder });
+        await closeAllInFlight({ db, clock, registry, closeZone, alerter });
         console.log('daemon: shutdown complete.');
     };
 

@@ -1,7 +1,7 @@
 import Config from '@/config';
 import {
     acknowledgeAlert,
-    createAlertRecorder,
+    createAlerter,
     listActiveAlerts,
     type AckResult,
     type AlertDto,
@@ -417,10 +417,10 @@ if (import.meta.main) {
         :   closeZone;
     const effectiveGetZoneState: typeof getZoneState = dryRun ? async _zone => 'off' as const : getZoneState;
     const alertsDb = db as unknown as AlertsDb;
-    const alertRecorder = createAlertRecorder(alertsDb, notifier);
+    const alerter = createAlerter(alertsDb, notifier);
     const daemon = await daemonStart(db as unknown as DaemonDb, {
         notifier,
-        alertRecorder,
+        alerter,
         openZone: effectiveOpenZone,
         closeZone: effectiveCloseZone,
         getZoneState: effectiveGetZoneState,

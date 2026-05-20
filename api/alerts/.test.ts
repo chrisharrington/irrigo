@@ -4,9 +4,9 @@ import type { NotificationContext, NotificationEvent, Notifier } from '@/notific
 import {
     acknowledgeAlert,
     clearAlertsByClass,
-    createAlertRecorder,
+    createAlerter,
     listActiveAlerts,
-    noopAlertRecorder,
+    noopAlerter,
     type AlertEvent,
     type AlertsDb,
 } from '.';
@@ -73,13 +73,13 @@ function createRecorderStub(existingMatches: ReadonlyArray<{ id: string }>): {
     return { db, calls };
 }
 
-describe('noopAlertRecorder', () => {
+describe('noopAlerter', () => {
     it('resolves without doing anything', async () => {
-        await expect(noopAlertRecorder({ class: 'ha-call-failed', tone: 'danger', title: 'x' })).resolves.toBeUndefined();
+        await expect(noopAlerter({ class: 'ha-call-failed', tone: 'danger', title: 'x' })).resolves.toBeUndefined();
     });
 });
 
-describe('createAlertRecorder', () => {
+describe('createAlerter', () => {
     function event(overrides?: Partial<AlertEvent>): AlertEvent {
         return {
             class: 'ha-call-failed',
@@ -94,7 +94,7 @@ describe('createAlertRecorder', () => {
     it('inserts a new row when no matching unacked alert exists', async () => {
         const { db, calls } = createRecorderStub([]);
 
-        await createAlertRecorder(db)(event());
+        await createAlerter(db)(event());
 
         expect(calls.inserts).toHaveLength(1);
         expect(calls.inserts[0]!.values).toMatchObject({
@@ -110,7 +110,7 @@ describe('createAlertRecorder', () => {
     it('coerces an undefined sub to null on insert', async () => {
         const { db, calls } = createRecorderStub([]);
 
-        await createAlertRecorder(db)(event({ sub: undefined }));
+        await createAlerter(db)(event({ sub: undefined }));
 
         expect(calls.inserts[0]!.values['sub']).toBeNull();
     });
@@ -118,7 +118,7 @@ describe('createAlertRecorder', () => {
     it('coerces an undefined zoneId to null on insert (global alert)', async () => {
         const { db, calls } = createRecorderStub([]);
 
-        await createAlertRecorder(db)(event({ zoneId: undefined }));
+        await createAlerter(db)(event({ zoneId: undefined }));
 
         expect(calls.inserts[0]!.values['zoneId']).toBeNull();
     });
@@ -126,7 +126,7 @@ describe('createAlertRecorder', () => {
     it('updates the existing row when a matching unacked alert is found', async () => {
         const { db, calls } = createRecorderStub([{ id: 'existing-001' }]);
 
-        await createAlertRecorder(db)(event({ title: 'HA close failed (retry exhausted)' }));
+        await createAlerter(db)(event({ title: 'HA close failed (retry exhausted)' }));
 
         expect(calls.inserts).toHaveLength(0);
         expect(calls.updates).toHaveLength(1);
@@ -143,8 +143,8 @@ describe('createAlertRecorder', () => {
     it('issues exactly one SELECT per recorded event', async () => {
         const { db, calls } = createRecorderStub([]);
 
-        await createAlertRecorder(db)(event());
-        await createAlertRecorder(db)(event());
+        await createAlerter(db)(event());
+        await createAlerter(db)(event());
 
         expect(calls.selects).toHaveLength(2);
     });
@@ -159,7 +159,7 @@ describe('createAlertRecorder', () => {
             const { db } = createRecorderStub([]);
             const { notifier, calls: notifications } = recordingNotifier();
 
-            await createAlertRecorder(db, notifier)(event({ zoneName: 'North' }));
+            await createAlerter(db, notifier)(event({ zoneName: 'North' }));
 
             expect(notifications).toHaveLength(1);
             expect(notifications[0]).toEqual({
@@ -176,7 +176,7 @@ describe('createAlertRecorder', () => {
             const { db } = createRecorderStub([]);
             const { notifier, calls: notifications } = recordingNotifier();
 
-            await createAlertRecorder(db, notifier)(event({ sub: undefined, title: 'HA open failed' }));
+            await createAlerter(db, notifier)(event({ sub: undefined, title: 'HA open failed' }));
 
             expect(notifications[0]?.context?.reason).toBe('HA open failed');
         });
@@ -185,7 +185,7 @@ describe('createAlertRecorder', () => {
             const { db } = createRecorderStub([]);
             const { notifier, calls: notifications } = recordingNotifier();
 
-            await createAlertRecorder(db, notifier)(event({ zoneName: undefined, zoneId: undefined }));
+            await createAlerter(db, notifier)(event({ zoneName: undefined, zoneId: undefined }));
 
             expect(notifications[0]?.context).not.toHaveProperty('zoneName');
             expect(notifications[0]?.context?.operation).toBe('ha-call-failed');
@@ -195,7 +195,7 @@ describe('createAlertRecorder', () => {
             const { db } = createRecorderStub([{ id: 'existing-001' }]);
             const { notifier, calls: notifications } = recordingNotifier();
 
-            await createAlertRecorder(db, notifier)(event());
+            await createAlerter(db, notifier)(event());
 
             expect(notifications).toEqual([]);
         });
@@ -203,7 +203,7 @@ describe('createAlertRecorder', () => {
         it('still works (no error) when notifier is omitted at construction', async () => {
             const { db } = createRecorderStub([]);
 
-            await expect(createAlertRecorder(db)(event())).resolves.toBeUndefined();
+            await expect(createAlerter(db)(event())).resolves.toBeUndefined();
         });
     });
 });
