@@ -28,6 +28,14 @@ First-time setup:
 
 Detailed frontend conventions (component structure, hooks, Tailwind/NativeWind) live in `shared/CLAUDE.md`.
 
+## Shell commands
+
+- Never prepend `cd /app` (or any other current-directory `cd`) to a command. The working directory is already `/app` — run the command directly. Prepending `cd` triggers a separate permission prompt for every invocation.
+- For commands that need a different cwd, prefer the tool's `--cwd` flag over `cd && …`. Examples: `bun --cwd api test`, `bun --cwd api run type-check`, `bun --cwd /app/api run db:generate`. Same for `docker compose --project-directory …`.
+- `git` always operates on the current working tree — never prefix git commands with `cd`.
+- **No compound commands.** Don't chain shell expressions with `&&`, `||`, or `;` — each Bash call should run exactly one logical command so the permission matcher can pre-approve it by prefix. Run multi-step verification (type-check + tests) as separate Bash calls. The only exception is `git commit -m "$(cat <<'EOF' … EOF)"` heredoc for multi-line messages — that's still one logical command.
+- **No `| tail` / `| head` / `2>&1` redirection.** The Bash tool already captures stdout + stderr in full. Trimming output in the shell triggers a fresh permission prompt for every distinct compound; if a result is too long for context, truncate it when summarizing rather than in the pipe.
+
 ## Testing
 
 - **Every change to a code file requires matching test coverage** — new behavior gets new tests, modified behavior gets updated tests. A change isn't complete until the tests cover it.

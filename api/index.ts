@@ -1,5 +1,14 @@
 import Config from '@/config';
 import {
+    DEFAULT_ACTIVITY_LIMIT,
+    listActivity,
+    MAX_ACTIVITY_LIMIT,
+    type ActivityDb,
+    type ActivityListParams,
+    type ActivityListResult,
+} from '@/activity';
+import { decodeCursor } from '@/util/cursor';
+import {
     acknowledgeAlert,
     createAlerter,
     listActiveAlerts,
@@ -162,6 +171,14 @@ export type BuildAppOptions = {
      * flip triggers an immediate re-plan.
      */
     system?: SystemApi;
+
+    /**
+     * Optional. When supplied, registers `GET /activity` — the chronological
+     * schedule-entries feed driving the Activity screen and the "Recent runs"
+     * section on Zone detail. Production wires this to the activity module's
+     * DB-backed lister.
+     */
+    activity?: (params: ActivityListParams) => Promise<ActivityListResult>;
 };
 
 /**
@@ -213,7 +230,57 @@ export function buildApp(opts: BuildAppOptions): FastifyInstance {
         registerSystemRoutes(app, opts.system);
     }
 
+    if (opts.activity) {
+        registerActivityRoute(app, opts.activity);
+    }
+
     return app;
+}
+
+function registerActivityRoute(
+    app: FastifyInstance,
+    activity: (params: ActivityListParams) => Promise<ActivityListResult>,
+): void {
+    /**
+     * `GET /activity` — chronological schedule-entries feed. Drives the
+     * Activity screen (no filter) and Zone detail's "Recent runs" tab
+     * (?zoneId=…). Pagination is keyset: pass `?cursor=` from the previous
+     * response to fetch the next page.
+     */
+    app.get('/activity', async (req, reply) => {
+        const query = req.query as Record<string, unknown>;
+        const zoneIdRaw = query['zoneId'];
+        const zoneId = typeof zoneIdRaw === 'string' && zoneIdRaw.length > 0 ? zoneIdRaw : undefined;
+
+        const limitRaw = query['limit'];
+        let limit = DEFAULT_ACTIVITY_LIMIT;
+        if (limitRaw !== undefined) {
+            const parsed = typeof limitRaw === 'string' ? Number(limitRaw) : Number(limitRaw);
+            if (!Number.isInteger(parsed) || parsed <= 0 || parsed > MAX_ACTIVITY_LIMIT) {
+                return reply.code(400).send({
+                    error: 'bad-request',
+                    message: `limit must be an integer between 1 and ${MAX_ACTIVITY_LIMIT}.`,
+                });
+            }
+            limit = parsed;
+        }
+
+        const cursorRaw = query['cursor'];
+        let cursor: string | undefined;
+        if (cursorRaw !== undefined) {
+            if (typeof cursorRaw !== 'string' || cursorRaw.length === 0 || decodeCursor(cursorRaw) === null) {
+                return reply.code(400).send({ error: 'bad-request', message: 'cursor is malformed.' });
+            }
+            cursor = cursorRaw;
+        }
+
+        const result = await activity({
+            ...(zoneId !== undefined ? { zoneId } : {}),
+            limit,
+            ...(cursor !== undefined ? { cursor } : {}),
+        });
+        return reply.code(200).send(result);
+    });
 }
 
 function registerSystemRoutes(app: FastifyInstance, system: SystemApi): void {
@@ -619,6 +686,7 @@ if (import.meta.main) {
             ack: id => acknowledgeAlert(alertsDb, id),
         },
         system: wrapSystemWithReplan(baseSystem, () => daemon.rePlan()),
+        activity: params => listActivity(db as unknown as ActivityDb, params),
     });
 
     const onSignal = (signal: NodeJS.Signals): void => {
