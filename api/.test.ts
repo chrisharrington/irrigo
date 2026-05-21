@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'bun:test';
+import { encodeCursor as encodeActivityCursor, type ActivityDto, type ActivityListParams, type ActivityListResult } from '@/activity';
 import type { AlertDto } from '@/alerts';
 import { buildApp, gracefulShutdown, wrapScheduleWithReplan, wrapSystemWithReplan, type ScheduleApi, type SystemApi } from '@/index';
 import type { DaemonControl, DaemonStatus } from '@/daemon';
@@ -1225,5 +1226,149 @@ describe('wrapSystemWithReplan', () => {
         const wrapped = wrapSystemWithReplan(base, async () => { throw new Error('replan failed'); });
 
         await expect(wrapped.enable()).rejects.toThrow('replan failed');
+    });
+});
+
+describe('buildApp GET /activity', () => {
+    function buildDto(overrides?: Partial<ActivityDto>): ActivityDto {
+        return {
+            id: 'entry-1',
+            date: '2026-05-20',
+            zone: { id: 'zone-1', name: 'Front Lawn', slug: 'front-lawn' },
+            appliedDepthMm: 8.4,
+            durationMin: 42,
+            depletionBeforeMm: 12.0,
+            depletionAfterMm: 0.3,
+            source: 'planner',
+            ...overrides,
+        };
+    }
+
+    type RecordedCall = ActivityListParams;
+
+    function recordingActivity(result: ActivityListResult): {
+        handler: (params: ActivityListParams) => Promise<ActivityListResult>;
+        calls: RecordedCall[];
+    } {
+        const calls: RecordedCall[] = [];
+        return {
+            handler: async (params) => {
+                calls.push(params);
+                return result;
+            },
+            calls,
+        };
+    }
+
+    it('returns 200 with the lister result', async () => {
+        const result: ActivityListResult = {
+            activity: [buildDto(), buildDto({ id: 'entry-2', source: 'manual' })],
+            nextCursor: encodeActivityCursor('2026-05-19', 'entry-cursor'),
+        };
+        const { handler } = recordingActivity(result);
+        const app = buildApp({ getStatus: () => buildStatus(), activity: handler });
+
+        const res = await app.inject({ method: 'GET', url: '/activity' });
+
+        expect(res.statusCode).toBe(200);
+        expect(res.json()).toEqual(result);
+        await app.close();
+    });
+
+    it('returns 404 when the activity handler is absent', async () => {
+        const app = buildApp({ getStatus: () => buildStatus() });
+
+        const res = await app.inject({ method: 'GET', url: '/activity' });
+
+        expect(res.statusCode).toBe(404);
+        await app.close();
+    });
+
+    it('defaults limit to 20 when no limit query param is provided', async () => {
+        const { handler, calls } = recordingActivity({ activity: [], nextCursor: null });
+        const app = buildApp({ getStatus: () => buildStatus(), activity: handler });
+
+        await app.inject({ method: 'GET', url: '/activity' });
+
+        expect(calls).toHaveLength(1);
+        expect(calls[0]?.limit).toBe(20);
+        expect(calls[0]?.zoneId).toBeUndefined();
+        expect(calls[0]?.cursor).toBeUndefined();
+        await app.close();
+    });
+
+    it('passes the zoneId query param through to the handler', async () => {
+        const { handler, calls } = recordingActivity({ activity: [], nextCursor: null });
+        const app = buildApp({ getStatus: () => buildStatus(), activity: handler });
+
+        await app.inject({ method: 'GET', url: '/activity?zoneId=zone-001' });
+
+        expect(calls[0]?.zoneId).toBe('zone-001');
+        await app.close();
+    });
+
+    it('passes a parsed numeric limit through to the handler', async () => {
+        const { handler, calls } = recordingActivity({ activity: [], nextCursor: null });
+        const app = buildApp({ getStatus: () => buildStatus(), activity: handler });
+
+        await app.inject({ method: 'GET', url: '/activity?limit=5' });
+
+        expect(calls[0]?.limit).toBe(5);
+        await app.close();
+    });
+
+    it('passes the cursor through verbatim when it round-trips', async () => {
+        const cursor = encodeActivityCursor('2026-05-19', 'entry-prev');
+        const { handler, calls } = recordingActivity({ activity: [], nextCursor: null });
+        const app = buildApp({ getStatus: () => buildStatus(), activity: handler });
+
+        await app.inject({ method: 'GET', url: `/activity?cursor=${encodeURIComponent(cursor)}` });
+
+        expect(calls[0]?.cursor).toBe(cursor);
+        await app.close();
+    });
+
+    it('returns 400 when limit is not an integer', async () => {
+        const { handler } = recordingActivity({ activity: [], nextCursor: null });
+        const app = buildApp({ getStatus: () => buildStatus(), activity: handler });
+
+        const res = await app.inject({ method: 'GET', url: '/activity?limit=abc' });
+
+        expect(res.statusCode).toBe(400);
+        expect(res.json()).toMatchObject({ error: 'bad-request' });
+        await app.close();
+    });
+
+    it('returns 400 when limit is zero or negative', async () => {
+        const { handler } = recordingActivity({ activity: [], nextCursor: null });
+        const app = buildApp({ getStatus: () => buildStatus(), activity: handler });
+
+        const zero = await app.inject({ method: 'GET', url: '/activity?limit=0' });
+        const negative = await app.inject({ method: 'GET', url: '/activity?limit=-3' });
+
+        expect(zero.statusCode).toBe(400);
+        expect(negative.statusCode).toBe(400);
+        await app.close();
+    });
+
+    it('returns 400 when limit exceeds the max', async () => {
+        const { handler } = recordingActivity({ activity: [], nextCursor: null });
+        const app = buildApp({ getStatus: () => buildStatus(), activity: handler });
+
+        const res = await app.inject({ method: 'GET', url: '/activity?limit=999' });
+
+        expect(res.statusCode).toBe(400);
+        await app.close();
+    });
+
+    it('returns 400 when cursor is malformed', async () => {
+        const { handler } = recordingActivity({ activity: [], nextCursor: null });
+        const app = buildApp({ getStatus: () => buildStatus(), activity: handler });
+
+        const res = await app.inject({ method: 'GET', url: '/activity?cursor=not-a-cursor' });
+
+        expect(res.statusCode).toBe(400);
+        expect(res.json()).toMatchObject({ error: 'bad-request' });
+        await app.close();
     });
 });
