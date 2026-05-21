@@ -307,6 +307,8 @@ function tryPlaceIrrigationForDay(inputs: PlaceIrrigationInputs): PlaceIrrigatio
         appliedDepthMm: roundTo1Decimal(grossIrrigationDepthMillimeters),
         depletionBeforeMm: roundTo1Decimal(depletionBeforeIrrigation),
         depletionAfterMm: 0,
+        sunriseAt: sunrise,
+        ...(prevDaySunset !== undefined ? { sunsetAt: prevDaySunset } : {}),
     };
     return { cycles: finalCycles, entry };
 }

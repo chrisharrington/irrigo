@@ -1755,4 +1755,63 @@ describe('planZoneSchedule', () => {
             expect(withUnmatchedMarker.entries[0]?.cycles[0]?.startTime.isSame(baseline.entries[0]?.cycles[0]?.startTime)).toBe(true);
         });
     });
+
+    describe('sunrise/sunset persistence on entries', () => {
+        // Mirrors the singleCycleZone shape used by other describes here.
+        const singleCycleZone = () => createTestZone({
+            currentDepletionMm: 22,
+            soil: { name: 'TestSoil', availableWaterHoldingCapacityMmPerM: 150, infiltrationRateMmPerHr: 100 },
+            precipitationRateMmPerHr: 50,
+        });
+
+        it('attaches sunriseAt = the day weather sunrise on each produced entry', () => {
+            const zone = singleCycleZone();
+            const sunrise = dayjs('2026-05-06').hour(6).minute(15).second(0).millisecond(0);
+            const weather = createWeatherDays(
+                [{ evapotranspirationMmPerDay: 1.0, rainfallMm: 0, sunrise }],
+                dayjs('2026-05-06'),
+            );
+
+            const { entries } = planZoneSchedule(zone, weather);
+
+            expect(entries).toHaveLength(1);
+            expect(entries[0]?.sunriseAt).toBeDefined();
+            expect(entries[0]?.sunriseAt?.isSame(sunrise)).toBe(true);
+        });
+
+        it('attaches sunsetAt = the previous day weather sunset when available', () => {
+            // Day 0 has just a sunset; day 1 is the one that triggers irrigation
+            // and should carry the prior day's sunset on its entry.
+            const zone = createTestZone({
+                currentDepletionMm: 21.5, // crosses RAW on day 1
+                soil: { name: 'TestSoil', availableWaterHoldingCapacityMmPerM: 150, infiltrationRateMmPerHr: 100 },
+                precipitationRateMmPerHr: 50,
+            });
+            const day0Sunset = dayjs('2026-05-05').hour(20).minute(30).second(0).millisecond(0);
+            const day1Sunrise = dayjs('2026-05-06').hour(6).minute(0).second(0).millisecond(0);
+            const weather = createWeatherDays([
+                { evapotranspirationMmPerDay: 1.0, rainfallMm: 0, sunset: day0Sunset },
+                { evapotranspirationMmPerDay: 1.0, rainfallMm: 0, sunrise: day1Sunrise },
+            ], dayjs('2026-05-05'));
+
+            const { entries } = planZoneSchedule(zone, weather);
+
+            const day1Entry = entries.find(e => e.date.format('YYYY-MM-DD') === '2026-05-06');
+            expect(day1Entry).toBeDefined();
+            expect(day1Entry?.sunsetAt?.isSame(day0Sunset)).toBe(true);
+        });
+
+        it('omits sunsetAt on day 0 entries where there is no previous-day sunset', () => {
+            const zone = singleCycleZone();
+            const weather = createWeatherDays(
+                [{ evapotranspirationMmPerDay: 1.0, rainfallMm: 0 }],
+                dayjs('2026-05-06'),
+            );
+
+            const { entries } = planZoneSchedule(zone, weather);
+
+            expect(entries).toHaveLength(1);
+            expect(entries[0]?.sunsetAt).toBeUndefined();
+        });
+    });
 });
