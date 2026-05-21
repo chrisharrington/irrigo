@@ -30,6 +30,7 @@ import dayjs from 'dayjs';
 import { loadZoneById, loadZoneSummaries, type ZoneSummary, type ZoneSummaryDb } from '@/daemon/zones';
 import { closeZone, getZoneState, openZone } from '@/data/home-assistant';
 import { getSystemState, setIrrigationEnabled, type SystemStateDb, type SystemStateDto } from '@/system';
+import { getTonightSummary, type TonightDb, type TonightDto } from '@/tonight';
 import { queryLatestMigrationViaDrizzle, readJournalFile, verifyMigrations } from '@/db/verify-migrations';
 import { BusyError, createManualController, SystemDisabledError, type ManualController } from '@/manual';
 import type { Zone } from '@/models';
@@ -173,6 +174,13 @@ export type BuildAppOptions = {
     system?: SystemApi;
 
     /**
+     * Optional. When supplied, registers `GET /tonight` — the next-run
+     * summary backing the mobile Home hero card and `CycleStrip`. Production
+     * binds this to the tonight module's DB-backed lister.
+     */
+    tonight?: () => Promise<TonightDto>;
+
+    /**
      * Optional. When supplied, registers `GET /activity` — the chronological
      * schedule-entries feed driving the Activity screen and the "Recent runs"
      * section on Zone detail. Production wires this to the activity module's
@@ -234,7 +242,23 @@ export function buildApp(opts: BuildAppOptions): FastifyInstance {
         registerActivityRoute(app, opts.activity);
     }
 
+    if (opts.tonight) {
+        registerTonightRoute(app, opts.tonight);
+    }
+
     return app;
+}
+
+function registerTonightRoute(app: FastifyInstance, tonight: () => Promise<TonightDto>): void {
+    /**
+     * `GET /tonight` — next-run summary for the mobile Home hero card and
+     * CycleStrip. Re-evaluates on every request so a flip-to-disabled or a
+     * just-fired cycle shows up immediately.
+     */
+    app.get('/tonight', async (_req, reply) => {
+        const result = await tonight();
+        return reply.code(200).send(result);
+    });
 }
 
 function registerActivityRoute(
@@ -687,6 +711,7 @@ if (import.meta.main) {
         },
         system: wrapSystemWithReplan(baseSystem, () => daemon.rePlan()),
         activity: params => listActivity(db as unknown as ActivityDb, params),
+        tonight: () => getTonightSummary(db as unknown as TonightDb, realClock.now()),
     });
 
     const onSignal = (signal: NodeJS.Signals): void => {

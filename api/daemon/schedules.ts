@@ -102,6 +102,8 @@ export async function replaceZoneSchedule(
                     appliedDepthMm: entry.appliedDepthMm,
                     depletionBeforeMm: entry.depletionBeforeMm,
                     depletionAfterMm: entry.depletionAfterMm,
+                    sunriseAt: entry.sunriseAt?.toDate() ?? null,
+                    sunsetAt: entry.sunsetAt?.toDate() ?? null,
                 },
             ])
             .returning({ id: scheduleEntries.id });

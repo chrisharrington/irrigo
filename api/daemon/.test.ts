@@ -815,6 +815,37 @@ describe('replaceZoneSchedule', () => {
         expect(updateCalls).toHaveLength(1);
         expect(updateCalls[0]?.values).toEqual({ currentDepletionMm: 12.3 });
     });
+
+    it('persists sunriseAt and sunsetAt as JS Dates on the schedule_entries insert', async () => {
+        const { db, insertCalls } = createScheduleWriterStub({ entries: ['entry-A'] });
+        const sunrise = dayjs('2026-05-04T11:30:00.000Z');
+        const sunset = dayjs('2026-05-03T20:45:00.000Z');
+        const entry: IrrigationScheduleEntry = {
+            ...buildEntry('2026-05-04', [{ startTime: '2026-05-04T05:00:00Z', durationMin: 20 }]),
+            sunriseAt: sunrise,
+            sunsetAt: sunset,
+        };
+
+        await replaceZoneSchedule(db, 'zone-001', [entry], dayjs('2026-05-04'), 0, 'sched-default');
+
+        const entryInsert = insertCalls.find(c => c.table === scheduleEntries);
+        expect(entryInsert).toBeDefined();
+        expect(entryInsert?.rows[0]?.['sunriseAt']).toBeInstanceOf(Date);
+        expect((entryInsert?.rows[0]?.['sunriseAt'] as Date).toISOString()).toBe(sunrise.toISOString());
+        expect(entryInsert?.rows[0]?.['sunsetAt']).toBeInstanceOf(Date);
+        expect((entryInsert?.rows[0]?.['sunsetAt'] as Date).toISOString()).toBe(sunset.toISOString());
+    });
+
+    it('persists sunriseAt and sunsetAt as null when the planner entry omits them', async () => {
+        const { db, insertCalls } = createScheduleWriterStub({ entries: ['entry-A'] });
+        const entry = buildEntry('2026-05-04', [{ startTime: '2026-05-04T05:00:00Z', durationMin: 20 }]);
+
+        await replaceZoneSchedule(db, 'zone-001', [entry], dayjs('2026-05-04'), 0, 'sched-default');
+
+        const entryInsert = insertCalls.find(c => c.table === scheduleEntries);
+        expect(entryInsert?.rows[0]?.['sunriseAt']).toBeNull();
+        expect(entryInsert?.rows[0]?.['sunsetAt']).toBeNull();
+    });
 });
 
 const NOW_DAEMON = new Date('2026-05-04T12:00:00.000Z');

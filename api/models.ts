@@ -135,4 +135,18 @@ export type IrrigationScheduleEntry = {
 
     /** Required. The soil moisture depletion after irrigation. */
     depletionAfterMm: number;
+
+    /**
+     * Optional. Sunrise of `date`, anchored to the site timezone. The planner
+     * captures it at planning time so consumers (e.g. GET /tonight) can render
+     * day/night shading without re-fetching weather.
+     */
+    sunriseAt?: dayjs.Dayjs;
+
+    /**
+     * Optional. Sunset of `date - 1` (the previous evening). The overnight
+     * irrigation block spans `[sunsetAt, sunriseAt]`. Undefined on the first
+     * weather day where the previous evening's sunset isn't known.
+     */
+    sunsetAt?: dayjs.Dayjs;
 }
