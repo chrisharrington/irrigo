@@ -3,6 +3,7 @@ import type { ActivityDto, ActivityListParams, ActivityListResult } from '@/acti
 import { encodeCursor } from '@/util/cursor';
 import type { AlertDto } from '@/alerts';
 import { buildApp, gracefulShutdown, wrapScheduleWithReplan, wrapSystemWithReplan, type ScheduleApi, type SystemApi } from '@/index';
+import type { TonightDto } from '@/tonight';
 import type { DaemonControl, DaemonStatus } from '@/daemon';
 import type { ZoneSummary } from '@/daemon/zones';
 import { BusyError, SystemDisabledError, type ManualController } from '@/manual';
@@ -1370,6 +1371,83 @@ describe('buildApp GET /activity', () => {
 
         expect(res.statusCode).toBe(400);
         expect(res.json()).toMatchObject({ error: 'bad-request' });
+        await app.close();
+    });
+});
+
+describe('buildApp GET /tonight', () => {
+    const SCHEDULED_PAYLOAD: TonightDto = {
+        state: 'scheduled',
+        startTime: '2026-05-21T03:00:00.000Z',
+        endsAt: '2026-05-21T03:30:00.000Z',
+        axisStart: '20:30',
+        axisEnd: '05:30',
+        sunset: '20:30',
+        sunrise: '05:30',
+        zoneOrder: ['North'],
+        totalCycles: 1,
+        zones: [{ name: 'North', slug: 'north', patch: 'a', cycles: [{ start: '03:00', durMin: 30 }] }],
+    };
+
+    it('returns 200 with the handler payload verbatim', async () => {
+        const app = buildApp({
+            getStatus: () => buildStatus(),
+            tonight: async () => SCHEDULED_PAYLOAD,
+        });
+
+        const res = await app.inject({ method: 'GET', url: '/tonight' });
+
+        expect(res.statusCode).toBe(200);
+        expect(res.json()).toEqual(SCHEDULED_PAYLOAD);
+        await app.close();
+    });
+
+    it('returns 404 when the tonight handler is absent', async () => {
+        const app = buildApp({ getStatus: () => buildStatus() });
+
+        const res = await app.inject({ method: 'GET', url: '/tonight' });
+
+        expect(res.statusCode).toBe(404);
+        await app.close();
+    });
+
+    it('re-evaluates the handler on each request (not memoized)', async () => {
+        let callCount = 0;
+        const app = buildApp({
+            getStatus: () => buildStatus(),
+            tonight: async () => {
+                callCount += 1;
+                return { ...SCHEDULED_PAYLOAD, totalCycles: callCount };
+            },
+        });
+
+        await app.inject({ method: 'GET', url: '/tonight' });
+        const second = await app.inject({ method: 'GET', url: '/tonight' });
+
+        expect(second.json()).toMatchObject({ totalCycles: 2 });
+        expect(callCount).toBe(2);
+        await app.close();
+    });
+
+    it('serializes idle/skipped payloads with null time fields', async () => {
+        const idle: TonightDto = {
+            state: 'idle',
+            startTime: null,
+            endsAt: null,
+            axisStart: null,
+            axisEnd: null,
+            sunset: null,
+            sunrise: null,
+            zoneOrder: [],
+            totalCycles: 0,
+            zones: [],
+        };
+        const app = buildApp({ getStatus: () => buildStatus(), tonight: async () => idle });
+
+        const res = await app.inject({ method: 'GET', url: '/tonight' });
+
+        expect(res.statusCode).toBe(200);
+        expect(res.json()).toEqual(idle);
         await app.close();
     });
 });
