@@ -1,5 +1,6 @@
 import { and, desc, eq, lt, or, sql } from 'drizzle-orm';
 import { irrigationCycles, scheduleEntries, zones } from '@/db/schema';
+import { decodeCursor, encodeCursor } from '@/util/cursor';
 
 /**
  * Wire-format value for the entry's origin. The DB column stores the legacy
@@ -86,36 +87,6 @@ export type ActivityDb = {
         };
     };
 };
-
-/**
- * Encodes a `(date, id)` pair as an opaque base64url cursor. Format used by
- * `decodeCursor` is `${date}|${id}` — both fields are URL-safe ASCII, so the
- * `|` separator can't collide with the payload.
- */
-export function encodeCursor(date: string, id: string): string {
-    return Buffer.from(`${date}|${id}`, 'utf8').toString('base64url');
-}
-
-/**
- * Decodes an opaque cursor back into its `(date, id)` parts. Returns `null`
- * when the input is malformed (not base64, missing separator, empty parts) so
- * the route handler can map that to a 400 without leaking the format.
- */
-export function decodeCursor(cursor: string): { date: string; id: string } | null {
-    if (cursor.length === 0) return null;
-    let decoded: string;
-    try {
-        decoded = Buffer.from(cursor, 'base64url').toString('utf8');
-    } catch {
-        return null;
-    }
-    const sep = decoded.indexOf('|');
-    if (sep <= 0 || sep === decoded.length - 1) return null;
-    const date = decoded.slice(0, sep);
-    const id = decoded.slice(sep + 1);
-    if (date.length === 0 || id.length === 0) return null;
-    return { date, id };
-}
 
 /**
  * Fetches a page of the chronological activity feed.

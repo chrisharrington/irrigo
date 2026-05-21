@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'bun:test';
-import { encodeCursor as encodeActivityCursor, type ActivityDto, type ActivityListParams, type ActivityListResult } from '@/activity';
+import type { ActivityDto, ActivityListParams, ActivityListResult } from '@/activity';
+import { encodeCursor } from '@/util/cursor';
 import type { AlertDto } from '@/alerts';
 import { buildApp, gracefulShutdown, wrapScheduleWithReplan, wrapSystemWithReplan, type ScheduleApi, type SystemApi } from '@/index';
 import type { DaemonControl, DaemonStatus } from '@/daemon';
@@ -1263,7 +1264,7 @@ describe('buildApp GET /activity', () => {
     it('returns 200 with the lister result', async () => {
         const result: ActivityListResult = {
             activity: [buildDto(), buildDto({ id: 'entry-2', source: 'manual' })],
-            nextCursor: encodeActivityCursor('2026-05-19', 'entry-cursor'),
+            nextCursor: encodeCursor('2026-05-19', 'entry-cursor'),
         };
         const { handler } = recordingActivity(result);
         const app = buildApp({ getStatus: () => buildStatus(), activity: handler });
@@ -1318,7 +1319,7 @@ describe('buildApp GET /activity', () => {
     });
 
     it('passes the cursor through verbatim when it round-trips', async () => {
-        const cursor = encodeActivityCursor('2026-05-19', 'entry-prev');
+        const cursor = encodeCursor('2026-05-19', 'entry-prev');
         const { handler, calls } = recordingActivity({ activity: [], nextCursor: null });
         const app = buildApp({ getStatus: () => buildStatus(), activity: handler });
 

@@ -1,13 +1,13 @@
 import Config from '@/config';
 import {
     DEFAULT_ACTIVITY_LIMIT,
-    decodeCursor as decodeActivityCursor,
     listActivity,
     MAX_ACTIVITY_LIMIT,
     type ActivityDb,
     type ActivityListParams,
     type ActivityListResult,
 } from '@/activity';
+import { decodeCursor } from '@/util/cursor';
 import {
     acknowledgeAlert,
     createAlerter,
@@ -268,7 +268,7 @@ function registerActivityRoute(
         const cursorRaw = query['cursor'];
         let cursor: string | undefined;
         if (cursorRaw !== undefined) {
-            if (typeof cursorRaw !== 'string' || cursorRaw.length === 0 || decodeActivityCursor(cursorRaw) === null) {
+            if (typeof cursorRaw !== 'string' || cursorRaw.length === 0 || decodeCursor(cursorRaw) === null) {
                 return reply.code(400).send({ error: 'bad-request', message: 'cursor is malformed.' });
             }
             cursor = cursorRaw;
