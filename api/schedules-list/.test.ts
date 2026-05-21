@@ -185,6 +185,23 @@ describe('listSchedules', () => {
         expect(item?.skippedTonight).toBe(false);
     });
 
+    it('emits nextRun: null when all returned cycles have already ended (past-only rows)', async () => {
+        const active = buildSchedule({ isActive: true });
+        const past = new Date('2026-05-21T06:00:00.000Z'); // before NOW (22:00)
+        const db = createStub({
+            schedules: [active],
+            nextRunRows: [{
+                entry: buildEntry({ date: '2026-05-21' }),
+                cycle: buildCycle({ startTime: past, durationMin: 30 }),
+                zone: { id: 'zone-1', name: 'North' },
+            }],
+        });
+
+        const [item] = await listSchedules(db, NOW);
+
+        expect(item?.nextRun).toBeNull();
+    });
+
     it('builds nextRun on the active schedule when an upcoming night exists', async () => {
         const active = buildSchedule({ id: 'sched-active', isActive: true });
         const start = new Date('2026-05-22T03:00:00.000Z'); // 5h after NOW

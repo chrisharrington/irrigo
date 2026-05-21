@@ -4,6 +4,7 @@ import { encodeCursor } from '@/util/cursor';
 import type { AlertDto } from '@/alerts';
 import { buildApp, gracefulShutdown, wrapScheduleWithReplan, wrapSystemWithReplan, type ScheduleApi, type SystemApi } from '@/index';
 import type { TonightDto } from '@/tonight';
+import type { ScheduleListItem } from '@/schedules-list';
 import type { DaemonControl, DaemonStatus } from '@/daemon';
 import type { ZoneSummary } from '@/daemon/zones';
 import { BusyError, SystemDisabledError, type ManualController } from '@/manual';
@@ -1448,6 +1449,86 @@ describe('buildApp GET /tonight', () => {
 
         expect(res.statusCode).toBe(200);
         expect(res.json()).toEqual(idle);
+        await app.close();
+    });
+});
+
+describe('buildApp GET /schedules', () => {
+    const SAMPLE_LIST: ScheduleListItem[] = [
+        {
+            id: 'sched-active',
+            slug: 'maintenance',
+            name: 'Maintenance',
+            isActive: true,
+            allowedDays: [3, 5, 7],
+            allowedTimeWindows: [{ start: '00:00', end: '10:00' }],
+            rootDepthMOverride: null,
+            allowableDepletionFractionOverride: null,
+            endBySunrise: true,
+            nextRun: { inLabel: 'in 5 hours', whenLabel: 'Tomorrow at 3:00 AM', zonesLabel: 'North, South' },
+            skippedTonight: false,
+        },
+        {
+            id: 'sched-inactive',
+            slug: 'overseeding',
+            name: 'Overseeding',
+            isActive: false,
+            allowedDays: null,
+            allowedTimeWindows: null,
+            rootDepthMOverride: 0.45,
+            allowableDepletionFractionOverride: 0.35,
+            endBySunrise: null,
+        },
+    ];
+
+    it('returns 200 with the handler payload verbatim', async () => {
+        const app = buildApp({
+            getStatus: () => buildStatus(),
+            schedulesList: async () => SAMPLE_LIST,
+        });
+
+        const res = await app.inject({ method: 'GET', url: '/schedules' });
+
+        expect(res.statusCode).toBe(200);
+        expect(res.json()).toEqual(SAMPLE_LIST);
+        await app.close();
+    });
+
+    it('returns 404 when the schedulesList handler is absent', async () => {
+        const app = buildApp({ getStatus: () => buildStatus() });
+
+        const res = await app.inject({ method: 'GET', url: '/schedules' });
+
+        expect(res.statusCode).toBe(404);
+        await app.close();
+    });
+
+    it('re-evaluates the handler on each request (not memoized)', async () => {
+        let callCount = 0;
+        const app = buildApp({
+            getStatus: () => buildStatus(),
+            schedulesList: async () => {
+                callCount += 1;
+                return SAMPLE_LIST.slice(0, callCount);
+            },
+        });
+
+        const first = await app.inject({ method: 'GET', url: '/schedules' });
+        const second = await app.inject({ method: 'GET', url: '/schedules' });
+
+        expect(first.json()).toHaveLength(1);
+        expect(second.json()).toHaveLength(2);
+        expect(callCount).toBe(2);
+        await app.close();
+    });
+
+    it('returns an empty array when the handler returns []', async () => {
+        const app = buildApp({ getStatus: () => buildStatus(), schedulesList: async () => [] });
+
+        const res = await app.inject({ method: 'GET', url: '/schedules' });
+
+        expect(res.statusCode).toBe(200);
+        expect(res.json()).toEqual([]);
         await app.close();
     });
 });

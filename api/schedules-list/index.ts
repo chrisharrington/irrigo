@@ -125,7 +125,7 @@ export async function listSchedules(db: ScheduleListDb, now: Date): Promise<Sche
     // The single-site deploy means there's at most one active schedule; the
     // next-night query doesn't filter by site. If multi-site arrives, this is
     // the spot to filter cycles by `zones.siteId === schedule.siteId`.
-    const nextNight = await loadNextNight(db, now);
+    const nextNight = await loadNextNight(db, now, todaySiteLocal);
 
     for (const active of activeSchedules) {
         const item = items.find(i => i.id === active.id);
@@ -156,8 +156,7 @@ type NextNight = {
     zoneOrder: string[];
 };
 
-async function loadNextNight(db: ScheduleListLoaderDb, now: Date): Promise<NextNight | null> {
-    const todaySiteLocalDate = dayjs(now).format('YYYY-MM-DD');
+async function loadNextNight(db: ScheduleListLoaderDb, now: Date, todaySiteLocal: string): Promise<NextNight | null> {
     const rows = await db
         .select({
             entry: scheduleEntries,
@@ -167,7 +166,7 @@ async function loadNextNight(db: ScheduleListLoaderDb, now: Date): Promise<NextN
         .from(scheduleEntries)
         .innerJoin(zones, eq(scheduleEntries.zoneId, zones.id))
         .leftJoin(irrigationCycles, eq(irrigationCycles.scheduleEntryId, scheduleEntries.id))
-        .where(and(gte(scheduleEntries.date, todaySiteLocalDate), eq(scheduleEntries.source, 'scheduled')))
+        .where(and(gte(scheduleEntries.date, todaySiteLocal), eq(scheduleEntries.source, 'scheduled')))
         .orderBy(asc(scheduleEntries.date), asc(zones.id), asc(irrigationCycles.startTime))
         .limit(NEXT_RUN_FETCH_LIMIT);
 
