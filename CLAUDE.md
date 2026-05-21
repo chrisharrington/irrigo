@@ -28,6 +28,12 @@ First-time setup:
 
 Detailed frontend conventions (component structure, hooks, Tailwind/NativeWind) live in `shared/CLAUDE.md`.
 
+## Shell commands
+
+- Never prepend `cd /app` (or any other current-directory `cd`) to a command. The working directory is already `/app` — run the command directly. Prepending `cd` triggers a separate permission prompt for every invocation.
+- For commands that need a different cwd, prefer the tool's `--cwd` flag over `cd && …`. Examples: `bun --cwd api test`, `bun --cwd api run type-check`, `bun --cwd /app/api run db:generate`. Same for `docker compose --project-directory …`.
+- `git` always operates on the current working tree — never prefix git commands with `cd`.
+
 ## Testing
 
 - **Every change to a code file requires matching test coverage** — new behavior gets new tests, modified behavior gets updated tests. A change isn't complete until the tests cover it.
