@@ -20,8 +20,9 @@ import {
 import dayjs from 'dayjs';
 import { loadZoneById, loadZoneSummaries, type ZoneSummary, type ZoneSummaryDb } from '@/daemon/zones';
 import { closeZone, getZoneState, openZone } from '@/data/home-assistant';
+import { getSystemState, type SystemStateDb } from '@/system';
 import { queryLatestMigrationViaDrizzle, readJournalFile, verifyMigrations } from '@/db/verify-migrations';
-import { BusyError, createManualController, type ManualController } from '@/manual';
+import { BusyError, createManualController, SystemDisabledError, type ManualController } from '@/manual';
 import type { Zone } from '@/models';
 import { createNotifier } from '@/notifications';
 import Fastify, { type FastifyInstance, type FastifyReply } from 'fastify';
@@ -417,6 +418,9 @@ function registerManualRoutes(
 }
 
 function sendControllerError(reply: FastifyReply, err: unknown): FastifyReply {
+    if (err instanceof SystemDisabledError) {
+        return reply.code(409).send({ error: 'system-disabled', message: err.message });
+    }
     if (err instanceof BusyError) {
         return reply.code(409).send({ error: 'busy', message: err.message });
     }
@@ -487,6 +491,7 @@ if (import.meta.main) {
     const effectiveGetZoneState: typeof getZoneState = dryRun ? async _zone => 'off' as const : getZoneState;
     const alertsDb = db as unknown as AlertsDb;
     const alerter = createAlerter(alertsDb, notifier);
+    const systemDb = db as unknown as SystemStateDb;
     const daemon = await daemonStart(db as unknown as DaemonDb, {
         notifier,
         alerter,
@@ -501,6 +506,7 @@ if (import.meta.main) {
         closeZone: effectiveCloseZone,
         notifier,
         isAnyScheduledInFlight: () => daemon.getStatus().activeZones.length > 0,
+        isIrrigationEnabled: async () => (await getSystemState(systemDb)).irrigationEnabled,
     });
     const scheduleDb = db as unknown as ScheduleManagerDb;
     const baseSchedule: ScheduleApi = {

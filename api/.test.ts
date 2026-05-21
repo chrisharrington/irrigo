@@ -3,7 +3,7 @@ import type { AlertDto } from '@/alerts';
 import { buildApp, gracefulShutdown, wrapScheduleWithReplan, type ScheduleApi } from '@/index';
 import type { DaemonControl, DaemonStatus } from '@/daemon';
 import type { ZoneSummary } from '@/daemon/zones';
-import { BusyError, type ManualController } from '@/manual';
+import { BusyError, SystemDisabledError, type ManualController } from '@/manual';
 import type { Zone } from '@/models';
 
 function buildStatus(overrides?: Partial<DaemonStatus>): DaemonStatus {
@@ -194,6 +194,18 @@ describe('buildApp manual zone routes', () => {
             await app.close();
         });
 
+        it('returns 409 with system-disabled when the controller throws SystemDisabledError', async () => {
+            const app = buildAppWithManual({
+                manual: buildManual({ open: async () => { throw new SystemDisabledError('manual: irrigation is disabled.'); } }),
+            });
+
+            const res = await app.inject({ method: 'POST', url: '/zones/zone-001/open' });
+
+            expect(res.statusCode).toBe(409);
+            expect(res.json()).toMatchObject({ error: 'system-disabled', message: 'manual: irrigation is disabled.' });
+            await app.close();
+        });
+
         it('returns 502 when the controller throws a non-busy error (HA failure)', async () => {
             const app = buildAppWithManual({
                 manual: buildManual({ open: async () => { throw new Error('HA 502'); } }),
@@ -322,6 +334,23 @@ describe('buildApp manual zone routes', () => {
             });
 
             expect(res.statusCode).toBe(409);
+            await app.close();
+        });
+
+        it('returns 409 with system-disabled when the controller throws SystemDisabledError', async () => {
+            const app = buildAppWithManual({
+                manual: buildManual({ run: async () => { throw new SystemDisabledError('manual: irrigation is disabled.'); } }),
+            });
+
+            const res = await app.inject({
+                method: 'POST',
+                url: '/zones/zone-001/run',
+                payload: { durationMin: 5 },
+                headers: { 'content-type': 'application/json' },
+            });
+
+            expect(res.statusCode).toBe(409);
+            expect(res.json()).toMatchObject({ error: 'system-disabled' });
             await app.close();
         });
 
