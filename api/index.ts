@@ -29,7 +29,9 @@ import {
 import dayjs from 'dayjs';
 import { loadZoneById, loadZoneSummaries, type ZoneSummary, type ZoneSummaryDb } from '@/daemon/zones';
 import { closeZone, getZoneState, openZone } from '@/data/home-assistant';
-import { getSystemState, setIrrigationEnabled, type SystemStateDb, type SystemStateDto } from '@/system';
+import { getSystemState, setIrrigationEnabled } from '@/service/system';
+import { type SystemStateDb } from '@/repositories/system';
+import type { SystemStateDto } from '@/models/system';
 import { getTonightSummary, type TonightDb, type TonightDto } from '@/tonight';
 import { listSchedules, type ScheduleListDb, type ScheduleListItem } from '@/schedules-list';
 import { queryLatestMigrationViaDrizzle, readJournalFile, verifyMigrations } from '@/db/verify-migrations';
@@ -61,7 +63,7 @@ export type ScheduleApi = {
 
 /**
  * HTTP surface of the master kill switch. Production wires this against
- * `getSystemState` / `setIrrigationEnabled` from `@/system`, optionally
+ * `getSystemState` / `setIrrigationEnabled` from `@/service/system`, optionally
  * wrapped with `wrapSystemWithReplan` so the daemon re-plans on each flip.
  */
 export type SystemApi = {

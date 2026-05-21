@@ -15,7 +15,8 @@ import type { PlanZoneScheduleResult } from '@/schedules/dynamic';
 import { reconcileCycleAndRelayState, type ReconcileSummary } from './reconcile';
 import { clearStaleSkipMarkers, loadActiveSchedulesBySite, type Schedule, type ScheduleManagerDb } from './schedule-manager';
 import { loadFutureCycles, loadInFlightCycles, replaceZoneSchedule, type FutureCyclesDb, type ScheduleWriterDb } from './schedules';
-import { getSystemState, type SystemStateDb } from '@/system';
+import { getSystemState } from '@/service/system';
+import { type SystemStateDb } from '@/repositories/system';
 import {
     armCloseOnly,
     armCycle,

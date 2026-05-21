@@ -5,7 +5,8 @@ import { and, asc, eq, gte } from 'drizzle-orm';
 import { irrigationCycles, scheduleEntries, sites, zones } from '@/db/schema';
 import { loadActiveSchedulesBySite, type ScheduleManagerDb } from '@/daemon/schedule-manager';
 import { loadSiteTimezone, type SiteTimezoneDb } from '@/daemon/sites';
-import { getSystemState, type SystemStateReaderDb } from '@/system';
+import { getSystemState } from '@/service/system';
+import { type SystemStateReaderDb } from '@/repositories/system';
 
 dayjs.extend(utc);
 dayjs.extend(timezone);
