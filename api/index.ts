@@ -20,8 +20,9 @@ import {
 import dayjs from 'dayjs';
 import { loadZoneById, loadZoneSummaries, type ZoneSummary, type ZoneSummaryDb } from '@/daemon/zones';
 import { closeZone, getZoneState, openZone } from '@/data/home-assistant';
+import { getSystemState, setIrrigationEnabled, type SystemStateDb, type SystemStateDto } from '@/system';
 import { queryLatestMigrationViaDrizzle, readJournalFile, verifyMigrations } from '@/db/verify-migrations';
-import { BusyError, createManualController, type ManualController } from '@/manual';
+import { BusyError, createManualController, SystemDisabledError, type ManualController } from '@/manual';
 import type { Zone } from '@/models';
 import { createNotifier } from '@/notifications';
 import Fastify, { type FastifyInstance, type FastifyReply } from 'fastify';
@@ -46,6 +47,41 @@ export type ScheduleApi = {
     skipTonight: () => Promise<Schedule | null>;
     resumeTonight: () => Promise<Schedule | null>;
 };
+
+/**
+ * HTTP surface of the master kill switch. Production wires this against
+ * `getSystemState` / `setIrrigationEnabled` from `@/system`, optionally
+ * wrapped with `wrapSystemWithReplan` so the daemon re-plans on each flip.
+ */
+export type SystemApi = {
+    get: () => Promise<SystemStateDto>;
+    enable: () => Promise<SystemStateDto>;
+    disable: () => Promise<SystemStateDto>;
+};
+
+/**
+ * Wraps a base `SystemApi` so each non-throwing `enable` / `disable` call
+ * triggers `replan()` before resolving. Mirrors `wrapScheduleWithReplan`.
+ * The `get` accessor is unwrapped — reads don't change planner state.
+ *
+ * @param base - The underlying handlers (DB-backed in production).
+ * @param replan - The daemon's `rePlan` reference.
+ */
+export function wrapSystemWithReplan(base: SystemApi, replan: () => Promise<void>): SystemApi {
+    return {
+        get: () => base.get(),
+        enable: async () => {
+            const result = await base.enable();
+            await replan();
+            return result;
+        },
+        disable: async () => {
+            const result = await base.disable();
+            await replan();
+            return result;
+        },
+    };
+}
 
 /**
  * Wraps a base `ScheduleApi` so that any non-null `enable` / `disable`
@@ -118,6 +154,14 @@ export type BuildAppOptions = {
         list: () => Promise<AlertDto[]>;
         ack: (id: string) => Promise<AckResult>;
     };
+
+    /**
+     * Optional. When supplied, registers `GET /system`, `POST /system/enable`
+     * and `POST /system/disable` — the master irrigation kill switch surface.
+     * Production wraps the base handlers with `wrapSystemWithReplan` so each
+     * flip triggers an immediate re-plan.
+     */
+    system?: SystemApi;
 };
 
 /**
@@ -165,7 +209,51 @@ export function buildApp(opts: BuildAppOptions): FastifyInstance {
         registerAlertRoutes(app, opts.alerts);
     }
 
+    if (opts.system) {
+        registerSystemRoutes(app, opts.system);
+    }
+
     return app;
+}
+
+function registerSystemRoutes(app: FastifyInstance, system: SystemApi): void {
+    /**
+     * `GET /system` — current state of the master irrigation kill switch.
+     * Backs the mobile Home screen's toggle and "off since …" label.
+     */
+    app.get('/system', async (_req, reply) => {
+        const state = await system.get();
+        return reply.code(200).send(state);
+    });
+
+    /**
+     * `POST /system/enable` — flip the kill switch on. Returns the post-flip
+     * DTO (`since` reflects the time of this flip). 502 when the wrapped
+     * re-plan rejects.
+     */
+    app.post('/system/enable', async (_req, reply) => {
+        try {
+            const state = await system.enable();
+            return reply.code(200).send(state);
+        } catch (err) {
+            const message = err instanceof Error ? err.message : String(err);
+            return reply.code(502).send({ error: 'replan-failed', message });
+        }
+    });
+
+    /**
+     * `POST /system/disable` — flip the kill switch off. Returns the post-flip
+     * DTO. 502 when the wrapped re-plan rejects.
+     */
+    app.post('/system/disable', async (_req, reply) => {
+        try {
+            const state = await system.disable();
+            return reply.code(200).send(state);
+        } catch (err) {
+            const message = err instanceof Error ? err.message : String(err);
+            return reply.code(502).send({ error: 'replan-failed', message });
+        }
+    });
 }
 
 function registerAlertRoutes(
@@ -417,6 +505,9 @@ function registerManualRoutes(
 }
 
 function sendControllerError(reply: FastifyReply, err: unknown): FastifyReply {
+    if (err instanceof SystemDisabledError) {
+        return reply.code(409).send({ error: 'system-disabled', message: err.message });
+    }
     if (err instanceof BusyError) {
         return reply.code(409).send({ error: 'busy', message: err.message });
     }
@@ -487,6 +578,7 @@ if (import.meta.main) {
     const effectiveGetZoneState: typeof getZoneState = dryRun ? async _zone => 'off' as const : getZoneState;
     const alertsDb = db as unknown as AlertsDb;
     const alerter = createAlerter(alertsDb, notifier);
+    const systemDb = db as unknown as SystemStateDb;
     const daemon = await daemonStart(db as unknown as DaemonDb, {
         notifier,
         alerter,
@@ -501,6 +593,7 @@ if (import.meta.main) {
         closeZone: effectiveCloseZone,
         notifier,
         isAnyScheduledInFlight: () => daemon.getStatus().activeZones.length > 0,
+        isIrrigationEnabled: async () => (await getSystemState(systemDb)).irrigationEnabled,
     });
     const scheduleDb = db as unknown as ScheduleManagerDb;
     const baseSchedule: ScheduleApi = {
@@ -508,6 +601,11 @@ if (import.meta.main) {
         disable: slug => defaultDisableSchedule(scheduleDb, slug),
         skipTonight: () => defaultSkipActiveScheduleTonight(scheduleDb, dayjs(realClock.now())),
         resumeTonight: () => defaultResumeActiveScheduleTonight(scheduleDb),
+    };
+    const baseSystem: SystemApi = {
+        get: () => getSystemState(systemDb),
+        enable: () => setIrrigationEnabled(systemDb, true, realClock.now()),
+        disable: () => setIrrigationEnabled(systemDb, false, realClock.now()),
     };
     const app = buildApp({
         getStatus: daemon.getStatus,
@@ -520,6 +618,7 @@ if (import.meta.main) {
             list: () => listActiveAlerts(alertsDb),
             ack: id => acknowledgeAlert(alertsDb, id),
         },
+        system: wrapSystemWithReplan(baseSystem, () => daemon.rePlan()),
     });
 
     const onSignal = (signal: NodeJS.Signals): void => {

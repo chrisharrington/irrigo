@@ -24,6 +24,19 @@ export class BusyError extends Error {
 }
 
 /**
+ * Sentinel error thrown by `open` and `run` when the master irrigation kill
+ * switch is off. The HTTP layer maps this to a 409 with
+ * `error: 'system-disabled'` so the mobile client can render a distinct
+ * "irrigation is paused" message rather than a generic busy state.
+ */
+export class SystemDisabledError extends Error {
+    constructor(message: string) {
+        super(message);
+        this.name = 'SystemDisabledError';
+    }
+}
+
+/**
  * Minimal db interface needed by the manual controller. Mirrors the chained
  * Drizzle `insert/update` shapes the recording test stub already supports.
  */
@@ -56,6 +69,14 @@ export type ManualControllerDeps = {
      * uses this to refuse manual fires while the daemon owns the relay.
      */
     isAnyScheduledInFlight: () => boolean;
+
+    /**
+     * Returns the current state of the master irrigation kill switch. The
+     * controller queries this at the top of `open` and `run` so a flipped-off
+     * system can't accept new manual fires. `close` and `shutdown` are NOT
+     * gated — closing an already-open relay must always be possible.
+     */
+    isIrrigationEnabled: () => Promise<boolean>;
 };
 
 export type ActiveManualSnapshot = {
@@ -112,8 +133,14 @@ type ActiveManualFire = {
  * @returns Wired controller ready to back the `/zones/:id/...` routes.
  */
 export function createManualController(deps: ManualControllerDeps): ManualController {
-    const { db, clock, openZone, closeZone, notifier, isAnyScheduledInFlight } = deps;
+    const { db, clock, openZone, closeZone, notifier, isAnyScheduledInFlight, isIrrigationEnabled } = deps;
     let current: ActiveManualFire | null = null;
+
+    const ensureSystemEnabled = async (action: string, zone: Zone): Promise<void> => {
+        if (!(await isIrrigationEnabled())) {
+            throw new SystemDisabledError(`manual: cannot ${action} zone ${zone.id} — irrigation is disabled.`);
+        }
+    };
 
     const ensureFree = (action: string, zone: Zone): void => {
         if (current !== null) {
@@ -189,6 +216,7 @@ export function createManualController(deps: ManualControllerDeps): ManualContro
     };
 
     const open: ManualController['open'] = async (zone) => {
+        await ensureSystemEnabled('open', zone);
         ensureFree('open', zone);
 
         try {
@@ -282,6 +310,7 @@ export function createManualController(deps: ManualControllerDeps): ManualContro
         if (durationMin > MAX_RUN_DURATION_MIN) {
             throw new Error(`manual: durationMin ${durationMin} exceeds maximum ${MAX_RUN_DURATION_MIN}.`);
         }
+        await ensureSystemEnabled('run', zone);
         ensureFree('run', zone);
 
         try {

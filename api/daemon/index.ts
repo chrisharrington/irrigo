@@ -15,6 +15,7 @@ import type { PlanZoneScheduleResult } from '@/schedules/dynamic';
 import { reconcileCycleAndRelayState, type ReconcileSummary } from './reconcile';
 import { clearStaleSkipMarkers, loadActiveSchedulesBySite, type Schedule, type ScheduleManagerDb } from './schedule-manager';
 import { loadFutureCycles, loadInFlightCycles, replaceZoneSchedule, type FutureCyclesDb, type ScheduleWriterDb } from './schedules';
+import { getSystemState, type SystemStateDb } from '@/system';
 import {
     armCloseOnly,
     armCycle,
@@ -45,7 +46,7 @@ const DEFAULT_REPLAN_HOUR_LOCAL = 4;
  * pass the eager `db` export from `@/db`; tests pass a recording stub that
  * implements the union of the smaller per-helper interfaces.
  */
-export type DaemonDb = ZoneLoaderDb & ScheduleWriterDb & FutureCyclesDb & RuntimeDb & ZoneCountDb & SiteTimezoneDb & ScheduleManagerDb & WeatherStateDb & AlertsDb;
+export type DaemonDb = ZoneLoaderDb & ScheduleWriterDb & FutureCyclesDb & RuntimeDb & ZoneCountDb & SiteTimezoneDb & ScheduleManagerDb & WeatherStateDb & AlertsDb & SystemStateDb;
 
 /**
  * Caller-overridable hooks. Defaults wire to the real planning function and
@@ -159,11 +160,16 @@ export async function start(db: DaemonDb, options?: DaemonOptions): Promise<Daem
     console.log(`daemon: reconcile summary — resumed: ${reconcileSummary.resumed}, forcedClosed: ${reconcileSummary.forcedClosed}, missedClose: ${reconcileSummary.missedClose}, orphansClosed: ${reconcileSummary.orphansClosed}, errors: ${reconcileSummary.errors}.`);
 
     const futureCycles = await loadFutureCycles(db, clock.now());
-    // Boot-recovery arms leave the schedule markers undefined — schedule-begun
-    // and schedule-ended for this night, if applicable, were already emitted by
-    // the prior process, and re-emitting on every restart would be misleading.
-    for (const { cycle, zone } of futureCycles) {
-        armCycle({ db, clock, registry, zone, cycle, openZone, closeZone, notifier, alerter });
+    const systemAtBoot = await getSystemState(db);
+    if (!systemAtBoot.irrigationEnabled) {
+        console.warn(`daemon: system irrigation is disabled (since ${systemAtBoot.since}); skipping arm of ${futureCycles.length} future cycle(s).`);
+    } else {
+        // Boot-recovery arms leave the schedule markers undefined — schedule-begun
+        // and schedule-ended for this night, if applicable, were already emitted by
+        // the prior process, and re-emitting on every restart would be misleading.
+        for (const { cycle, zone } of futureCycles) {
+            armCycle({ db, clock, registry, zone, cycle, openZone, closeZone, notifier, alerter });
+        }
     }
 
     const { total, enabled } = await countZones(db);
@@ -188,6 +194,14 @@ export async function start(db: DaemonDb, options?: DaemonOptions): Promise<Daem
     const rePlan = async (): Promise<void> => {
         console.log('daemon: re-plan starting.');
         registry.cancelOpenTimers(clock);
+
+        const system = await getSystemState(db);
+        if (!system.irrigationEnabled) {
+            console.warn(`daemon: re-plan skipped — system irrigation is disabled (since ${system.since}). All armed cycles cancelled; no new cycles will arm until re-enabled.`);
+            lastRePlanAt = clock.now();
+            scheduleNextRePlan();
+            return;
+        }
 
         const today = dayjs(clock.now());
         // Wipe markers from past nights before snapshotting active schedules so
