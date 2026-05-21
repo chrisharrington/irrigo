@@ -5,7 +5,7 @@ import { and, asc, eq, gte } from 'drizzle-orm';
 import { irrigationCycles, scheduleEntries, sites, zones } from '@/db/schema';
 import { loadActiveSchedulesBySite, type ScheduleManagerDb } from '@/daemon/schedule-manager';
 import { loadSiteTimezone, type SiteTimezoneDb } from '@/daemon/sites';
-import { getSystemState, type SystemStateReaderDb } from '@/system';
+import { getSystemState } from '@/service/system';
 
 dayjs.extend(utc);
 dayjs.extend(timezone);
@@ -114,7 +114,7 @@ export type TonightLoaderDb = {
  * Composite db interface. Production callers pass the eager `db` export from
  * `@/db`; tests compose stubs from the per-helper interfaces.
  */
-export type TonightDb = SiteTimezoneDb & SystemStateReaderDb & ScheduleManagerDb & TonightLoaderDb;
+export type TonightDb = SiteTimezoneDb & ScheduleManagerDb & TonightLoaderDb;
 
 /**
  * Builds the wire payload powering the mobile Home screen's "Next run" hero
@@ -138,7 +138,7 @@ export async function getTonightSummary(db: TonightDb, now: Date): Promise<Tonig
     const siteTimezone = await loadSiteTimezone(db);
     const todaySiteLocal = dayjs(now).tz(siteTimezone).format('YYYY-MM-DD');
 
-    const system = await getSystemState(db);
+    const system = await getSystemState();
     if (!system.irrigationEnabled) {
         return emptyDto('skipped-manual');
     }

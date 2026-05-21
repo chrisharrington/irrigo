@@ -11,7 +11,6 @@ import {
     schedules,
     sites,
     soilTypes,
-    systemState,
     weatherState,
     zones,
 } from '@/db/schema';
@@ -20,6 +19,7 @@ dayjs.extend(utc);
 dayjs.extend(timezone);
 import type { IrrigationScheduleEntry, Zone } from '@/models';
 import { computeNextRePlanAt, start, type DaemonDb } from '.';
+import { bootSystemService } from '@/service/system';
 import {
     countZones,
     loadEnabledZones,
@@ -1805,11 +1805,6 @@ type DaemonStubInputs = {
     siteTimezones?: ReadonlyArray<{ timezone: string }>;
     /** Seed value the weather_state stub returns; `undefined` ⇒ no row ⇒ stale. */
     lastSuccessfulFetchAt?: Date | null;
-    /**
-     * Seed value the system_state stub returns. Defaults to enabled with a
-     * fixed `since` so the existing tests don't have to plumb it.
-     */
-    systemState?: { irrigationEnabled: boolean; since: Date };
     activeSchedules?: ReadonlyArray<{ schedule: {
         id: string;
         siteId: string;
@@ -1907,18 +1902,6 @@ function createDaemonDbStub(inputs?: DaemonStubInputs) {
                                     ? [{ lastSuccessfulFetchAt: inputs.lastSuccessfulFetchAt }]
                                     : [],
                             ),
-                        }),
-                    }),
-                } as never;
-            }
-            // SystemStateDb shape: `irrigationEnabled` + `since`. Defaults to
-            // enabled with a fixed `since` so legacy tests don't have to plumb it.
-            if ('irrigationEnabled' in cols && 'since' in cols) {
-                const seed = inputs?.systemState ?? { irrigationEnabled: true, since: new Date('2026-05-04T00:00:00.000Z') };
-                return {
-                    from: () => ({
-                        where: () => ({
-                            limit: () => Promise.resolve([seed]),
                         }),
                     }),
                 } as never;
@@ -2072,6 +2055,17 @@ function extractZoneId(cond: unknown): string {
 
 describe('start', () => {
     const NOW = new Date('2026-05-04T12:00:00.000Z');
+
+    // Default the system kill-switch to enabled for every test. Kill-switch
+    // tests below override this with their own bootSystemService call.
+    beforeEach(() => {
+        bootSystemService({
+            repo: {
+                findSingleton: async () => ({ irrigationEnabled: true, since: new Date('2026-05-04T08:00:00.000Z') }),
+                upsertSingleton: async () => {},
+            },
+        });
+    });
 
     it('arms each future cycle returned by the DB so it fires at its start_time', async () => {
         const futureRow = buildFutureCycleRow({
@@ -3280,7 +3274,12 @@ describe('start', () => {
             const { db } = createDaemonDbStub({
                 futureCycles: [futureRow],
                 inFlightCycles: [inFlightRow],
-                systemState: { irrigationEnabled: false, since: new Date('2026-05-04T08:00:00.000Z') },
+            });
+            bootSystemService({
+                repo: {
+                    findSingleton: async () => ({ irrigationEnabled: false, since: new Date('2026-05-04T08:00:00.000Z') }),
+                    upsertSingleton: async () => {},
+                },
             });
             const { clock, advanceTo, getPendingCount } = createFakeClock(NOW);
             const opens: string[] = [];
@@ -3315,7 +3314,12 @@ describe('start', () => {
             const enabledRow = buildJoinedRow({ zone: { id: 'zone-disabled', siteId: 'site-001' } });
             const { db, inserts } = createDaemonDbStub({
                 enabledZones: [enabledRow],
-                systemState: { irrigationEnabled: false, since: new Date('2026-05-04T08:00:00.000Z') },
+            });
+            bootSystemService({
+                repo: {
+                    findSingleton: async () => ({ irrigationEnabled: false, since: new Date('2026-05-04T08:00:00.000Z') }),
+                    upsertSingleton: async () => {},
+                },
             });
             const { clock } = createFakeClock(NOW);
             const planCalls: string[] = [];
@@ -3345,7 +3349,14 @@ describe('start', () => {
             const enabledRow = buildJoinedRow({ zone: { id: 'zone-enabled', siteId: 'site-001' } });
             const { db } = createDaemonDbStub({
                 enabledZones: [enabledRow],
-                systemState: { irrigationEnabled: true, since: new Date('2026-05-04T08:00:00.000Z') },
+            });
+            // Default-enabled is already set by the top-level beforeEach, but
+            // re-stating here keeps the test self-explanatory.
+            bootSystemService({
+                repo: {
+                    findSingleton: async () => ({ irrigationEnabled: true, since: new Date('2026-05-04T08:00:00.000Z') }),
+                    upsertSingleton: async () => {},
+                },
             });
             const { clock } = createFakeClock(NOW);
             const planCalls: string[] = [];

@@ -20,3 +20,9 @@ function readDatabaseUrl() {
 }
 
 export const db = createDb(readDatabaseUrl());
+
+/**
+ * Type of the Drizzle client returned by `createDb`. Exported so service
+ * boot functions can accept a `db` handle without re-deriving the shape.
+ */
+export type Database = ReturnType<typeof createDb>;

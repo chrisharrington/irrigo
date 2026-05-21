@@ -1,8 +1,9 @@
-import { describe, expect, it } from 'bun:test';
+import { beforeEach, describe, expect, it } from 'bun:test';
 import dayjs from 'dayjs';
 import utc from 'dayjs/plugin/utc';
 import timezone from 'dayjs/plugin/timezone';
 import { irrigationCycles, scheduleEntries, sites, zones } from '@/db/schema';
+import { bootSystemService } from '@/service/system';
 import { getTonightSummary, type TonightDb } from '.';
 
 dayjs.extend(utc);
@@ -53,19 +54,24 @@ function buildZone(overrides?: Partial<ZoneSubset>): ZoneSubset {
 }
 
 type StubInputs = {
-    irrigationEnabled?: boolean;
     skippedNightDateOnActive?: string | null;
     rows?: JoinedRow[];
     activeSchedules?: number; // number of active schedules to surface (0 → none)
 };
 
+function bootSystem(irrigationEnabled: boolean) {
+    bootSystemService({
+        repo: {
+            findSingleton: async () => ({ irrigationEnabled, since: new Date('2026-05-01T00:00:00.000Z') }),
+            upsertSingleton: async () => {},
+        },
+    });
+}
+
 function createStub(inputs?: StubInputs): TonightDb {
-    const irrigationEnabled = inputs?.irrigationEnabled ?? true;
     const skippedNightDate = inputs?.skippedNightDateOnActive ?? null;
     const rows = inputs?.rows ?? [];
     const activeSchedulesCount = inputs?.activeSchedules ?? 1;
-
-    const since = new Date('2026-05-01T00:00:00.000Z');
 
     const db: TonightDb = {
         select: (cols: unknown) => {
@@ -73,16 +79,6 @@ function createStub(inputs?: StubInputs): TonightDb {
             // SiteTimezoneDb shape: single 'timezone' column.
             if ('timezone' in c && Object.keys(c).length === 1) {
                 return { from: () => Promise.resolve([{ timezone: SITE_TZ }]) } as never;
-            }
-            // SystemStateReaderDb shape: irrigationEnabled + since.
-            if ('irrigationEnabled' in c && 'since' in c) {
-                return {
-                    from: () => ({
-                        where: () => ({
-                            limit: async () => [{ irrigationEnabled, since }],
-                        }),
-                    }),
-                } as never;
             }
             // ScheduleManagerDb shape: single 'schedule' column.
             if ('schedule' in c && Object.keys(c).length === 1) {
@@ -135,9 +131,16 @@ function createStub(inputs?: StubInputs): TonightDb {
 }
 
 describe('getTonightSummary', () => {
+    // Default the system kill-switch to enabled for every test. Tests that
+    // exercise the disabled path override via bootSystem(false).
+    beforeEach(() => {
+        bootSystem(true);
+    });
+
     describe('skipped-manual', () => {
         it('returns state: skipped-manual with empty zones when the system kill switch is off', async () => {
-            const db = createStub({ irrigationEnabled: false });
+            bootSystem(false);
+            const db = createStub();
 
             const result = await getTonightSummary(db, NOW);
 
