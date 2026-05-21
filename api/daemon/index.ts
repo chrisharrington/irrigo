@@ -16,7 +16,6 @@ import { reconcileCycleAndRelayState, type ReconcileSummary } from './reconcile'
 import { clearStaleSkipMarkers, loadActiveSchedulesBySite, type Schedule, type ScheduleManagerDb } from './schedule-manager';
 import { loadFutureCycles, loadInFlightCycles, replaceZoneSchedule, type FutureCyclesDb, type ScheduleWriterDb } from './schedules';
 import { getSystemState } from '@/service/system';
-import { createSystemStateRepository, type SystemStateRepositoryDb } from '@/repositories/system';
 import {
     armCloseOnly,
     armCycle,
@@ -47,7 +46,7 @@ const DEFAULT_REPLAN_HOUR_LOCAL = 4;
  * pass the eager `db` export from `@/db`; tests pass a recording stub that
  * implements the union of the smaller per-helper interfaces.
  */
-export type DaemonDb = ZoneLoaderDb & ScheduleWriterDb & FutureCyclesDb & RuntimeDb & ZoneCountDb & SiteTimezoneDb & ScheduleManagerDb & WeatherStateDb & AlertsDb & SystemStateRepositoryDb;
+export type DaemonDb = ZoneLoaderDb & ScheduleWriterDb & FutureCyclesDb & RuntimeDb & ZoneCountDb & SiteTimezoneDb & ScheduleManagerDb & WeatherStateDb & AlertsDb;
 
 /**
  * Caller-overridable hooks. Defaults wire to the real planning function and
@@ -138,7 +137,6 @@ export async function start(db: DaemonDb, options?: DaemonOptions): Promise<Daem
     const registry = new TimerRegistry();
     const notifier = options?.notifier ?? noopNotifier;
     const alerter = options?.alerter ?? noopAlerter;
-    const systemRepo = createSystemStateRepository(db);
     let lastRePlanAt: Date | null = null;
     let started = false;
 
@@ -162,7 +160,7 @@ export async function start(db: DaemonDb, options?: DaemonOptions): Promise<Daem
     console.log(`daemon: reconcile summary — resumed: ${reconcileSummary.resumed}, forcedClosed: ${reconcileSummary.forcedClosed}, missedClose: ${reconcileSummary.missedClose}, orphansClosed: ${reconcileSummary.orphansClosed}, errors: ${reconcileSummary.errors}.`);
 
     const futureCycles = await loadFutureCycles(db, clock.now());
-    const systemAtBoot = await getSystemState(systemRepo);
+    const systemAtBoot = await getSystemState();
     if (!systemAtBoot.irrigationEnabled) {
         console.warn(`daemon: system irrigation is disabled (since ${systemAtBoot.since}); skipping arm of ${futureCycles.length} future cycle(s).`);
     } else {
@@ -197,7 +195,7 @@ export async function start(db: DaemonDb, options?: DaemonOptions): Promise<Daem
         console.log('daemon: re-plan starting.');
         registry.cancelOpenTimers(clock);
 
-        const system = await getSystemState(systemRepo);
+        const system = await getSystemState();
         if (!system.irrigationEnabled) {
             console.warn(`daemon: re-plan skipped — system irrigation is disabled (since ${system.since}). All armed cycles cancelled; no new cycles will arm until re-enabled.`);
             lastRePlanAt = clock.now();

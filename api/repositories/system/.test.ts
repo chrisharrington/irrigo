@@ -1,13 +1,16 @@
 import { describe, expect, it } from 'bun:test';
+import type { Database } from '@/db';
 import { systemState } from '@/db/schema';
 import {
     createSystemStateRepository,
     SYSTEM_STATE_SINGLETON_ID,
-    type SystemStateRepositoryDb,
     type SystemStateRow,
 } from '.';
 
-function stubReader(rows: SystemStateRow[]): SystemStateRepositoryDb {
+// The factory takes the real `Database` type; these stubs are partial mocks
+// cast through `unknown` so test files don't need to model the full Drizzle
+// surface. Only the chain methods the factory actually calls are stubbed.
+function stubReader(rows: SystemStateRow[]): Database {
     return {
         select: () => ({
             from: () => ({
@@ -16,21 +19,19 @@ function stubReader(rows: SystemStateRow[]): SystemStateRepositoryDb {
                 }),
             }),
         }),
-        // Insert isn't exercised by reader tests; provide a no-op so the
-        // composite type is satisfied.
         insert: () => ({
             values: () => ({
                 onConflictDoUpdate: async () => undefined,
             }),
         }),
-    };
+    } as unknown as Database;
 }
 
 type InsertCall = { values: Record<string, unknown>; conflictSet: Record<string, unknown> };
 
-function stubWriter(): { db: SystemStateRepositoryDb; calls: InsertCall[] } {
+function stubWriter(): { db: Database; calls: InsertCall[] } {
     const calls: InsertCall[] = [];
-    const db: SystemStateRepositoryDb = {
+    const db = {
         select: () => ({
             from: () => ({
                 where: () => ({
@@ -39,13 +40,13 @@ function stubWriter(): { db: SystemStateRepositoryDb; calls: InsertCall[] } {
             }),
         }),
         insert: () => ({
-            values: (row) => ({
-                onConflictDoUpdate: async ({ set }) => {
+            values: (row: Record<string, unknown>) => ({
+                onConflictDoUpdate: async ({ set }: { set: Record<string, unknown> }) => {
                     calls.push({ values: row, conflictSet: set });
                 },
             }),
         }),
-    };
+    } as unknown as Database;
     return { db, calls };
 }
 

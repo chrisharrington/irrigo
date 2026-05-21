@@ -1,4 +1,5 @@
 import { eq, sql } from 'drizzle-orm';
+import type { Database } from '@/db';
 import { SYSTEM_STATE_SINGLETON_ID, systemState } from '@/db/schema';
 
 export { SYSTEM_STATE_SINGLETON_ID };
@@ -24,43 +25,15 @@ export interface SystemStateRepository {
 }
 
 /**
- * Narrow Drizzle-shaped surface the factory needs to build a repository.
- * This is the one place where Drizzle's chain types leak — production
- * passes the real `db` (which satisfies this structurally); factory tests
- * pass a stub matching this shape. Consumers of the repository interface
- * never see this type.
- */
-export type SystemStateRepositoryDb = {
-    select: (cols: {
-        irrigationEnabled: typeof systemState.irrigationEnabled;
-        since: typeof systemState.since;
-    }) => {
-        from: (table: typeof systemState) => {
-            where: (cond: unknown) => {
-                limit: (n: number) => Promise<Array<SystemStateRow>>;
-            };
-        };
-    };
-    insert: (table: typeof systemState) => {
-        values: (row: Record<string, unknown>) => {
-            onConflictDoUpdate: (config: {
-                target: unknown;
-                set: Record<string, unknown>;
-            }) => Promise<unknown>;
-        };
-    };
-};
-
-/**
  * Builds the production `SystemStateRepository` bound to a Drizzle client.
  * The factory is the bridge between Drizzle's query API and the domain
- * interface — services never invoke this directly; they receive the
- * constructed repository from the composition root (api/index.ts, the
- * daemon's start, the tonight handler, etc.).
+ * interface — services receive the constructed repository at boot time,
+ * never see Drizzle directly. Factory unit tests pass a partial Drizzle
+ * stub via `as unknown as Database`.
  *
- * @param db - Drizzle client (or compatible stub).
+ * @param db - Drizzle client.
  */
-export function createSystemStateRepository(db: SystemStateRepositoryDb): SystemStateRepository {
+export function createSystemStateRepository(db: Database): SystemStateRepository {
     return {
         findSingleton: async () => {
             const rows = await db
