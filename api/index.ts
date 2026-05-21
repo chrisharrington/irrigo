@@ -30,7 +30,7 @@ import dayjs from 'dayjs';
 import { loadZoneById, loadZoneSummaries, type ZoneSummary, type ZoneSummaryDb } from '@/daemon/zones';
 import { closeZone, getZoneState, openZone } from '@/data/home-assistant';
 import { getSystemState, setIrrigationEnabled } from '@/service/system';
-import { type SystemStateDb } from '@/repositories/system';
+import { createSystemStateRepository, type SystemStateRepositoryDb } from '@/repositories/system';
 import type { SystemStateDto } from '@/models/system';
 import { getTonightSummary, type TonightDb, type TonightDto } from '@/tonight';
 import { listSchedules, type ScheduleListDb, type ScheduleListItem } from '@/schedules-list';
@@ -701,7 +701,7 @@ if (import.meta.main) {
     const effectiveGetZoneState: typeof getZoneState = dryRun ? async _zone => 'off' as const : getZoneState;
     const alertsDb = db as unknown as AlertsDb;
     const alerter = createAlerter(alertsDb, notifier);
-    const systemDb = db as unknown as SystemStateDb;
+    const systemRepo = createSystemStateRepository(db as unknown as SystemStateRepositoryDb);
     const daemon = await daemonStart(db as unknown as DaemonDb, {
         notifier,
         alerter,
@@ -716,7 +716,7 @@ if (import.meta.main) {
         closeZone: effectiveCloseZone,
         notifier,
         isAnyScheduledInFlight: () => daemon.getStatus().activeZones.length > 0,
-        isIrrigationEnabled: async () => (await getSystemState(systemDb)).irrigationEnabled,
+        isIrrigationEnabled: async () => (await getSystemState(systemRepo)).irrigationEnabled,
     });
     const scheduleDb = db as unknown as ScheduleManagerDb;
     const baseSchedule: ScheduleApi = {
@@ -726,9 +726,9 @@ if (import.meta.main) {
         resumeTonight: () => defaultResumeActiveScheduleTonight(scheduleDb),
     };
     const baseSystem: SystemApi = {
-        get: () => getSystemState(systemDb),
-        enable: () => setIrrigationEnabled(systemDb, true, realClock.now()),
-        disable: () => setIrrigationEnabled(systemDb, false, realClock.now()),
+        get: () => getSystemState(systemRepo),
+        enable: () => setIrrigationEnabled(systemRepo, true, realClock.now()),
+        disable: () => setIrrigationEnabled(systemRepo, false, realClock.now()),
     };
     const app = buildApp({
         getStatus: daemon.getStatus,

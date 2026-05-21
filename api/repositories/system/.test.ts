@@ -1,15 +1,13 @@
 import { describe, expect, it } from 'bun:test';
 import { systemState } from '@/db/schema';
 import {
-    loadSystemState,
+    createSystemStateRepository,
     SYSTEM_STATE_SINGLETON_ID,
-    upsertSystemState,
-    type SystemStateReaderDb,
+    type SystemStateRepositoryDb,
     type SystemStateRow,
-    type SystemStateWriterDb,
 } from '.';
 
-function readerStub(rows: SystemStateRow[]): SystemStateReaderDb {
+function stubReader(rows: SystemStateRow[]): SystemStateRepositoryDb {
     return {
         select: () => ({
             from: () => ({
@@ -18,14 +16,28 @@ function readerStub(rows: SystemStateRow[]): SystemStateReaderDb {
                 }),
             }),
         }),
+        // Insert isn't exercised by reader tests; provide a no-op so the
+        // composite type is satisfied.
+        insert: () => ({
+            values: () => ({
+                onConflictDoUpdate: async () => undefined,
+            }),
+        }),
     };
 }
 
 type InsertCall = { values: Record<string, unknown>; conflictSet: Record<string, unknown> };
 
-function writerStub(): { db: SystemStateWriterDb; calls: InsertCall[] } {
+function stubWriter(): { db: SystemStateRepositoryDb; calls: InsertCall[] } {
     const calls: InsertCall[] = [];
-    const db: SystemStateWriterDb = {
+    const db: SystemStateRepositoryDb = {
+        select: () => ({
+            from: () => ({
+                where: () => ({
+                    limit: async () => [],
+                }),
+            }),
+        }),
         insert: () => ({
             values: (row) => ({
                 onConflictDoUpdate: async ({ set }) => {
@@ -37,21 +49,21 @@ function writerStub(): { db: SystemStateWriterDb; calls: InsertCall[] } {
     return { db, calls };
 }
 
-describe('loadSystemState', () => {
+describe('createSystemStateRepository.findSingleton', () => {
     it('returns the singleton row when present', async () => {
         const since = new Date('2026-05-20T14:00:00.000Z');
-        const db = readerStub([{ irrigationEnabled: true, since }]);
+        const repo = createSystemStateRepository(stubReader([{ irrigationEnabled: true, since }]));
 
-        const result = await loadSystemState(db);
+        const result = await repo.findSingleton();
 
         expect(result).toEqual({ irrigationEnabled: true, since });
     });
 
     it('returns the disabled state verbatim (Date stays a Date — no ISO conversion in the repo)', async () => {
         const since = new Date('2026-05-20T15:30:00.000Z');
-        const db = readerStub([{ irrigationEnabled: false, since }]);
+        const repo = createSystemStateRepository(stubReader([{ irrigationEnabled: false, since }]));
 
-        const result = await loadSystemState(db);
+        const result = await repo.findSingleton();
 
         expect(result?.irrigationEnabled).toBe(false);
         expect(result?.since).toBeInstanceOf(Date);
@@ -59,20 +71,21 @@ describe('loadSystemState', () => {
     });
 
     it('returns null when the singleton row is missing', async () => {
-        const db = readerStub([]);
+        const repo = createSystemStateRepository(stubReader([]));
 
-        const result = await loadSystemState(db);
+        const result = await repo.findSingleton();
 
         expect(result).toBeNull();
     });
 });
 
-describe('upsertSystemState', () => {
+describe('createSystemStateRepository.upsertSingleton', () => {
     it('inserts with the new flag, timestamp, and singleton id', async () => {
-        const { db, calls } = writerStub();
+        const { db, calls } = stubWriter();
+        const repo = createSystemStateRepository(db);
         const now = new Date('2026-05-20T17:00:00.000Z');
 
-        await upsertSystemState(db, false, now);
+        await repo.upsertSingleton(false, now);
 
         expect(calls).toHaveLength(1);
         expect(calls[0]?.values).toMatchObject({
@@ -83,9 +96,10 @@ describe('upsertSystemState', () => {
     });
 
     it('configures onConflictDoUpdate to copy both columns from excluded', async () => {
-        const { db, calls } = writerStub();
+        const { db, calls } = stubWriter();
+        const repo = createSystemStateRepository(db);
 
-        await upsertSystemState(db, true, new Date('2026-05-21T10:00:00.000Z'));
+        await repo.upsertSingleton(true, new Date('2026-05-21T10:00:00.000Z'));
 
         expect(calls[0]?.conflictSet).toHaveProperty('irrigationEnabled');
         expect(calls[0]?.conflictSet).toHaveProperty('since');
