@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'bun:test';
 import type { AlertDto } from '@/alerts';
-import { buildApp, gracefulShutdown, wrapScheduleWithReplan, type ScheduleApi } from '@/index';
+import { buildApp, gracefulShutdown, wrapScheduleWithReplan, wrapSystemWithReplan, type ScheduleApi, type SystemApi } from '@/index';
 import type { DaemonControl, DaemonStatus } from '@/daemon';
 import type { ZoneSummary } from '@/daemon/zones';
 import { BusyError, SystemDisabledError, type ManualController } from '@/manual';
@@ -1059,5 +1059,171 @@ describe('buildApp alert routes', () => {
             expect(acked).toEqual(['my-id-here']);
             await app.close();
         });
+    });
+});
+
+describe('buildApp /system routes', () => {
+    const SINCE_ISO = '2026-05-21T12:34:56.000Z';
+    const buildEnabled = () => ({ irrigationEnabled: true, since: SINCE_ISO });
+    const buildDisabled = () => ({ irrigationEnabled: false, since: SINCE_ISO });
+
+    describe('GET /system', () => {
+        it('returns 200 with the DTO from the handler', async () => {
+            const app = buildApp({
+                getStatus: () => buildStatus(),
+                system: {
+                    get: async () => buildEnabled(),
+                    enable: async () => buildEnabled(),
+                    disable: async () => buildDisabled(),
+                },
+            });
+
+            const res = await app.inject({ method: 'GET', url: '/system' });
+
+            expect(res.statusCode).toBe(200);
+            expect(res.json()).toEqual({ irrigationEnabled: true, since: SINCE_ISO });
+            await app.close();
+        });
+
+        it('returns 404 when system handler is absent from BuildAppOptions', async () => {
+            const app = buildApp({ getStatus: () => buildStatus() });
+
+            const res = await app.inject({ method: 'GET', url: '/system' });
+
+            expect(res.statusCode).toBe(404);
+            await app.close();
+        });
+    });
+
+    describe('POST /system/enable', () => {
+        it('returns 200 with the post-flip DTO', async () => {
+            const app = buildApp({
+                getStatus: () => buildStatus(),
+                system: {
+                    get: async () => buildDisabled(),
+                    enable: async () => buildEnabled(),
+                    disable: async () => buildDisabled(),
+                },
+            });
+
+            const res = await app.inject({ method: 'POST', url: '/system/enable' });
+
+            expect(res.statusCode).toBe(200);
+            expect(res.json()).toEqual({ irrigationEnabled: true, since: SINCE_ISO });
+            await app.close();
+        });
+
+        it('returns 502 with error: replan-failed when the wrapped handler rejects', async () => {
+            const base: SystemApi = {
+                get: async () => buildDisabled(),
+                enable: async () => buildEnabled(),
+                disable: async () => buildDisabled(),
+            };
+            const wrapped = wrapSystemWithReplan(base, async () => { throw new Error('HA 503'); });
+            const app = buildApp({ getStatus: () => buildStatus(), system: wrapped });
+
+            const res = await app.inject({ method: 'POST', url: '/system/enable' });
+
+            expect(res.statusCode).toBe(502);
+            expect(res.json()).toMatchObject({ error: 'replan-failed', message: 'HA 503' });
+            await app.close();
+        });
+    });
+
+    describe('POST /system/disable', () => {
+        it('returns 200 with the post-flip DTO', async () => {
+            const app = buildApp({
+                getStatus: () => buildStatus(),
+                system: {
+                    get: async () => buildEnabled(),
+                    enable: async () => buildEnabled(),
+                    disable: async () => buildDisabled(),
+                },
+            });
+
+            const res = await app.inject({ method: 'POST', url: '/system/disable' });
+
+            expect(res.statusCode).toBe(200);
+            expect(res.json()).toEqual({ irrigationEnabled: false, since: SINCE_ISO });
+            await app.close();
+        });
+
+        it('returns 502 with error: replan-failed when the wrapped handler rejects', async () => {
+            const base: SystemApi = {
+                get: async () => buildEnabled(),
+                enable: async () => buildEnabled(),
+                disable: async () => buildDisabled(),
+            };
+            const wrapped = wrapSystemWithReplan(base, async () => { throw new Error('HA 504'); });
+            const app = buildApp({ getStatus: () => buildStatus(), system: wrapped });
+
+            const res = await app.inject({ method: 'POST', url: '/system/disable' });
+
+            expect(res.statusCode).toBe(502);
+            expect(res.json()).toMatchObject({ error: 'replan-failed', message: 'HA 504' });
+            await app.close();
+        });
+    });
+});
+
+describe('wrapSystemWithReplan', () => {
+    const buildState = (enabled: boolean) => ({ irrigationEnabled: enabled, since: '2026-05-21T12:00:00.000Z' });
+
+    it('calls replan after enable, awaiting it before returning', async () => {
+        const callOrder: string[] = [];
+        const base: SystemApi = {
+            get: async () => buildState(false),
+            enable: async () => { callOrder.push('enable'); return buildState(true); },
+            disable: async () => buildState(false),
+        };
+        const wrapped = wrapSystemWithReplan(base, async () => {
+            await Promise.resolve();
+            callOrder.push('replan');
+        });
+
+        const result = await wrapped.enable();
+        callOrder.push('returned');
+
+        expect(result.irrigationEnabled).toBe(true);
+        expect(callOrder).toEqual(['enable', 'replan', 'returned']);
+    });
+
+    it('calls replan after disable', async () => {
+        const callOrder: string[] = [];
+        const base: SystemApi = {
+            get: async () => buildState(true),
+            enable: async () => buildState(true),
+            disable: async () => { callOrder.push('disable'); return buildState(false); },
+        };
+        const wrapped = wrapSystemWithReplan(base, async () => { callOrder.push('replan'); });
+
+        await wrapped.disable();
+
+        expect(callOrder).toEqual(['disable', 'replan']);
+    });
+
+    it('does NOT call replan on get (reads are side-effect-free)', async () => {
+        let replanCalls = 0;
+        const base: SystemApi = {
+            get: async () => buildState(true),
+            enable: async () => buildState(true),
+            disable: async () => buildState(false),
+        };
+        const wrapped = wrapSystemWithReplan(base, async () => { replanCalls += 1; });
+
+        await wrapped.get();
+
+        expect(replanCalls).toBe(0);
+    });
+
+    it('propagates replan rejections so the route can map them to 502', async () => {
+        const base: SystemApi = {
+            get: async () => buildState(true),
+            enable: async () => buildState(true),
+            disable: async () => buildState(false),
+        };
+        const wrapped = wrapSystemWithReplan(base, async () => { throw new Error('replan failed'); });
+
+        await expect(wrapped.enable()).rejects.toThrow('replan failed');
     });
 });
