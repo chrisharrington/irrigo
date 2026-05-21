@@ -2,7 +2,16 @@
     "permissions": {
         "allow": [
             "mcp__plane__*",
-            "mcp__github__*"
+            "mcp__github__*",
+            "Bash(bun --cwd /app/api run type-check *)",
+            "Bash(bun --cwd=/app/api run type-check *)",
+            "Bash(bun --cwd=/app/api run type-check)",
+            "Bash(bun --cwd /app/api test *)",
+            "Bash(bun --cwd=/app/api test *)",
+            "Bash(bun --cwd=/app/api test)",
+            "Bash(bun --cwd=/app/app run type-check *)",
+            "Bash(bun --cwd=/app/app test *)",
+            "Bash(bunx tsc --noEmit *)"
         ]
     }
 }
