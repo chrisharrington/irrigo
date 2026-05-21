@@ -31,6 +31,7 @@ import { loadZoneById, loadZoneSummaries, type ZoneSummary, type ZoneSummaryDb }
 import { closeZone, getZoneState, openZone } from '@/data/home-assistant';
 import { getSystemState, setIrrigationEnabled, type SystemStateDb, type SystemStateDto } from '@/system';
 import { getTonightSummary, type TonightDb, type TonightDto } from '@/tonight';
+import { listSchedules, type ScheduleListDb, type ScheduleListItem } from '@/schedules-list';
 import { queryLatestMigrationViaDrizzle, readJournalFile, verifyMigrations } from '@/db/verify-migrations';
 import { BusyError, createManualController, SystemDisabledError, type ManualController } from '@/manual';
 import type { Zone } from '@/models';
@@ -181,6 +182,15 @@ export type BuildAppOptions = {
     tonight?: () => Promise<TonightDto>;
 
     /**
+     * Optional. When supplied, registers `GET /schedules` — the list payload
+     * for the Schedules screen, drawer footer, and Home active-schedule chip.
+     * The active row in the list is enriched with `nextRun` labels and a
+     * `skippedTonight` flag. Production wires this to the schedules-list
+     * module.
+     */
+    schedulesList?: () => Promise<ScheduleListItem[]>;
+
+    /**
      * Optional. When supplied, registers `GET /activity` — the chronological
      * schedule-entries feed driving the Activity screen and the "Recent runs"
      * section on Zone detail. Production wires this to the activity module's
@@ -246,6 +256,10 @@ export function buildApp(opts: BuildAppOptions): FastifyInstance {
         registerTonightRoute(app, opts.tonight);
     }
 
+    if (opts.schedulesList) {
+        registerSchedulesListRoute(app, opts.schedulesList);
+    }
+
     return app;
 }
 
@@ -257,6 +271,22 @@ function registerTonightRoute(app: FastifyInstance, tonight: () => Promise<Tonig
      */
     app.get('/tonight', async (_req, reply) => {
         const result = await tonight();
+        return reply.code(200).send(result);
+    });
+}
+
+function registerSchedulesListRoute(
+    app: FastifyInstance,
+    schedulesList: () => Promise<ScheduleListItem[]>,
+): void {
+    /**
+     * `GET /schedules` — list of every schedule (active + inactive) for the
+     * mobile app's Schedules screen, drawer footer, and Home active-schedule
+     * chip. The active row carries `nextRun` and `skippedTonight`; inactive
+     * rows omit both fields.
+     */
+    app.get('/schedules', async (_req, reply) => {
+        const result = await schedulesList();
         return reply.code(200).send(result);
     });
 }
@@ -712,6 +742,7 @@ if (import.meta.main) {
         system: wrapSystemWithReplan(baseSystem, () => daemon.rePlan()),
         activity: params => listActivity(db as unknown as ActivityDb, params),
         tonight: () => getTonightSummary(db as unknown as TonightDb, realClock.now()),
+        schedulesList: () => listSchedules(db as unknown as ScheduleListDb, realClock.now()),
     });
 
     const onSignal = (signal: NodeJS.Signals): void => {
