@@ -1,0 +1,394 @@
+/* ============================================================
+   IRRIGO — Components
+   Form controls, badges, cards, modals. Mobile-first hit targets
+   (44px min). All states defined; no hover-only signals.
+   ============================================================ */
+
+/* ---------- Button ---------- */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  height: 44px;
+  padding: 0 18px;
+  border-radius: var(--r-2);
+  border: 1px solid transparent;
+  font: 500 14px/1 var(--font-body);
+  letter-spacing: -0.005em;
+  cursor: pointer;
+  transition: background var(--d-1) var(--ease-out),
+              border-color var(--d-1) var(--ease-out),
+              color var(--d-1) var(--ease-out),
+              transform var(--d-1) var(--ease-out);
+  user-select: none;
+  background: transparent;
+  color: var(--fg);
+  white-space: nowrap;
+}
+.btn:active { transform: translateY(0.5px); }
+.btn:disabled { opacity: .4; cursor: not-allowed; }
+
+.btn-primary {
+  background: var(--accent);
+  color: var(--on-accent);
+  box-shadow: var(--glow-accent);
+}
+.btn-primary:hover { background: var(--accent-press); }
+.btn-primary:active { background: var(--accent-deep); color: var(--chalk-50); }
+
+.btn-secondary {
+  background: var(--surface);
+  color: var(--fg);
+  border-color: var(--border);
+}
+.btn-secondary:hover { background: var(--surface-2); border-color: var(--border-strong); }
+
+.btn-ghost { color: var(--fg-soft); }
+.btn-ghost:hover { background: var(--surface); color: var(--fg); }
+
+.btn-danger {
+  background: transparent;
+  color: var(--danger);
+  border-color: rgba(255,107,123,0.4);
+}
+.btn-danger:hover { background: rgba(255,107,123,0.08); border-color: var(--danger); }
+
+.btn-sm { height: 32px; padding: 0 12px; font-size: 12px; }
+.btn-lg { height: 56px; padding: 0 24px; font-size: 15px; }
+
+.btn-icon { width: 44px; padding: 0; }
+.btn-icon.btn-sm { width: 32px; }
+
+/* ---------- Input ---------- */
+.input,
+.select,
+.textarea {
+  height: 44px;
+  width: 100%;
+  padding: 0 14px;
+  background: var(--surface);
+  color: var(--fg);
+  border: 1px solid var(--border);
+  border-radius: var(--r-2);
+  font: var(--body);
+  outline: none;
+  transition: border-color var(--d-1) var(--ease-out),
+              background var(--d-1) var(--ease-out),
+              box-shadow var(--d-1) var(--ease-out);
+}
+.input::placeholder { color: var(--fg-dim); }
+.input:hover, .select:hover, .textarea:hover { border-color: var(--border-strong); }
+.input:focus, .select:focus, .textarea:focus {
+  border-color: var(--accent);
+  background: var(--bg);
+  box-shadow: 0 0 0 4px var(--grass-glow-2);
+}
+.input.invalid {
+  border-color: var(--danger);
+  box-shadow: 0 0 0 4px rgba(255,107,123,0.08);
+}
+.textarea { height: auto; padding: 12px 14px; min-height: 96px; resize: vertical; }
+
+.field { display: flex; flex-direction: column; gap: 8px; }
+.field .label { color: var(--fg-soft); font: var(--label); }
+.field .hint  { font: var(--body-sm); color: var(--fg-muted); }
+.field .err   { font: var(--body-sm); color: var(--danger); }
+
+/* numeric input — uses mono */
+.input.num { font: var(--num); }
+
+/* ---------- Select (custom triangle) ---------- */
+.select {
+  appearance: none;
+  -webkit-appearance: none;
+  padding-right: 36px;
+  background-image: linear-gradient(45deg, transparent 50%, var(--fg-muted) 50%),
+                    linear-gradient(135deg, var(--fg-muted) 50%, transparent 50%);
+  background-position: calc(100% - 18px) 19px, calc(100% - 13px) 19px;
+  background-size: 5px 5px;
+  background-repeat: no-repeat;
+}
+
+/* ---------- Toggle ---------- */
+.toggle {
+  --w: 44px; --h: 26px; --p: 3px;
+  position: relative;
+  display: inline-block;
+  width: var(--w); height: var(--h);
+}
+.toggle input { opacity: 0; width: 0; height: 0; }
+.toggle .track {
+  position: absolute; inset: 0;
+  background: var(--ink-400);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  transition: background var(--d-2) var(--ease-out);
+}
+.toggle .thumb {
+  position: absolute;
+  top: var(--p); left: var(--p);
+  width: calc(var(--h) - var(--p)*2 - 2px);
+  height: calc(var(--h) - var(--p)*2 - 2px);
+  background: var(--chalk-200);
+  border-radius: 4px;
+  transition: transform var(--d-2) var(--ease-out), background var(--d-2) var(--ease-out);
+  box-shadow: 0 1px 2px rgba(0,0,0,0.6);
+}
+.toggle input:checked + .track { background: var(--accent); border-color: transparent; }
+.toggle input:checked + .track + .thumb {
+  transform: translateX(calc(var(--w) - var(--h)));
+  background: var(--on-accent);
+}
+
+/* ---------- Segmented ---------- */
+.segmented {
+  display: inline-flex;
+  padding: 3px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-2);
+  gap: 2px;
+}
+.segmented button {
+  border: 0; background: transparent;
+  height: 32px; padding: 0 14px;
+  border-radius: 4px;
+  font: 500 12px/1 var(--font-body);
+  color: var(--fg-muted);
+  cursor: pointer;
+  letter-spacing: -0.005em;
+  transition: background var(--d-1), color var(--d-1);
+}
+.segmented button:hover { color: var(--fg); }
+.segmented button[aria-selected="true"] {
+  background: var(--elevated);
+  color: var(--fg);
+  box-shadow: 0 1px 0 0 rgba(255,255,255,0.04) inset, 0 1px 2px rgba(0,0,0,0.4);
+}
+
+/* ---------- Checkbox + Radio ---------- */
+.check, .radio {
+  display: inline-flex; align-items: center; gap: 10px;
+  font: var(--body); color: var(--fg-soft); cursor: pointer;
+}
+.check input, .radio input { display: none; }
+.check .box, .radio .box {
+  width: 20px; height: 20px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  display: grid; place-items: center;
+  transition: background var(--d-1), border-color var(--d-1);
+}
+.radio .box { border-radius: 4px; }
+.check input:checked + .box, .radio input:checked + .box {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+.check .box::after {
+  content: ""; width: 10px; height: 6px;
+  border: 2px solid var(--on-accent); border-top: 0; border-right: 0;
+  transform: rotate(-45deg) translate(1px, -1px) scale(0);
+  transition: transform var(--d-1) var(--ease-out);
+}
+.check input:checked + .box::after { transform: rotate(-45deg) translate(1px, -1px) scale(1); }
+.radio .box::after {
+  content: ""; width: 8px; height: 8px; border-radius: 4px;
+  background: var(--on-accent);
+  transform: scale(0);
+  transition: transform var(--d-1) var(--ease-out);
+}
+.radio input:checked + .box::after { transform: scale(1); }
+
+/* ---------- Slider ---------- */
+.slider { -webkit-appearance: none; appearance: none; width: 100%; height: 24px; background: transparent; }
+.slider::-webkit-slider-runnable-track {
+  height: 4px; border-radius: 4px;
+  background: linear-gradient(to right, var(--accent) var(--val,40%), var(--ink-500) var(--val,40%));
+}
+.slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 18px; height: 18px; border-radius: 4px;
+  background: var(--chalk-50);
+  margin-top: -7px;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.6), 0 0 0 4px rgba(111,227,155,0.08);
+}
+
+/* ---------- Badge / Chip ---------- */
+.badge {
+  display: inline-flex; align-items: center; gap: 6px;
+  height: 22px; padding: 0 10px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  font: 500 11px/1 var(--font-body);
+  color: var(--fg-soft);
+  letter-spacing: 0.01em;
+}
+.badge .dot { width: 6px; height: 6px; border-radius: 4px; background: var(--fg-muted); }
+.badge--active { color: var(--accent); border-color: rgba(111,227,155,0.4); background: rgba(111,227,155,0.06); }
+.badge--active .dot { background: var(--accent); box-shadow: 0 0 8px var(--accent); }
+.badge--warn { color: var(--warn); border-color: rgba(255,190,107,0.4); background: rgba(255,190,107,0.06); }
+.badge--warn .dot { background: var(--warn); }
+.badge--danger { color: var(--danger); border-color: rgba(255,107,123,0.4); background: rgba(255,107,123,0.06); }
+.badge--danger .dot { background: var(--danger); }
+.badge--info { color: var(--info); border-color: rgba(124,212,251,0.4); background: rgba(124,212,251,0.06); }
+.badge--info .dot { background: var(--info); }
+
+/* ---------- Zone fire button ----------
+   Manual override on each zone tile. Quiet by default — outlined in the
+   zone's own color with a tinted play glyph — and the play icon snaps to
+   solid + glows on hover so the act of firing feels intentional. */
+.zone-fire-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: 32px;
+  padding: 0 14px 0 8px;
+  border-radius: 4px;
+  background: transparent;
+  border: 1px solid color-mix(in oklab, var(--zone-color, var(--accent)) 36%, var(--border) 64%);
+  color: var(--fg);
+  font: 500 12px/1 var(--font-body);
+  letter-spacing: -0.005em;
+  cursor: pointer;
+  transition: background var(--d-1) var(--ease-out),
+              border-color var(--d-1) var(--ease-out),
+              transform var(--d-1) var(--ease-out);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.zone-fire-btn__icon {
+  display: grid;
+  place-items: center;
+  width: 18px; height: 18px;
+  border-radius: 4px;
+  background: transparent;
+  border: 1px solid color-mix(in oklab, var(--zone-color, var(--accent)) 60%, transparent);
+  color: var(--zone-color, var(--accent));
+  transition: background var(--d-1) var(--ease-out),
+              color var(--d-1) var(--ease-out),
+              box-shadow var(--d-1) var(--ease-out),
+              border-color var(--d-1) var(--ease-out);
+}
+.zone-fire-btn:hover {
+  background: color-mix(in oklab, var(--zone-color, var(--accent)) 8%, transparent);
+  border-color: var(--zone-color, var(--accent));
+}
+.zone-fire-btn:hover .zone-fire-btn__icon {
+  background: var(--zone-color, var(--accent));
+  color: var(--on-accent);
+  border-color: transparent;
+  box-shadow: 0 0 12px var(--zone-glow, var(--grass-glow));
+}
+.zone-fire-btn:active { transform: translateY(0.5px); }
+.zone-fire-btn:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 4px color-mix(in oklab, var(--zone-color, var(--accent)) 18%, transparent);
+}
+.card-surface {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-3);
+  padding: 16px;
+}
+.card-elev {
+  background: var(--elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--r-4);
+  padding: 20px;
+  box-shadow: var(--shadow-2);
+}
+
+/* ---------- Modal ---------- */
+.scrim {
+  position: absolute; inset: 0;
+  background: rgba(2,4,3,0.66);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+}
+.modal {
+  background: var(--ink-300);
+  border: 1px solid var(--border);
+  border-radius: var(--r-4);
+  box-shadow: var(--shadow-3);
+  width: min(440px, calc(100% - 32px));
+  display: flex;
+  flex-direction: column;
+}
+.modal-header {
+  padding: 20px 22px 4px;
+  display: flex; flex-direction: column; gap: 4px;
+}
+.modal-header .ttl { font: var(--h1); color: var(--fg); }
+.modal-header .sub { font: var(--body-sm); color: var(--fg-muted); }
+.modal-body { padding: 16px 22px; display: flex; flex-direction: column; gap: 14px; }
+.modal-footer {
+  padding: 14px 18px 18px;
+  display: flex; justify-content: flex-end; gap: 8px;
+  border-top: 1px solid var(--hairline);
+  margin-top: 6px;
+}
+
+/* ---------- Sheet (bottom, mobile) ---------- */
+.sheet {
+  background: var(--ink-300);
+  border-top: 1px solid var(--border);
+  border-radius: var(--r-5) var(--r-5) 0 0;
+  padding: 18px 18px 22px;
+  box-shadow: var(--shadow-3);
+}
+.sheet .grabber {
+  width: 40px; height: 4px; background: var(--ink-600);
+  border-radius: 4px; margin: 0 auto 14px;
+}
+
+/* ---------- Tile / Zone tile ---------- */
+.tile {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-3);
+  padding: 14px;
+}
+.tile .name { font: 600 15px/1.2 var(--font-display); color: var(--fg); }
+.tile .meta { font: var(--body-sm); color: var(--fg-muted); }
+
+/* ---------- Depletion battery ---------- */
+.batt {
+  --pct: 50%;        /* depletion as % of RAW */
+  --raw: 78%;        /* notch position relative to scale max */
+  --tone: var(--accent);
+  position: relative;
+  width: 100%;
+  height: 10px;
+  background: var(--ink-400);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  overflow: hidden;
+}
+.batt .fill {
+  position: absolute; inset: 0; right: auto;
+  width: var(--pct);
+  background: var(--tone);
+  transition: width var(--d-3) var(--ease-out), background var(--d-3) var(--ease-out);
+}
+.batt .notch {
+  position: absolute;
+  top: -3px; bottom: -3px;
+  left: var(--raw);
+  width: 2px;
+  background: var(--chalk-200);
+  opacity: .8;
+  border-radius: 4px;
+}
+.batt--tall { height: 16px; }
+.batt--tall .notch { top: -4px; bottom: -4px; }
+
+/* tone modifiers */
+.batt[data-tone="ok"]      { --tone: var(--accent); }
+.batt[data-tone="warn"]    { --tone: var(--warn); }
+.batt[data-tone="danger"]  { --tone: var(--danger); }

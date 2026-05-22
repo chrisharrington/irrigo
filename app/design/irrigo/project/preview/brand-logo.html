@@ -1,0 +1,43 @@
+<!doctype html>
+<html><head>
+<meta charset="utf-8">
+<link rel="stylesheet" href="../colors_and_type.css">
+<link rel="stylesheet" href="_card.css">
+<style>
+  body.card { padding: 24px 28px; display: flex; gap: 36px; align-items: center; }
+  .glyph svg { display: block; }
+  .lock { display: flex; align-items: center; gap: 14px; }
+  .word {
+    font: 600 56px/1 var(--font-display);
+    letter-spacing: -0.035em;
+    color: var(--fg);
+  }
+  .word .dot { color: var(--accent); }
+  .tag {
+    font: var(--num-sm); color: var(--fg-dim);
+    text-transform: uppercase; letter-spacing: .14em;
+    margin-top: 12px;
+  }
+  .col { display: flex; flex-direction: column; }
+</style>
+</head>
+<body class="card">
+  <div class="glyph">
+    <svg width="84" height="84" viewBox="0 0 84 84" fill="none">
+      <!-- soil disc -->
+      <ellipse cx="42" cy="64" rx="32" ry="6" fill="#1B231F" stroke="#344239" stroke-width="1.2"/>
+      <!-- sprinkler arc (top half ellipse) -->
+      <path d="M10 46 A 32 30 0 0 1 74 46" stroke="#6FE39B" stroke-width="2.2" stroke-linecap="round" fill="none" stroke-dasharray="2.4 4"/>
+      <!-- center stem -->
+      <path d="M42 46 L 42 60" stroke="#6FE39B" stroke-width="2.2" stroke-linecap="round"/>
+      <!-- center drop -->
+      <path d="M42 22 C 36 30, 36 38, 42 40 C 48 38, 48 30, 42 22 Z" fill="#6FE39B"/>
+      <!-- baseline notch -->
+      <line x1="42" y1="64" x2="42" y2="74" stroke="#FFBE6B" stroke-width="1.6" stroke-linecap="round"/>
+    </svg>
+  </div>
+  <div class="col">
+    <div class="lock"><span class="word">Irrigo<span class="dot">.</span></span></div>
+    <div class="tag">A quiet utility · since 2026</div>
+  </div>
+</body></html>

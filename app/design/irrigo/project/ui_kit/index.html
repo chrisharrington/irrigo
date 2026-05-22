@@ -1,0 +1,57 @@
+<!doctype html>
+<html><head>
+<meta charset="utf-8">
+<title>Irrigo — UI kit</title>
+<link rel="stylesheet" href="../colors_and_type.css">
+<link rel="stylesheet" href="../components.css">
+<style>
+  html, body { margin: 0; padding: 0; background: var(--bg); min-height: 100vh; color: var(--fg); font-family: var(--font-body); }
+  .canvas {
+    min-height: 100vh;
+    padding: 56px 48px 80px;
+    background:
+      radial-gradient(circle at 20% -5%, rgba(111,227,155,0.07), transparent 50%),
+      radial-gradient(circle at 90% 50%, rgba(124,212,251,0.04), transparent 50%),
+      var(--bg);
+  }
+  .header { max-width: 920px; margin: 0 auto 36px; }
+  .header h1 { font: 600 38px/1 var(--font-display); letter-spacing: -0.025em; margin: 0; }
+  .header p  { font: var(--body-lg); color: var(--fg-muted); margin: 12px 0 0; max-width: 720px; }
+  .stack {
+    max-width: 920px; margin: 0 auto;
+    display: flex; flex-direction: column; align-items: flex-start; gap: 14px;
+  }
+  .section-title {
+    font: var(--num-sm); color: var(--fg-dim);
+    text-transform: uppercase; letter-spacing: 0.14em;
+    margin: 0;
+  }
+</style>
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+</head>
+<body>
+<div class="canvas">
+  <div class="header">
+    <h1>Irrigo UI kit</h1>
+    <p>One quiet utility, one surface. The mobile app is for the kitchen table or standing in the yard — dark by default with a green primary that glows on near-black.</p>
+  </div>
+
+  <div class="stack">
+    <div class="section-title">Mobile · Home + Zone + Schedule</div>
+    <div id="mobile-root"></div>
+  </div>
+</div>
+
+<script type="text/babel" src="ios-frame.jsx"></script>
+<script type="text/babel" src="components.jsx"></script>
+<script type="text/babel" src="Mobile.jsx"></script>
+<script type="text/babel">
+  ReactDOM.createRoot(document.getElementById('mobile-root')).render(
+    <IOSDevice width={402} height={874} dark={true}>
+      <MobileApp />
+    </IOSDevice>
+  );
+</script>
+</body></html>

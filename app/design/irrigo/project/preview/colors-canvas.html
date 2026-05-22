@@ -1,0 +1,29 @@
+<!doctype html>
+<html><head>
+<meta charset="utf-8">
+<link rel="stylesheet" href="../colors_and_type.css">
+<link rel="stylesheet" href="_card.css">
+<style>
+  body.card { padding: 20px; }
+  .grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 10px; }
+  .sw { border-radius: var(--r-3); padding: 56px 12px 12px; border: 1px solid var(--border); display: flex; flex-direction: column; gap: 2px; }
+  .sw .nm { font: 500 12px/1.2 var(--font-body); }
+  .sw .hx { font: 500 10px/1 var(--font-mono); color: var(--fg-dim); }
+  .lbl { font: var(--num-sm); color: var(--fg-dim); text-transform: uppercase; letter-spacing: .12em; margin-bottom: 12px; }
+</style>
+</head>
+<body class="card">
+  <div class="lbl">Canvas + Surfaces — black with a green undertone</div>
+  <div class="grid">
+    <div class="sw" style="background:#06090A"><div class="nm">Canvas</div><div class="hx">#06090A</div></div>
+    <div class="sw" style="background:#0B1110"><div class="nm">Canvas alt</div><div class="hx">#0B1110</div></div>
+    <div class="sw" style="background:#0E1412"><div class="nm">Surface</div><div class="hx">#0E1412</div></div>
+    <div class="sw" style="background:#141B18"><div class="nm">Surface-2</div><div class="hx">#141B18</div></div>
+    <div class="sw" style="background:#1B231F"><div class="nm">Elevated</div><div class="hx">#1B231F</div></div>
+    <div class="sw" style="background:#232E29"><div class="nm">Hairline</div><div class="hx">#232E29</div></div>
+    <div class="sw" style="background:#344239"><div class="nm">Border</div><div class="hx">#344239</div></div>
+    <div class="sw" style="background:#495A50"><div class="nm">Divider</div><div class="hx">#495A50</div></div>
+    <div class="sw" style="background:#5A6862"><div class="nm" style="color:#06090A">Fg-dim</div><div class="hx" style="color:#06090A">#5A6862</div></div>
+    <div class="sw" style="background:#ECF1ED"><div class="nm" style="color:#06090A">Fg</div><div class="hx" style="color:#06090A">#ECF1ED</div></div>
+  </div>
+</body></html>

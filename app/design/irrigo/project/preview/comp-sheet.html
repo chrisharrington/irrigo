@@ -1,0 +1,72 @@
+<!doctype html>
+<html><head>
+<meta charset="utf-8">
+<link rel="stylesheet" href="../colors_and_type.css">
+<link rel="stylesheet" href="../components.css">
+<link rel="stylesheet" href="_card.css">
+<style>
+  body.card { padding: 0; position: relative; overflow: hidden; min-height: 320px; background: var(--bg); }
+  .phone {
+    position: absolute; inset: 0;
+    padding: 20px 22px 0;
+    display: flex; flex-direction: column;
+    color: var(--fg-dim);
+    background:
+      radial-gradient(ellipse at 30% 0%, rgba(111,227,155,0.06), transparent 60%),
+      var(--bg);
+  }
+  .phone .skel { height: 22px; background: var(--surface); border-radius: 4px; margin-bottom: 10px; }
+  .scrim-here {
+    position: absolute; inset: 0;
+    background: rgba(2,4,3,0.55);
+    backdrop-filter: blur(6px);
+  }
+  .sheet-here {
+    position: absolute;
+    left: 0; right: 0; bottom: 0;
+  }
+  .header-row {
+    display: flex; align-items: center; justify-content: space-between;
+    margin-bottom: 14px;
+  }
+  .header-row .ttl { font: var(--h1); color: var(--fg); }
+  .header-row .close {
+    width: 32px; height: 32px; border-radius: 4px;
+    display: grid; place-items: center;
+    background: var(--ink-400); border: 1px solid var(--border);
+    color: var(--fg-muted);
+  }
+  .actions { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 6px; }
+  .info-row {
+    display: flex; align-items: center; gap: 12px; padding: 12px 0;
+    border-bottom: 1px solid var(--hairline);
+    font: var(--body); color: var(--fg-soft);
+  }
+  .info-row:last-of-type { border-bottom: 0; }
+  .info-row .k { color: var(--fg-muted); flex: 1; }
+  .info-row .v { font: var(--num); }
+</style>
+</head>
+<body class="card">
+  <div class="phone">
+    <div class="skel" style="width:60%; height:32px"></div>
+    <div class="skel" style="width:90%; height:48px"></div>
+    <div class="skel" style="width:90%; height:80px"></div>
+    <div class="skel" style="width:90%; height:80px"></div>
+  </div>
+  <div class="scrim-here"></div>
+  <div class="sheet sheet-here">
+    <div class="grabber"></div>
+    <div class="header-row">
+      <div class="ttl">Run North zone</div>
+      <div class="close">×</div>
+    </div>
+    <div class="info-row"><span class="k">Estimated depth</span><span class="v">8.0 mm</span></div>
+    <div class="info-row"><span class="k">Cycles · soak</span><span class="v">3 × 16 min · 45 min soak</span></div>
+    <div class="info-row"><span class="k">Ends</span><span class="v">≈ 02:14 am</span></div>
+    <div class="actions">
+      <button class="btn btn-secondary">Cancel</button>
+      <button class="btn btn-primary">Run now</button>
+    </div>
+  </div>
+</body></html>

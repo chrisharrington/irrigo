@@ -1,0 +1,58 @@
+<!doctype html>
+<html><head>
+<meta charset="utf-8">
+<link rel="stylesheet" href="../colors_and_type.css">
+<link rel="stylesheet" href="../components.css">
+<link rel="stylesheet" href="_card.css">
+<style>
+  body.card { padding: 0; position: relative; overflow: hidden; min-height: 320px;
+              background:
+                radial-gradient(ellipse at 30% 20%, rgba(111,227,155,0.07), transparent 50%),
+                var(--bg);
+  }
+  .behind {
+    position: absolute; inset: 0;
+    padding: 22px 24px;
+    color: var(--fg-dim);
+    font: var(--body-sm);
+    display: flex; flex-direction: column; gap: 12px;
+  }
+  .behind .skel { height: 14px; background: var(--surface); border-radius: 4px; }
+  .scrim-here {
+    position: absolute; inset: 0;
+    background: rgba(2,4,3,0.66);
+    backdrop-filter: blur(8px);
+  }
+  .modal-here {
+    position: absolute;
+    top: 50%; left: 50%; transform: translate(-50%, -50%);
+    width: 380px;
+  }
+</style>
+</head>
+<body class="card">
+  <div class="behind">
+    <div class="skel" style="width:60%"></div>
+    <div class="skel" style="width:40%"></div>
+    <div class="skel" style="width:80%"></div>
+    <div class="skel" style="width:30%"></div>
+    <div class="skel" style="width:65%"></div>
+    <div class="skel" style="width:50%"></div>
+    <div class="skel" style="width:75%"></div>
+  </div>
+  <div class="scrim-here"></div>
+  <div class="modal modal-here">
+    <div class="modal-header">
+      <div class="ttl">Switch to Overseeding?</div>
+      <div class="sub">Active schedule will be replaced. A re-plan will run immediately.</div>
+    </div>
+    <div class="modal-body">
+      <label class="check"><input type="checkbox" checked><span class="box"></span>Re-plan now from current depletion</label>
+      <label class="check"><input type="checkbox"><span class="box"></span>Notify when first cycles are queued</label>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost">Cancel</button>
+      <button class="btn btn-primary">Switch & re-plan</button>
+    </div>
+  </div>
+</body></html>

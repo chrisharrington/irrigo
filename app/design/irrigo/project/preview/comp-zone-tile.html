@@ -1,0 +1,50 @@
+<!doctype html>
+<html><head>
+<meta charset="utf-8">
+<link rel="stylesheet" href="../colors_and_type.css">
+<link rel="stylesheet" href="../components.css">
+<link rel="stylesheet" href="_card.css">
+<style>
+  body.card { padding: 22px 24px; }
+  .lbl { font: var(--num-sm); color: var(--fg-dim); text-transform: uppercase; letter-spacing: .12em; margin-bottom: 14px; }
+  .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+  .tile-head { display: flex; align-items: center; justify-content: space-between; }
+  .patch { width: 28px; height: 28px; opacity: .9; }
+  .figure { display: flex; align-items: baseline; gap: 4px; }
+  .figure .v { font: 500 22px/1 var(--font-mono); letter-spacing: -0.02em; }
+  .figure .u { font: var(--num-sm); color: var(--fg-muted); }
+  .fired { font: var(--num-sm); color: var(--fg-muted); margin-top: -6px; }
+</style>
+</head>
+<body class="card">
+  <div class="lbl">Zone tile — iconography: top-down lawn patch</div>
+  <div class="grid">
+    <div class="tile">
+      <div class="tile-head">
+        <div class="name">North</div>
+      </div>
+      <div class="meta">Fescue · 320 m²</div>
+      <div class="batt" data-tone="warn" style="--pct:86%; --raw:80%;"><div class="fill"></div><div class="notch"></div></div>
+      <div class="figure"><span class="v">27.4</span><span class="u">/ 32 mm</span></div>
+      <div class="fired">Ran 2 nights ago · 14 mm</div>
+    </div>
+    <div class="tile">
+      <div class="tile-head">
+        <div class="name">South</div>
+      </div>
+      <div class="meta">KB · 180 m²</div>
+      <div class="batt" data-tone="ok" style="--pct:38%; --raw:78%;"><div class="fill"></div><div class="notch"></div></div>
+      <div class="figure"><span class="v">11.2</span><span class="u">/ 28 mm</span></div>
+      <div class="fired">Ran last night · 9 mm</div>
+    </div>
+    <div class="tile">
+      <div class="tile-head">
+        <div class="name">East</div>
+      </div>
+      <div class="meta">Ryegrass · 240 m²</div>
+      <div class="batt" data-tone="danger" style="--pct:110%; --raw:78%;"><div class="fill"></div><div class="notch"></div></div>
+      <div class="figure"><span class="v" style="color:var(--danger)">34.1</span><span class="u">/ 30 mm</span></div>
+      <div class="fired" style="color:var(--danger)">Runs tonight · 12 mm planned</div>
+    </div>
+  </div>
+</body></html>

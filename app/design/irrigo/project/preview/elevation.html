@@ -1,0 +1,27 @@
+<!doctype html>
+<html><head>
+<meta charset="utf-8">
+<link rel="stylesheet" href="../colors_and_type.css">
+<link rel="stylesheet" href="_card.css">
+<style>
+  body.card { padding: 26px 24px; background: var(--bg); }
+  .lbl { font: var(--num-sm); color: var(--fg-dim); text-transform: uppercase; letter-spacing: .12em; margin-bottom: 18px; }
+  .row { display: flex; gap: 22px; align-items: flex-end; }
+  .it { display: flex; flex-direction: column; align-items: center; gap: 12px; }
+  .blk {
+    width: 100px; height: 64px; background: var(--surface);
+    border: 1px solid var(--border); border-radius: var(--r-3);
+  }
+  .t1 { font: var(--label); }
+  .t2 { font: var(--num-sm); color: var(--fg-dim); white-space: nowrap; }
+</style>
+</head>
+<body class="card">
+  <div class="lbl">Elevation — subtle in dark, glow only on accent</div>
+  <div class="row">
+    <div class="it"><div class="blk" style="box-shadow: var(--shadow-1)"></div><div class="t1">shadow-1</div><div class="t2">flat / inputs</div></div>
+    <div class="it"><div class="blk" style="box-shadow: var(--shadow-2)"></div><div class="t1">shadow-2</div><div class="t2">cards · sticky</div></div>
+    <div class="it"><div class="blk" style="box-shadow: var(--shadow-3)"></div><div class="t1">shadow-3</div><div class="t2">modal · menu</div></div>
+    <div class="it"><div class="blk" style="background:var(--accent); border:none; box-shadow: var(--glow-accent), 0 12px 36px -8px var(--grass-glow);"></div><div class="t1" style="color:var(--accent)">glow-accent</div><div class="t2">primary only</div></div>
+  </div>
+</body></html>

@@ -1,0 +1,37 @@
+<!doctype html>
+<html><head>
+<meta charset="utf-8">
+<link rel="stylesheet" href="../colors_and_type.css">
+<link rel="stylesheet" href="../components.css">
+<link rel="stylesheet" href="_card.css">
+<style>
+  body.card { padding: 22px 24px; }
+  .lbl { font: var(--num-sm); color: var(--fg-dim); text-transform: uppercase; letter-spacing: .12em; margin-bottom: 14px; }
+  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px 18px; }
+</style>
+</head>
+<body class="card">
+  <div class="lbl">Text input · select · numeric · textarea</div>
+  <div class="grid">
+    <div class="field">
+      <label class="label">Schedule name</label>
+      <input class="input" value="Maintenance" />
+      <div class="hint">Renames the active preset.</div>
+    </div>
+    <div class="field">
+      <label class="label">Trigger zone</label>
+      <select class="select">
+        <option>North</option><option>South</option><option>East</option>
+      </select>
+    </div>
+    <div class="field">
+      <label class="label">Root depth (m) — override</label>
+      <input class="input num" value="0.18" />
+    </div>
+    <div class="field">
+      <label class="label">Allowed days</label>
+      <input class="input invalid" value="Mon, Fri" />
+      <div class="err">Schedule needs at least one day.</div>
+    </div>
+  </div>
+</body></html>
