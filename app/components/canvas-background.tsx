@@ -2,6 +2,11 @@ import type { PropsWithChildren } from 'react';
 import { StyleSheet, View } from 'react-native';
 import Svg, { Defs, RadialGradient, Rect, Stop } from 'react-native-svg';
 
+const tailwindConfig = require('../tailwind.config.js') as {
+    theme: { extend: { colors: Record<string, string> } };
+};
+const colors = tailwindConfig.theme.extend.colors;
+
 /**
  * Props for the Irrigo canvas background.
  */
@@ -10,12 +15,13 @@ export type CanvasBackgroundProps = PropsWithChildren<{
     accessibilityLabel?: string;
 }>;
 
-const BACKGROUND_COLOR = '#06090A';
+const BACKGROUND_COLOR = colors.bg;
+const GREEN_GLOW = colors.accent;
+const BLUE_GLOW = colors.info;
 
-const GREEN_GLOW = '#6FE39B';
+// Alphas are intentionally local — they describe this component's glow recipe,
+// not a generic design-system token. The hex values above come from Tailwind.
 const GREEN_GLOW_ALPHA = 0.07;
-
-const BLUE_GLOW = '#7CD4FB';
 const BLUE_GLOW_ALPHA = 0.04;
 
 const GREEN_GRADIENT_ID = 'irrigoCanvasGreenGlow';
