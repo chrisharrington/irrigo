@@ -97,6 +97,15 @@ services:
             # keys, aliases) so commits made inside the container are
             # attributed correctly without per-container configuration.
             - ${HOME}/.gitconfig:/home/${DEV_USER}/.gitconfig:ro
+            # Worktree git pointer resolution: when this stack is a git
+            # worktree, /app/.git is a pointer file referencing the primary
+            # checkout's .git directory at an absolute host path. Mount that
+            # directory at the same path inside the container so `git` can
+            # follow the gitdir/commondir chain. Harmless when the stack is
+            # the primary checkout — the mount target is the same .git that
+            # /app/.git already is. Path is host-specific; set PRIMARY_GIT_DIR
+            # in `.env` (see `.env.example`).
+            - ${PRIMARY_GIT_DIR}:${PRIMARY_GIT_DIR}
             # Gradle build cache + wrapper dists. Survives image rebuilds so
             # the first `expo run:android` after a rebuild doesn't re-fetch
             # the entire AGP/Kotlin/RN toolchain from Maven.
