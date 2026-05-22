@@ -1,8 +1,13 @@
 import dayjs from 'dayjs';
 import utc from 'dayjs/plugin/utc';
 import timezone from 'dayjs/plugin/timezone';
-import { and, asc, eq, gte } from 'drizzle-orm';
-import { irrigationCycles, scheduleEntries, sites, zones } from '@/db/schema';
+import type { Database } from '@/db';
+import type { TonightCycle, TonightDto, TonightState, TonightZone } from '@/models/tonight';
+import {
+    createTonightRepository,
+    type TonightJoinedRow,
+    type TonightRepository,
+} from '@/repositories/tonight';
 import { loadActiveSchedulesBySite } from '@/service/schedules';
 import { getSiteTimezone } from '@/service/sites';
 import { getSystemState } from '@/service/system';
@@ -11,112 +16,29 @@ dayjs.extend(utc);
 dayjs.extend(timezone);
 
 /**
- * Hard cap on how many entry/cycle rows we'll read for the "tonight" lookup.
- * One night × all zones × handful of cycles is well under 50 rows even for
- * the largest realistic installs; 200 is room to spare.
+ * Input to `bootTonightService`. Production passes `{ db }`; tests pass
+ * `{ repo }` with an object-literal fake.
  */
-const TONIGHT_FETCH_LIMIT = 200;
+export type BootTonightServiceInput =
+    | { db: Database }
+    | { repo: TonightRepository };
+
+let repo: TonightRepository | null = null;
 
 /**
- * The five lifecycle states the mobile Home hero can render. `scheduled` and
- * `firing` are derived from per-cycle fire/close timestamps. `idle` covers
- * "no planner output for the next night yet" — typical when the soil isn't
- * dry enough to trigger irrigation. `skipped-manual` covers both the master
- * kill switch and the per-night skip marker. `skipped-rain` is reserved for
- * a future signal that distinguishes "no irrigation needed because rain
- * replenished soil" from `idle` — not emitted today.
+ * Wires the tonight service to its repository. Call once at process boot;
+ * call again in test `beforeEach` with a fake to isolate behavior.
  */
-export type TonightState = 'scheduled' | 'firing' | 'idle' | 'skipped-rain' | 'skipped-manual';
+export function bootTonightService(input: BootTonightServiceInput): void {
+    repo = 'repo' in input ? input.repo : createTonightRepository(input.db);
+}
 
-/**
- * One cycle in the per-zone payload. `start` is the cycle's fire time
- * formatted as `HH:MM` in the site timezone — the CycleStrip renders against
- * a site-local axis, so absolute UTC isn't useful here.
- */
-export type TonightCycle = {
-    start: string;
-    durMin: number;
-};
-
-/**
- * Per-zone summary for the night. `patch` carries the zone's visual variant
- * (`'a'`, `'b'`, `'c'`) — the mobile app maps that to color/glow tokens.
- * Matches the contract on `GET /zones`.
- */
-export type TonightZone = {
-    name: string;
-    slug: string;
-    patch: string;
-    cycles: TonightCycle[];
-};
-
-/**
- * Wire shape served by `GET /tonight`.
- *
- * `startTime` / `endsAt` are ISO-8601 UTC instants (or `null` when idle or
- * skipped — there's nothing to anchor them to). `axisStart` / `axisEnd` are
- * site-local `HH:MM` strings that bound the CycleStrip x-axis; they fall
- * back to a tight padding around `startTime`/`endsAt` when `sunset`/`sunrise`
- * aren't yet persisted on the underlying entries. `sunset` / `sunrise` are
- * site-local `HH:MM` strings (or `null` during the bootstrap window before
- * the planner has populated the columns).
- */
-export type TonightDto = {
-    state: TonightState;
-    startTime: string | null;
-    endsAt: string | null;
-    axisStart: string | null;
-    axisEnd: string | null;
-    sunset: string | null;
-    sunrise: string | null;
-    zoneOrder: string[];
-    totalCycles: number;
-    zones: TonightZone[];
-};
-
-type TonightJoinedRow = {
-    entry: typeof scheduleEntries.$inferSelect;
-    cycle: typeof irrigationCycles.$inferSelect | null;
-    zone: { id: string; name: string; slug: string; patch: string };
-};
-
-/**
- * Minimal db interface for the tonight lister's joined-row query. The
- * production Drizzle `db` satisfies this directly; tests pass a recording
- * stub.
- */
-export type TonightLoaderDb = {
-    select: (columns: {
-        entry: typeof scheduleEntries;
-        cycle: typeof irrigationCycles;
-        zone: {
-            id: typeof zones.id;
-            name: typeof zones.name;
-            slug: typeof zones.slug;
-            patch: typeof zones.patch;
-        };
-    }) => {
-        from: (table: typeof scheduleEntries) => {
-            innerJoin: (table: typeof zones, on: unknown) => {
-                leftJoin: (table: typeof irrigationCycles, on: unknown) => {
-                    where: (cond: unknown) => {
-                        orderBy: (...exprs: ReadonlyArray<unknown>) => {
-                            limit: (n: number) => Promise<TonightJoinedRow[]>;
-                        };
-                    };
-                };
-            };
-        };
-    };
-};
-
-/**
- * Composite db interface. Production callers pass the eager `db` export from
- * `@/db`; tests pass a stub satisfying the join shape. Site timezone and
- * active-schedule reads now go through `@/service/sites` and
- * `@/service/schedules` respectively — tests boot those services with fakes.
- */
-export type TonightDb = TonightLoaderDb;
+function getRepo(): TonightRepository {
+    if (!repo) {
+        throw new Error('Tonight service not booted — call bootTonightService({ db }) at startup.');
+    }
+    return repo;
+}
 
 /**
  * Builds the wire payload powering the mobile Home screen's "Next run" hero
@@ -133,10 +55,9 @@ export type TonightDb = TonightLoaderDb;
  * extend past `now`. After the night's last cycle has closed and we're back
  * in daytime, this naturally picks up tomorrow's entry-date.
  *
- * @param db - Drizzle client (or compatible stub).
  * @param now - Wall-clock reference for the "tonight" determination.
  */
-export async function getTonightSummary(db: TonightDb, now: Date): Promise<TonightDto> {
+export async function getTonightSummary(now: Date): Promise<TonightDto> {
     const siteTimezone = await getSiteTimezone();
     const todaySiteLocal = dayjs(now).tz(siteTimezone).format('YYYY-MM-DD');
 
@@ -152,18 +73,7 @@ export async function getTonightSummary(db: TonightDb, now: Date): Promise<Tonig
         }
     }
 
-    const rows = await db
-        .select({
-            entry: scheduleEntries,
-            cycle: irrigationCycles,
-            zone: { id: zones.id, name: zones.name, slug: zones.slug, patch: zones.patch },
-        })
-        .from(scheduleEntries)
-        .innerJoin(zones, eq(scheduleEntries.zoneId, zones.id))
-        .leftJoin(irrigationCycles, eq(irrigationCycles.scheduleEntryId, scheduleEntries.id))
-        .where(and(gte(scheduleEntries.date, todaySiteLocal), eq(scheduleEntries.source, 'scheduled')))
-        .orderBy(asc(scheduleEntries.date), asc(zones.id), asc(irrigationCycles.startTime))
-        .limit(TONIGHT_FETCH_LIMIT);
+    const rows = await getRepo().findEntriesAfter(todaySiteLocal);
 
     // Group rows by entry-date so we can find the first date whose cycles
     // still have time on them, then collapse to that date.
@@ -271,6 +181,16 @@ function buildDto(rows: TonightJoinedRow[], siteTimezone: string): TonightDto {
     const sunset = firstSunsetAt !== null ? formatSiteLocal(firstSunsetAt, siteTimezone) : null;
     const sunrise = firstSunriseAt !== null ? formatSiteLocal(firstSunriseAt, siteTimezone) : null;
 
+    const dtoZones: TonightZone[] = zonesSorted.map(z => ({
+        name: z.name,
+        slug: z.slug,
+        patch: z.patch,
+        cycles: z.cycles.map<TonightCycle>(c => ({
+            start: formatSiteLocal(c.startTime, siteTimezone),
+            durMin: c.durationMin,
+        })),
+    }));
+
     return {
         state,
         startTime: startTime.toISOString(),
@@ -281,21 +201,10 @@ function buildDto(rows: TonightJoinedRow[], siteTimezone: string): TonightDto {
         sunrise,
         zoneOrder: zonesSorted.map(z => z.name),
         totalCycles: allCycleStarts.length,
-        zones: zonesSorted.map(z => ({
-            name: z.name,
-            slug: z.slug,
-            patch: z.patch,
-            cycles: z.cycles.map(c => ({
-                start: formatSiteLocal(c.startTime, siteTimezone),
-                durMin: c.durationMin,
-            })),
-        })),
+        zones: dtoZones,
     };
 }
 
 function formatSiteLocal(d: Date, tz: string): string {
     return dayjs(d).tz(tz).format('HH:mm');
 }
-
-// Drizzle re-exports — keep them used so tree-shaking doesn't drop the imports.
-void sites;

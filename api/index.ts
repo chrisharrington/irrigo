@@ -39,7 +39,8 @@ import { closeZone, getZoneState, openZone } from '@/data/home-assistant';
 import { bootSystemService, getSystemState, setIrrigationEnabled } from '@/service/system';
 import type { Database } from '@/db';
 import type { SystemStateDto } from '@/models/system';
-import { getTonightSummary, type TonightDb, type TonightDto } from '@/tonight';
+import type { TonightDto } from '@/models/tonight';
+import { bootTonightService, getTonightSummary } from '@/service/tonight';
 import {
     bootSchedulesListService,
     listSchedules,
@@ -725,6 +726,7 @@ if (import.meta.main) {
     bootZonesService({ db: typedDb });
     bootManualService({ db: typedDb });
     bootSchedulesListService({ db: typedDb });
+    bootTonightService({ db: typedDb });
     bootDaemonService({ db: typedDb });
     const daemon = await daemonStart({
         notifier,
@@ -765,7 +767,7 @@ if (import.meta.main) {
         },
         system: wrapSystemWithReplan(baseSystem, () => daemon.rePlan()),
         activity: params => listActivity(db as unknown as ActivityDb, params),
-        tonight: () => getTonightSummary(db as unknown as TonightDb, realClock.now()),
+        tonight: () => getTonightSummary(realClock.now()),
         schedulesList: () => listSchedules(realClock.now()),
     });
 
