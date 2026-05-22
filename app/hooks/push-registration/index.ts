@@ -1,7 +1,7 @@
 import { useMutation, type UseMutationResult } from '@tanstack/react-query';
 import type { ApiError } from '@/api/client';
-import { registerPushToken, unregisterPushToken } from '@/api/endpoints';
-import type { PushRegistration } from '@/api/types';
+import { registerPushToken, unregisterPushToken } from '@/api/endpoints/push-registration';
+import type { PushRegistration } from '@/api/types/push-registration';
 
 /**
  * Registers (or refreshes) the device's Expo push token. No invalidations

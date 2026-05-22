@@ -1,8 +1,8 @@
 import { useMutation, useQuery, useQueryClient, type UseMutationResult, type UseQueryResult } from '@tanstack/react-query';
 import type { ApiError } from '@/api/client';
-import { disableSystem, enableSystem, getSystem } from '@/api/endpoints';
+import { disableSystem, enableSystem, getSystem } from '@/api/endpoints/system';
 import { keys } from '@/api/query-keys';
-import type { SystemStateDto } from '@/api/types';
+import type { SystemStateDto } from '@/api/types/system';
 
 /**
  * Returns the master irrigation kill-switch state for the Home screen

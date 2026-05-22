@@ -1,8 +1,8 @@
 import { useMutation, useQuery, useQueryClient, type UseMutationResult, type UseQueryResult } from '@tanstack/react-query';
 import type { ApiError } from '@/api/client';
-import { ackAlert, getAlerts } from '@/api/endpoints';
+import { ackAlert, getAlerts } from '@/api/endpoints/alerts';
 import { keys } from '@/api/query-keys';
-import type { AckResult, AlertDto } from '@/api/types';
+import type { AckResult, AlertDto } from '@/api/types/alerts';
 
 /**
  * Returns the unacked alert list driving the persistent alert region.

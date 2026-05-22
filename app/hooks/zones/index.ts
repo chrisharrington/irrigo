@@ -1,8 +1,8 @@
 import { useQuery, type UseQueryResult } from '@tanstack/react-query';
 import type { ApiError } from '@/api/client';
-import { getZones } from '@/api/endpoints';
+import { getZones } from '@/api/endpoints/zones';
 import { keys } from '@/api/query-keys';
-import type { ZoneSummary } from '@/api/types';
+import type { ZoneSummary } from '@/api/types/zones';
 
 /**
  * Returns the zone summary list backing the Home zone-tile list and the

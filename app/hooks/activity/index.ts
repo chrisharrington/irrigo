@@ -1,8 +1,8 @@
 import { useInfiniteQuery, type UseInfiniteQueryResult } from '@tanstack/react-query';
 import type { ApiError } from '@/api/client';
-import { getActivity } from '@/api/endpoints';
+import { getActivity } from '@/api/endpoints/activity';
 import { keys } from '@/api/query-keys';
-import type { ActivityListResult } from '@/api/types';
+import type { ActivityListResult } from '@/api/types/activity';
 
 export type UseActivityParams = {
     zoneId?: string;

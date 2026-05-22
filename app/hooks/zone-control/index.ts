@@ -1,8 +1,8 @@
 import { useMutation, useQueryClient, type UseMutationResult } from '@tanstack/react-query';
 import type { ApiError } from '@/api/client';
-import { closeZone, openZone, runZone } from '@/api/endpoints';
+import { closeZone, openZone, runZone } from '@/api/endpoints/zone-control';
 import { keys } from '@/api/query-keys';
-import type { ZoneCloseResponse, ZoneOpenResponse, ZoneRunResponse } from '@/api/types';
+import type { ZoneCloseResponse, ZoneOpenResponse, ZoneRunResponse } from '@/api/types/zone-control';
 
 function buildZoneInvalidator(queryClient: ReturnType<typeof useQueryClient>) {
     return () => {

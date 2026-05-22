@@ -1,8 +1,8 @@
 import { useMutation, useQueryClient, type UseMutationResult } from '@tanstack/react-query';
 import type { ApiError } from '@/api/client';
-import { replan } from '@/api/endpoints';
+import { replan } from '@/api/endpoints/replan';
 import { keys } from '@/api/query-keys';
-import type { ReplanResponse } from '@/api/types';
+import type { ReplanResponse } from '@/api/types/replan';
 
 /**
  * Forces the daemon to re-plan immediately. Used by the CLI scripts and by

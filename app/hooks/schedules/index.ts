@@ -6,9 +6,9 @@ import {
     getSchedules,
     resumeScheduleTonight,
     skipScheduleTonight,
-} from '@/api/endpoints';
+} from '@/api/endpoints/schedules';
 import { keys } from '@/api/query-keys';
-import type { ScheduleListItem, ScheduleMutationResponse } from '@/api/types';
+import type { ScheduleListItem, ScheduleMutationResponse } from '@/api/types/schedules';
 
 /**
  * Returns the list of every schedule for the Schedules screen, drawer

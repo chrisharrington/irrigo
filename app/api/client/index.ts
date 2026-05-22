@@ -1,20 +1,22 @@
 /**
  * Typed HTTP client targeting the Irrigo api. Endpoint wrappers in
- * `app/api/endpoints/` call `apiFetch<T>` with a path and an optional
- * `RequestInit`; on a 2xx the parsed JSON is returned, otherwise an
- * `ApiError` is thrown so React Query hooks can surface it via `error`.
+ * `app/api/endpoints/<resource>/` call `apiFetch<T>` with a path and an
+ * optional `RequestInit`; on a 2xx the parsed JSON is returned, otherwise
+ * an `ApiError` is thrown so React Query hooks can surface it via `error`.
  */
 
-const DEFAULT_BASE_URL = 'http://localhost:9753';
-
 /**
- * Resolves the base URL the client targets. Reads `EXPO_PUBLIC_API_BASE_URL`
- * (statically embedded by Expo at bundle time) and falls back to localhost
- * for simulators / type-check / test contexts.
+ * Resolves the base URL the client targets. Reads
+ * `EXPO_PUBLIC_API_BASE_URL`, statically embedded by Expo at bundle time.
+ * Throws if unset — no hardcoded fallback, since the right value is
+ * deployment-specific (a LAN IP on a physical device, `localhost` in a
+ * simulator). Tests set the env var in their `beforeEach`.
  */
 export function getApiBaseUrl(): string {
     const raw = process.env.EXPO_PUBLIC_API_BASE_URL;
-    if (typeof raw !== 'string' || raw.length === 0) return DEFAULT_BASE_URL;
+    if (typeof raw !== 'string' || raw.length === 0) {
+        throw new Error('EXPO_PUBLIC_API_BASE_URL is not set. Set it in `app/.env.local` (see `app/.env.example`).');
+    }
     return raw.endsWith('/') ? raw.slice(0, -1) : raw;
 }
 
@@ -69,8 +71,6 @@ export async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> 
         const message = err instanceof Error ? err.message : String(err);
         throw new ApiError(0, 'network', `network: ${message}`);
     }
-
-    if (response.status === 204) return undefined as T;
 
     let parsed: unknown = null;
     const contentType = response.headers.get('content-type') ?? '';

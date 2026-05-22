@@ -8,14 +8,14 @@ describe('getApiBaseUrl', () => {
         else process.env.EXPO_PUBLIC_API_BASE_URL = ORIGINAL;
     });
 
-    it('falls back to localhost when EXPO_PUBLIC_API_BASE_URL is unset.', () => {
+    it('throws when EXPO_PUBLIC_API_BASE_URL is unset.', () => {
         delete process.env.EXPO_PUBLIC_API_BASE_URL;
-        expect(getApiBaseUrl()).toBe('http://localhost:9753');
+        expect(() => getApiBaseUrl()).toThrow(/EXPO_PUBLIC_API_BASE_URL is not set/);
     });
 
-    it('falls back to localhost when EXPO_PUBLIC_API_BASE_URL is empty.', () => {
+    it('throws when EXPO_PUBLIC_API_BASE_URL is empty.', () => {
         process.env.EXPO_PUBLIC_API_BASE_URL = '';
-        expect(getApiBaseUrl()).toBe('http://localhost:9753');
+        expect(() => getApiBaseUrl()).toThrow(/EXPO_PUBLIC_API_BASE_URL is not set/);
     });
 
     it('uses EXPO_PUBLIC_API_BASE_URL verbatim when set.', () => {
@@ -86,14 +86,6 @@ describe('apiFetch', () => {
         const headers = init.headers as Headers;
         expect(headers.get('Content-Type')).toBeNull();
         expect(headers.get('Accept')).toBe('application/json');
-    });
-
-    it('returns undefined for 204 No Content responses.', async () => {
-        mockFetch.mockResolvedValueOnce(new Response(null, { status: 204 }));
-
-        const result = await apiFetch<void>('/something');
-
-        expect(result).toBeUndefined();
     });
 
     it('throws ApiError with the parsed code and message on a 400.', async () => {
