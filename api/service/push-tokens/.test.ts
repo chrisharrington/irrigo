@@ -286,4 +286,35 @@ describe('dispatchAlertPush', () => {
 
         expect(state.deletes).toEqual([]);
     });
+
+    it('warns and skips the receipt scan when the Expo response body is not JSON', async () => {
+        mockFetch.mockResolvedValueOnce({
+            ok: true,
+            status: 200,
+            statusText: 'OK',
+            json: async () => { throw new SyntaxError('Unexpected token < in JSON'); },
+        } as unknown as Response);
+        const { repo, state } = fakeRepo([buildToken({ token: 'tok-only' })]);
+        bootPushTokensService({ repo });
+
+        await dispatchAlertPush(buildAlertEvent());
+
+        expect(state.deletes).toEqual([]);
+        expect(warnSpy).toHaveBeenCalled();
+    });
+
+    it('tolerates a successful response with no data array (no tickets to scan)', async () => {
+        mockFetch.mockResolvedValueOnce({
+            ok: true,
+            status: 200,
+            statusText: 'OK',
+            json: async () => ({}),
+        } as unknown as Response);
+        const { repo, state } = fakeRepo([buildToken({ token: 'tok-only' })]);
+        bootPushTokensService({ repo });
+
+        await dispatchAlertPush(buildAlertEvent());
+
+        expect(state.deletes).toEqual([]);
+    });
 });
