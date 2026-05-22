@@ -42,7 +42,13 @@ import type { SystemStateDto } from '@/models/system';
 import { getTonightSummary, type TonightDb, type TonightDto } from '@/tonight';
 import { listSchedules, type ScheduleListDb, type ScheduleListItem } from '@/schedules-list';
 import { queryLatestMigrationViaDrizzle, readJournalFile, verifyMigrations } from '@/db/verify-migrations';
-import { BusyError, createManualController, SystemDisabledError, type ManualController } from '@/manual';
+import {
+    bootManualService,
+    BusyError,
+    createManualController,
+    SystemDisabledError,
+    type ManualController,
+} from '@/service/manual';
 import type { Zone } from '@/models';
 import { createNotifier } from '@/notifications';
 import Fastify, { type FastifyInstance, type FastifyReply } from 'fastify';
@@ -713,6 +719,7 @@ if (import.meta.main) {
     bootSitesService({ db: typedDb });
     bootSchedulesService({ db: typedDb });
     bootZonesService({ db: typedDb });
+    bootManualService({ db: typedDb });
     bootDaemonService({ db: typedDb });
     const daemon = await daemonStart({
         notifier,
@@ -722,7 +729,6 @@ if (import.meta.main) {
         getZoneState: effectiveGetZoneState,
     });
     const manual = createManualController({
-        db: db as unknown as Parameters<typeof createManualController>[0]['db'],
         clock: realClock,
         openZone: effectiveOpenZone,
         closeZone: effectiveCloseZone,

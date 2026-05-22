@@ -1,9 +1,10 @@
-import dayjs from 'dayjs';
-import { eq } from 'drizzle-orm';
-import { irrigationCycles, scheduleEntries, zones } from '@/db/schema';
-import type { Clock, TimerHandle } from '@/service/daemon/runtime';
+import type { Database } from '@/db';
+import type { ActiveManualSnapshot, ManualController, ManualControllerDeps } from '@/models/manual';
 import type { Zone } from '@/models';
-import type { Notifier } from '@/notifications';
+import { createManualRepository, type ManualRepository } from '@/repositories/manual';
+import type { TimerHandle } from '@/service/daemon/runtime';
+
+export type { ActiveManualSnapshot, ManualController, ManualControllerDeps } from '@/models/manual';
 
 /**
  * Hard cap on `/run` duration. Manual fires are for testing and one-off
@@ -26,8 +27,7 @@ export class BusyError extends Error {
 /**
  * Sentinel error thrown by `open` and `run` when the master irrigation kill
  * switch is off. The HTTP layer maps this to a 409 with
- * `error: 'system-disabled'` so the mobile client can render a distinct
- * "irrigation is paused" message rather than a generic busy state.
+ * `error: 'system-disabled'`.
  */
 export class SystemDisabledError extends Error {
     constructor(message: string) {
@@ -37,81 +37,30 @@ export class SystemDisabledError extends Error {
 }
 
 /**
- * Minimal db interface needed by the manual controller. Mirrors the chained
- * Drizzle `insert/update` shapes the recording test stub already supports.
+ * Input to `bootManualService`. Production passes `{ db }`; tests pass
+ * `{ repo }` with an object-literal fake.
  */
-export type ManualControllerDb = {
-    insert: (table: typeof scheduleEntries | typeof irrigationCycles) => {
-        values: (rows: ReadonlyArray<Record<string, unknown>>) => {
-            returning: (cols: Record<string, unknown>) => Promise<Array<Record<string, unknown>>>;
-        };
-    };
-    update: (table: typeof zones | typeof irrigationCycles) => {
-        set: (values: Record<string, unknown>) => {
-            where: (cond: unknown) => Promise<unknown>;
-        };
-    };
-};
+export type BootManualServiceInput =
+    | { db: Database }
+    | { repo: ManualRepository };
+
+let repo: ManualRepository | null = null;
 
 /**
- * Collaborators injected at construction time so tests can substitute
- * deterministic stubs.
+ * Wires the manual service to its repository. Call once at process boot
+ * before `createManualController(...)`; call again in test `beforeEach` with
+ * a fake to isolate behavior.
  */
-export type ManualControllerDeps = {
-    db: ManualControllerDb;
-    clock: Clock;
-    openZone: (zone: Zone) => Promise<void>;
-    closeZone: (zone: Zone) => Promise<void>;
-    notifier: Notifier;
+export function bootManualService(input: BootManualServiceInput): void {
+    repo = 'repo' in input ? input.repo : createManualRepository(input.db);
+}
 
-    /**
-     * Returns true if a scheduled cycle is currently in-flight. The controller
-     * uses this to refuse manual fires while the daemon owns the relay.
-     */
-    isAnyScheduledInFlight: () => boolean;
-
-    /**
-     * Returns the current state of the master irrigation kill switch. The
-     * controller queries this at the top of `open` and `run` so a flipped-off
-     * system can't accept new manual fires. `close` and `shutdown` are NOT
-     * gated — closing an already-open relay must always be possible.
-     */
-    isIrrigationEnabled: () => Promise<boolean>;
-};
-
-export type ActiveManualSnapshot = {
-    zoneId: string;
-    zoneName: string;
-    since: Date;
-};
-
-/**
- * Public surface of the manual fire controller. Wired into HTTP routes.
- */
-export type ManualController = {
-    /** Opens the zone's relay. Returns when HA acknowledges the turn_on. */
-    open: (zone: Zone) => Promise<{ since: Date }>;
-
-    /**
-     * Closes the zone's relay. Idempotent: if the controller has no record
-     * of this zone being open, it still issues HA's `turn_off` (which is
-     * itself idempotent) and returns success.
-     */
-    close: (zone: Zone) => Promise<{ closed: boolean }>;
-
-    /**
-     * Opens the relay and schedules an automatic close after `durationMin`
-     * minutes. Equivalent to `open` followed by a deferred `close`, but
-     * records the planned duration in the irrigation_cycles row up front.
-     */
-    run: (zone: Zone, durationMin: number) => Promise<{ since: Date; willCloseAt: Date }>;
-
-    /** Snapshot of the active manual fire (if any). Drives the HTTP status. */
-    getActiveZone: () => ActiveManualSnapshot | null;
-
-    /** Closes the open relay (best-effort) and cancels any pending close timer. */
-    shutdown: () => Promise<void>;
-};
+function getRepo(): ManualRepository {
+    if (!repo) {
+        throw new Error('Manual service not booted — call bootManualService({ db }) at startup.');
+    }
+    return repo;
+}
 
 type ActiveManualFire = {
     zone: Zone;
@@ -126,14 +75,14 @@ type ActiveManualFire = {
  * single-slot lock plus the side effects required to keep zone state and
  * irrigation history coherent: it calls HA's open/close primitives, writes
  * matching `schedule_entries` (`source = 'manual'`) and `irrigation_cycles`
- * rows, and updates `zones.current_depletion_mm` so the planner's next
- * re-plan starts from the post-fire soil-moisture state.
+ * rows via the repository, and updates `zones.current_depletion_mm` so the
+ * planner's next re-plan starts from the post-fire soil-moisture state.
  *
- * @param deps - Collaborators and config.
- * @returns Wired controller ready to back the `/zones/:id/...` routes.
+ * Closure-held state (`current`, close timer, cycle id) lives on the
+ * service tier; the repository handles only persistence.
  */
 export function createManualController(deps: ManualControllerDeps): ManualController {
-    const { db, clock, openZone, closeZone, notifier, isAnyScheduledInFlight, isIrrigationEnabled } = deps;
+    const { clock, openZone, closeZone, notifier, isAnyScheduledInFlight, isIrrigationEnabled } = deps;
     let current: ActiveManualFire | null = null;
 
     const ensureSystemEnabled = async (action: string, zone: Zone): Promise<void> => {
@@ -149,70 +98,6 @@ export function createManualController(deps: ManualControllerDeps): ManualContro
         if (isAnyScheduledInFlight()) {
             throw new BusyError(`manual: cannot ${action} zone ${zone.id} — a scheduled cycle is currently in flight.`);
         }
-    };
-
-    const writeManualRecord = async (
-        zone: Zone,
-        openedAt: Date,
-        closedAt: Date | null,
-        durationMin: number,
-    ): Promise<string | null> => {
-        const today = dayjs(openedAt).format('YYYY-MM-DD');
-        const precipRate = zone.precipitationRateMmPerHr ?? (60 * (zone.flowRateLPerMin / zone.areaM2));
-        const appliedDepth = (durationMin / 60) * precipRate;
-        const netDepth = appliedDepth * zone.irrigationEfficiency;
-        const depletionBefore = zone.currentDepletionMm;
-        const depletionAfter = Math.max(0, depletionBefore - netDepth);
-
-        const insertedEntry = await db
-            .insert(scheduleEntries)
-            .values([
-                {
-                    zoneId: zone.id,
-                    scheduleId: null,
-                    date: today,
-                    appliedDepthMm: roundTo1Decimal(appliedDepth),
-                    depletionBeforeMm: roundTo1Decimal(depletionBefore),
-                    depletionAfterMm: roundTo1Decimal(depletionAfter),
-                    source: 'manual',
-                },
-            ])
-            .returning({ id: scheduleEntries.id });
-
-        const entryId = (insertedEntry[0] as { id: string } | undefined)?.id;
-        if (!entryId) {
-            console.warn(`manual: schedule_entries insert returned no id for zone ${zone.id}; skipping cycle row.`);
-            return null;
-        }
-
-        const insertedCycle = await db
-            .insert(irrigationCycles)
-            .values([
-                {
-                    scheduleEntryId: entryId,
-                    startTime: openedAt,
-                    durationMin,
-                    firedAt: openedAt,
-                    closedAt,
-                },
-            ])
-            .returning({ id: irrigationCycles.id });
-
-        const cycleId = (insertedCycle[0] as { id: string } | undefined)?.id ?? null;
-
-        await db
-            .update(zones)
-            .set({ currentDepletionMm: depletionAfter })
-            .where(eq(zones.id, zone.id));
-
-        return cycleId;
-    };
-
-    const updateCycleClosedAt = async (cycleId: string, closedAt: Date): Promise<void> => {
-        await db
-            .update(irrigationCycles)
-            .set({ closedAt })
-            .where(eq(irrigationCycles.id, cycleId));
     };
 
     const open: ManualController['open'] = async (zone) => {
@@ -270,10 +155,10 @@ export function createManualController(deps: ManualControllerDeps): ManualContro
         const closedAt = clock.now();
 
         if (runDurationMin !== undefined && cycleId !== undefined) {
-            await updateCycleClosedAt(cycleId, closedAt);
+            await getRepo().updateCycleClosedAt(cycleId, closedAt);
         } else {
             const elapsedMin = (closedAt.getTime() - openedAt.getTime()) / 60_000;
-            await writeManualRecord(zone, openedAt, closedAt, elapsedMin);
+            await getRepo().writeManualRecord(zone, openedAt, closedAt, elapsedMin);
         }
 
         console.log(`manual: closed zone ${zone.id} at ${closedAt.toISOString()}.`);
@@ -296,7 +181,7 @@ export function createManualController(deps: ManualControllerDeps): ManualContro
 
         const closedAt = clock.now();
         if (cycleId !== null) {
-            await updateCycleClosedAt(cycleId, closedAt);
+            await getRepo().updateCycleClosedAt(cycleId, closedAt);
         }
 
         console.log(`manual: scheduled close for zone ${zone.id} at ${closedAt.toISOString()}.`);
@@ -324,7 +209,7 @@ export function createManualController(deps: ManualControllerDeps): ManualContro
 
         const openedAt = clock.now();
         const willCloseAt = new Date(openedAt.getTime() + durationMin * 60_000);
-        const cycleId = await writeManualRecord(zone, openedAt, null, durationMin);
+        const cycleId = await getRepo().writeManualRecord(zone, openedAt, null, durationMin);
 
         const closeHandle = clock.setTimeout(() => {
             onScheduledCloseFire(zone, cycleId).catch(err => {
@@ -358,7 +243,7 @@ export function createManualController(deps: ManualControllerDeps): ManualContro
             const closedAt = clock.now();
             console.log(`manual: closed zone ${active.zone.id} on shutdown.`);
             if (active.cycleId !== undefined) {
-                await updateCycleClosedAt(active.cycleId, closedAt);
+                await getRepo().updateCycleClosedAt(active.cycleId, closedAt);
             }
             await notifier('watering-ended', { zoneName: active.zone.name, reason: 'shutdown' });
         } catch (err) {
@@ -369,8 +254,4 @@ export function createManualController(deps: ManualControllerDeps): ManualContro
     };
 
     return { open, close, run, getActiveZone, shutdown };
-}
-
-function roundTo1Decimal(value: number): number {
-    return Math.round(value * 10) / 10;
 }

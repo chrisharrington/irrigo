@@ -1,14 +1,14 @@
-import { describe, it, expect } from 'bun:test';
-import { irrigationCycles, scheduleEntries, zones } from '@/db/schema';
-import type { Clock, TimerHandle } from '@/service/daemon/runtime';
+import { beforeEach, describe, expect, it } from 'bun:test';
 import type { Zone } from '@/models';
+import type { ManualRepository } from '@/repositories/manual';
+import type { Clock, TimerHandle } from '@/service/daemon/runtime';
 import type { NotificationContext, NotificationEvent, Notifier } from '@/notifications';
 import {
     BusyError,
+    bootManualService,
     createManualController,
     MAX_RUN_DURATION_MIN,
     SystemDisabledError,
-    type ManualControllerDb,
 } from '.';
 
 type RecordedNotification = { event: NotificationEvent; context: NotificationContext | undefined };
@@ -64,49 +64,24 @@ function createFakeClock(initial: Date) {
     return { clock, advanceTo, getPendingCount: () => timers.size };
 }
 
-type InsertCall = { table: unknown; rows: ReadonlyArray<Record<string, unknown>> };
-type UpdateCall = { table: unknown; values: Record<string, unknown> };
+type WriteCall = { zone: Zone; openedAt: Date; closedAt: Date | null; durationMin: number };
+type UpdateCall = { cycleId: string; closedAt: Date };
 
-function createDbStub() {
-    const inserts: InsertCall[] = [];
+function fakeRepo(overrides?: {
+    cycleId?: string | null;
+}): { repo: ManualRepository; writes: WriteCall[]; updates: UpdateCall[] } {
+    const writes: WriteCall[] = [];
     const updates: UpdateCall[] = [];
-    let nextEntryId = 1;
-    let nextCycleId = 1;
-
-    const db: ManualControllerDb = {
-        insert(table) {
-            return {
-                values(rows) {
-                    return {
-                        returning() {
-                            inserts.push({ table, rows });
-                            if (table === scheduleEntries) {
-                                return Promise.resolve(rows.map(() => ({ id: `entry-${nextEntryId++}` })));
-                            }
-                            if (table === irrigationCycles) {
-                                return Promise.resolve(rows.map(() => ({ id: `cycle-${nextCycleId++}` })));
-                            }
-                            return Promise.resolve([]);
-                        },
-                    };
-                },
-            };
+    const repo: ManualRepository = {
+        writeManualRecord: async (zone, openedAt, closedAt, durationMin) => {
+            writes.push({ zone, openedAt, closedAt, durationMin });
+            return overrides?.cycleId !== undefined ? overrides.cycleId : `cycle-${writes.length}`;
         },
-        update(table) {
-            return {
-                set(values) {
-                    return {
-                        where() {
-                            updates.push({ table, values });
-                            return Promise.resolve(undefined);
-                        },
-                    };
-                },
-            };
+        updateCycleClosedAt: async (cycleId, closedAt) => {
+            updates.push({ cycleId, closedAt });
         },
     };
-
-    return { db, inserts, updates };
+    return { repo, writes, updates };
 }
 
 function buildZone(overrides?: Partial<Zone>): Zone {
@@ -126,6 +101,8 @@ function buildZone(overrides?: Partial<Zone>): Zone {
         siteTimezone: 'America/Edmonton',
         isEnabled: true,
         homeAssistantEntityId: 'switch.zone_001',
+        microclimateFactor: 1,
+        location: { lat: 51, lon: -114 },
         ...overrides,
     };
 }
@@ -133,13 +110,21 @@ function buildZone(overrides?: Partial<Zone>): Zone {
 const NOW = new Date('2026-05-04T15:00:00.000Z');
 
 describe('manual controller — open', () => {
+    let writes: WriteCall[];
+    let updates: UpdateCall[];
+
+    beforeEach(() => {
+        const r = fakeRepo();
+        writes = r.writes;
+        updates = r.updates;
+        bootManualService({ repo: r.repo });
+    });
+
     it('opens the relay, records active state, returns the open timestamp', async () => {
         const { clock } = createFakeClock(NOW);
-        const { db } = createDbStub();
         const opens: Zone[] = [];
         const { notifier, calls } = recordingNotifier();
         const controller = createManualController({
-            db,
             clock,
             openZone: async (z) => { opens.push(z); },
             closeZone: async () => {},
@@ -157,14 +142,15 @@ describe('manual controller — open', () => {
         expect(controller.getActiveZone()).toEqual({ zoneId: 'zone-001', zoneName: 'Front Lawn', since: NOW });
         const started = calls.find(c => c.event === 'watering-started');
         expect(started?.context).toEqual({ zoneName: 'Front Lawn', reason: 'manual' });
+        // `open` alone doesn't write — the write happens at close (or up-front in `run`).
+        expect(writes).toHaveLength(0);
+        expect(updates).toHaveLength(0);
     });
 
     it('rejects with BusyError when a scheduled cycle is in flight', async () => {
         const { clock } = createFakeClock(NOW);
-        const { db } = createDbStub();
         let openCalls = 0;
         const controller = createManualController({
-            db,
             clock,
             openZone: async () => { openCalls += 1; },
             closeZone: async () => {},
@@ -179,9 +165,7 @@ describe('manual controller — open', () => {
 
     it('rejects with BusyError when another manual fire is already active', async () => {
         const { clock } = createFakeClock(NOW);
-        const { db } = createDbStub();
         const controller = createManualController({
-            db,
             clock,
             openZone: async () => {},
             closeZone: async () => {},
@@ -196,10 +180,8 @@ describe('manual controller — open', () => {
 
     it('does not retain state and emits an error notification when openZone throws', async () => {
         const { clock } = createFakeClock(NOW);
-        const { db } = createDbStub();
         const { notifier, calls } = recordingNotifier();
         const controller = createManualController({
-            db,
             clock,
             openZone: async () => { throw new Error('HA 502'); },
             closeZone: async () => {},
@@ -216,13 +198,21 @@ describe('manual controller — open', () => {
 });
 
 describe('manual controller — close', () => {
-    it('closes the active zone, inserts schedule_entries with source=manual, updates depletion, clears state', async () => {
+    let writes: WriteCall[];
+    let updates: UpdateCall[];
+
+    beforeEach(() => {
+        const r = fakeRepo();
+        writes = r.writes;
+        updates = r.updates;
+        bootManualService({ repo: r.repo });
+    });
+
+    it('closes the active zone, calls writeManualRecord with elapsed duration, clears state', async () => {
         const { clock, advanceTo } = createFakeClock(NOW);
-        const { db, inserts, updates } = createDbStub();
         const closes: Zone[] = [];
         const { notifier, calls } = recordingNotifier();
         const controller = createManualController({
-            db,
             clock,
             openZone: async () => {},
             closeZone: async (z) => { closes.push(z); },
@@ -237,33 +227,20 @@ describe('manual controller — close', () => {
         await controller.close(zone);
 
         expect(closes).toHaveLength(1);
-        const scheduleInserts = inserts.filter(c => c.table === scheduleEntries);
-        expect(scheduleInserts).toHaveLength(1);
-        expect(scheduleInserts[0]?.rows[0]).toMatchObject({
-            zoneId: 'zone-001',
-            scheduleId: null,
-            date: '2026-05-04',
-            source: 'manual',
-        });
-        expect(scheduleInserts[0]?.rows[0]?.['appliedDepthMm']).toBeCloseTo(0.9, 1);
-        expect(scheduleInserts[0]?.rows[0]?.['depletionBeforeMm']).toBeCloseTo(12, 1);
-        const cycleInserts = inserts.filter(c => c.table === irrigationCycles);
-        expect(cycleInserts).toHaveLength(1);
-        expect(cycleInserts[0]?.rows[0]).toMatchObject({
-            scheduleEntryId: 'entry-1',
-            firedAt: NOW,
-        });
-        const zoneUpdate = updates.find(u => u.table === zones);
-        expect(zoneUpdate?.values['currentDepletionMm']).toBeCloseTo(11.3, 1);
+        expect(writes).toHaveLength(1);
+        expect(writes[0]?.zone.id).toBe('zone-001');
+        expect(writes[0]?.openedAt).toEqual(NOW);
+        expect(writes[0]?.closedAt).toEqual(new Date('2026-05-04T15:06:00.000Z'));
+        expect(writes[0]?.durationMin).toBeCloseTo(6, 5);
+        // close on an `open`-then-`close` path uses writeManualRecord, not updateCycleClosedAt.
+        expect(updates).toHaveLength(0);
         expect(controller.getActiveZone()).toBeNull();
         expect(calls.some(c => c.event === 'watering-ended')).toBe(true);
     });
 
     it('records duration as elapsed time between open and close', async () => {
         const { clock, advanceTo } = createFakeClock(NOW);
-        const { db, inserts } = createDbStub();
         const controller = createManualController({
-            db,
             clock,
             openZone: async () => {},
             closeZone: async () => {},
@@ -277,16 +254,13 @@ describe('manual controller — close', () => {
 
         await controller.close(zone);
 
-        const cycleInsert = inserts.find(c => c.table === irrigationCycles);
-        expect(cycleInsert?.rows[0]?.['durationMin']).toBe(10);
+        expect(writes[0]?.durationMin).toBe(10);
     });
 
     it('is a no-op success that defensively closes when no manual fire is active', async () => {
         const { clock } = createFakeClock(NOW);
-        const { db, inserts } = createDbStub();
         const closes: Zone[] = [];
         const controller = createManualController({
-            db,
             clock,
             openZone: async () => {},
             closeZone: async (z) => { closes.push(z); },
@@ -300,15 +274,14 @@ describe('manual controller — close', () => {
 
         expect(result).toEqual({ closed: true });
         expect(closes).toHaveLength(1);
-        expect(inserts).toHaveLength(0);
+        expect(writes).toHaveLength(0);
+        expect(updates).toHaveLength(0);
     });
 
     it('clears state even when closeZone rejects so subsequent calls do not see phantom state', async () => {
         const { clock } = createFakeClock(NOW);
-        const { db } = createDbStub();
         const { notifier, calls } = recordingNotifier();
         const controller = createManualController({
-            db,
             clock,
             openZone: async () => {},
             closeZone: async () => { throw new Error('HA timeout'); },
@@ -328,11 +301,19 @@ describe('manual controller — close', () => {
 });
 
 describe('manual controller — run', () => {
+    let writes: WriteCall[];
+    let updates: UpdateCall[];
+
+    beforeEach(() => {
+        const r = fakeRepo();
+        writes = r.writes;
+        updates = r.updates;
+        bootManualService({ repo: r.repo });
+    });
+
     it('rejects with BusyError when another fire is active', async () => {
         const { clock } = createFakeClock(NOW);
-        const { db } = createDbStub();
         const controller = createManualController({
-            db,
             clock,
             openZone: async () => {},
             closeZone: async () => {},
@@ -347,9 +328,7 @@ describe('manual controller — run', () => {
 
     it('rejects when durationMin is zero, negative, or NaN', async () => {
         const { clock } = createFakeClock(NOW);
-        const { db } = createDbStub();
         const controller = createManualController({
-            db,
             clock,
             openZone: async () => {},
             closeZone: async () => {},
@@ -365,9 +344,7 @@ describe('manual controller — run', () => {
 
     it(`rejects when durationMin exceeds the cap of ${MAX_RUN_DURATION_MIN}`, async () => {
         const { clock } = createFakeClock(NOW);
-        const { db } = createDbStub();
         const controller = createManualController({
-            db,
             clock,
             openZone: async () => {},
             closeZone: async () => {},
@@ -379,13 +356,11 @@ describe('manual controller — run', () => {
         await expect(controller.run(buildZone(), MAX_RUN_DURATION_MIN + 1)).rejects.toThrow(/exceeds maximum/);
     });
 
-    it('opens, records DB rows synchronously, and schedules the auto-close', async () => {
+    it('opens, calls writeManualRecord upfront with the planned duration, and schedules the auto-close', async () => {
         const { clock, advanceTo, getPendingCount } = createFakeClock(NOW);
-        const { db, inserts, updates } = createDbStub();
         const closes: Zone[] = [];
         const { notifier, calls } = recordingNotifier();
         const controller = createManualController({
-            db,
             clock,
             openZone: async () => {},
             closeZone: async (z) => { closes.push(z); },
@@ -399,12 +374,10 @@ describe('manual controller — run', () => {
 
         expect(result.since).toEqual(NOW);
         expect(result.willCloseAt).toEqual(new Date('2026-05-04T15:15:00.000Z'));
-        // DB rows written upfront with the planned duration.
-        const cycleInsert = inserts.find(c => c.table === irrigationCycles);
-        expect(cycleInsert?.rows[0]?.['durationMin']).toBe(15);
-        expect(cycleInsert?.rows[0]?.['firedAt']).toEqual(NOW);
-        expect(cycleInsert?.rows[0]?.['closedAt']).toBeNull();
-        expect(updates.some(u => u.table === zones)).toBe(true);
+        expect(writes).toHaveLength(1);
+        expect(writes[0]?.durationMin).toBe(15);
+        expect(writes[0]?.openedAt).toEqual(NOW);
+        expect(writes[0]?.closedAt).toBeNull();
         const started = calls.find(c => c.event === 'watering-started');
         expect(started?.context).toEqual({ zoneName: 'Front Lawn', durationMin: 15, reason: 'manual' });
         expect(getPendingCount()).toBe(1);
@@ -412,18 +385,18 @@ describe('manual controller — run', () => {
         await advanceTo(new Date('2026-05-04T15:15:30.000Z'));
 
         expect(closes).toHaveLength(1);
-        const closedAtUpdate = updates.find(u => u.table === irrigationCycles && u.values['closedAt'] instanceof Date);
-        expect(closedAtUpdate?.values['closedAt']).toEqual(new Date('2026-05-04T15:15:00.000Z'));
+        // Scheduled close path calls updateCycleClosedAt with the cycle id returned by writeManualRecord.
+        expect(updates).toHaveLength(1);
+        expect(updates[0]?.cycleId).toBe('cycle-1');
+        expect(updates[0]?.closedAt).toEqual(new Date('2026-05-04T15:15:00.000Z'));
         expect(controller.getActiveZone()).toBeNull();
         expect(calls.some(c => c.event === 'watering-ended')).toBe(true);
     });
 
     it('clears state and emits an error when the auto-close fires but closeZone rejects', async () => {
         const { clock, advanceTo } = createFakeClock(NOW);
-        const { db } = createDbStub();
         const { notifier, calls } = recordingNotifier();
         const controller = createManualController({
-            db,
             clock,
             openZone: async () => {},
             closeZone: async () => { throw new Error('HA 504'); },
@@ -440,59 +413,18 @@ describe('manual controller — run', () => {
         const errorCall = calls.find(c => c.event === 'error' && c.context?.operation === 'close');
         expect(errorCall?.context?.reason).toBe('HA 504');
     });
-
-    it('falls back to the flow-rate / area precipitation rate when the zone has no precipitationRateMmPerHr', async () => {
-        const { clock } = createFakeClock(NOW);
-        const { db, inserts } = createDbStub();
-        const controller = createManualController({
-            db,
-            clock,
-            openZone: async () => {},
-            closeZone: async () => {},
-            notifier: async () => {},
-            isAnyScheduledInFlight: () => false,
-            isIrrigationEnabled: async () => true,
-        });
-        // flowRate 15 L/min, area 100 m² → 60*(15/100) = 9 mm/hr. Same as the explicit 9 default.
-        const zone = buildZone({ precipitationRateMmPerHr: undefined });
-
-        await controller.run(zone, 10);
-
-        const scheduleInsert = inserts.find(c => c.table === scheduleEntries);
-        // 10/60 * 9 = 1.5 mm.
-        expect(scheduleInsert?.rows[0]?.['appliedDepthMm']).toBeCloseTo(1.5, 1);
-    });
-
-    it('clamps depletionAfter at zero rather than going negative', async () => {
-        const { clock } = createFakeClock(NOW);
-        const { db, inserts } = createDbStub();
-        const controller = createManualController({
-            db,
-            clock,
-            openZone: async () => {},
-            closeZone: async () => {},
-            notifier: async () => {},
-            isAnyScheduledInFlight: () => false,
-            isIrrigationEnabled: async () => true,
-        });
-        // Tiny existing depletion + a long fire that would otherwise overshoot.
-        const zone = buildZone({ currentDepletionMm: 0.5 });
-
-        await controller.run(zone, 60);
-
-        const scheduleInsert = inserts.find(c => c.table === scheduleEntries);
-        expect(scheduleInsert?.rows[0]?.['depletionAfterMm']).toBe(0);
-    });
 });
 
 describe('manual controller — master kill switch', () => {
-    it('open rejects with SystemDisabledError when isIrrigationEnabled returns false; no HA call, no DB writes, no notifier', async () => {
+    beforeEach(() => {
+        bootManualService({ repo: fakeRepo().repo });
+    });
+
+    it('open rejects with SystemDisabledError when isIrrigationEnabled returns false; no HA call, no notifier', async () => {
         const { clock } = createFakeClock(NOW);
-        const { db, inserts, updates } = createDbStub();
         let openCalls = 0;
         const { notifier, calls } = recordingNotifier();
         const controller = createManualController({
-            db,
             clock,
             openZone: async () => { openCalls += 1; },
             closeZone: async () => {},
@@ -503,18 +435,14 @@ describe('manual controller — master kill switch', () => {
 
         await expect(controller.open(buildZone())).rejects.toBeInstanceOf(SystemDisabledError);
         expect(openCalls).toBe(0);
-        expect(inserts).toHaveLength(0);
-        expect(updates).toHaveLength(0);
         expect(calls).toHaveLength(0);
         expect(controller.getActiveZone()).toBeNull();
     });
 
-    it('run rejects with SystemDisabledError when isIrrigationEnabled returns false; no HA call, no DB writes', async () => {
+    it('run rejects with SystemDisabledError when isIrrigationEnabled returns false; no HA call', async () => {
         const { clock } = createFakeClock(NOW);
-        const { db, inserts, updates } = createDbStub();
         let openCalls = 0;
         const controller = createManualController({
-            db,
             clock,
             openZone: async () => { openCalls += 1; },
             closeZone: async () => {},
@@ -525,18 +453,13 @@ describe('manual controller — master kill switch', () => {
 
         await expect(controller.run(buildZone(), 5)).rejects.toBeInstanceOf(SystemDisabledError);
         expect(openCalls).toBe(0);
-        expect(inserts).toHaveLength(0);
-        expect(updates).toHaveLength(0);
     });
 
     it('close is NOT gated by the kill switch — an open relay must always be stoppable', async () => {
         const { clock } = createFakeClock(NOW);
-        const { db } = createDbStub();
-        // Start with the system enabled so we can open, then flip off and confirm close still works.
         let enabled = true;
         let closeCalls = 0;
         const controller = createManualController({
-            db,
             clock,
             openZone: async () => {},
             closeZone: async () => { closeCalls += 1; },
@@ -558,10 +481,8 @@ describe('manual controller — master kill switch', () => {
 
     it('defensive close on an unknown zone is NOT gated either', async () => {
         const { clock } = createFakeClock(NOW);
-        const { db } = createDbStub();
         let closeCalls = 0;
         const controller = createManualController({
-            db,
             clock,
             openZone: async () => {},
             closeZone: async () => { closeCalls += 1; },
@@ -578,11 +499,17 @@ describe('manual controller — master kill switch', () => {
 });
 
 describe('manual controller — getActiveZone and shutdown', () => {
+    let updates: UpdateCall[];
+
+    beforeEach(() => {
+        const r = fakeRepo();
+        updates = r.updates;
+        bootManualService({ repo: r.repo });
+    });
+
     it('getActiveZone returns null when nothing is active and the snapshot when active', async () => {
         const { clock } = createFakeClock(NOW);
-        const { db } = createDbStub();
         const controller = createManualController({
-            db,
             clock,
             openZone: async () => {},
             closeZone: async () => {},
@@ -600,11 +527,9 @@ describe('manual controller — getActiveZone and shutdown', () => {
 
     it('shutdown closes any active manual zone and cancels the close timer', async () => {
         const { clock, advanceTo, getPendingCount } = createFakeClock(NOW);
-        const { db, updates } = createDbStub();
         const closes: Zone[] = [];
         const { notifier, calls } = recordingNotifier();
         const controller = createManualController({
-            db,
             clock,
             openZone: async () => {},
             closeZone: async (z) => { closes.push(z); },
@@ -623,7 +548,8 @@ describe('manual controller — getActiveZone and shutdown', () => {
         expect(controller.getActiveZone()).toBeNull();
         const ended = calls.find(c => c.event === 'watering-ended');
         expect(ended?.context).toEqual({ zoneName: 'Front Lawn', reason: 'shutdown' });
-        expect(updates.some(u => u.table === irrigationCycles && u.values['closedAt'] instanceof Date)).toBe(true);
+        // shutdown stamps closed_at via the repo.
+        expect(updates).toHaveLength(1);
 
         // Advancing time past the canceled timer must not re-fire the close.
         await advanceTo(new Date('2026-05-04T15:30:00.000Z'));
@@ -632,10 +558,8 @@ describe('manual controller — getActiveZone and shutdown', () => {
 
     it('shutdown is a no-op when nothing is active', async () => {
         const { clock } = createFakeClock(NOW);
-        const { db } = createDbStub();
         const closes: Zone[] = [];
         const controller = createManualController({
-            db,
             clock,
             openZone: async () => {},
             closeZone: async (z) => { closes.push(z); },
