@@ -1,17 +1,24 @@
-import { afterEach, beforeEach, describe, expect, it, mock, spyOn } from 'bun:test';
+import { afterEach, beforeEach, describe, expect, it, spyOn } from 'bun:test';
+import type {
+    ExpoPushMessage,
+    ExpoPushReceipt,
+    ExpoPushReceiptId,
+    ExpoPushTicket,
+} from 'expo-server-sdk';
 import type { PushAlertEvent } from '@/models/push-token';
 import type { PushToken, PushTokensRepository } from '@/repositories/push-tokens';
 import {
     bootPushTokensService,
     dispatchAlertPush,
+    pollReceipts,
     registerPushToken,
     unregisterPushToken,
+    type ExpoPushClient,
+    type SchedulePoll,
 } from '.';
 
-const mockFetch = mock(() => Promise.resolve({} as Response));
-(global as unknown as { fetch: typeof mockFetch }).fetch = mockFetch;
-
 const NOW = new Date('2026-05-22T12:00:00.000Z');
+const CHUNK_LIMIT = 100;
 
 type UpsertCall = { token: string; platform: 'ios' | 'android'; userAgent: string | null };
 
@@ -57,6 +64,71 @@ function fakeRepo(rows: PushToken[] = []): { repo: PushTokensRepository; state: 
     return { repo, state };
 }
 
+type FakeExpoState = {
+    sendChunks: ExpoPushMessage[][];
+    receiptChunks: ExpoPushReceiptId[][];
+    sendResults: ExpoPushTicket[][];
+    sendRejections: Array<Error | null>;
+    receiptResults: Array<{ [id: string]: ExpoPushReceipt }>;
+    receiptRejections: Array<Error | null>;
+};
+
+function fakeExpoClient(): { expo: ExpoPushClient; state: FakeExpoState } {
+    const state: FakeExpoState = {
+        sendChunks: [],
+        receiptChunks: [],
+        sendResults: [],
+        sendRejections: [],
+        receiptResults: [],
+        receiptRejections: [],
+    };
+    const expo: ExpoPushClient = {
+        chunkPushNotifications: (messages) => {
+            const chunks: ExpoPushMessage[][] = [];
+            for (let i = 0; i < messages.length; i += CHUNK_LIMIT) {
+                chunks.push(messages.slice(i, i + CHUNK_LIMIT));
+            }
+            return chunks;
+        },
+        sendPushNotificationsAsync: async (chunk) => {
+            const index = state.sendChunks.length;
+            state.sendChunks.push(chunk);
+            const rejection = state.sendRejections[index] ?? null;
+            if (rejection) throw rejection;
+            const result = state.sendResults[index];
+            if (!result) {
+                return chunk.map((_, i) => ({ status: 'ok' as const, id: `default-ticket-${index}-${i}` }));
+            }
+            return result;
+        },
+        chunkPushNotificationReceiptIds: (ids) => {
+            const chunks: ExpoPushReceiptId[][] = [];
+            for (let i = 0; i < ids.length; i += CHUNK_LIMIT) {
+                chunks.push(ids.slice(i, i + CHUNK_LIMIT));
+            }
+            return chunks;
+        },
+        getPushNotificationReceiptsAsync: async (idsChunk) => {
+            const index = state.receiptChunks.length;
+            state.receiptChunks.push(idsChunk);
+            const rejection = state.receiptRejections[index] ?? null;
+            if (rejection) throw rejection;
+            return state.receiptResults[index] ?? {};
+        },
+    };
+    return { expo, state };
+}
+
+type CapturedPoll = { fn: () => void; delayMs: number };
+
+function recordSchedulePoll(): { schedulePoll: SchedulePoll; captured: CapturedPoll[] } {
+    const captured: CapturedPoll[] = [];
+    const schedulePoll: SchedulePoll = (fn, delayMs) => {
+        captured.push({ fn, delayMs });
+    };
+    return { schedulePoll, captured };
+}
+
 function buildAlertEvent(overrides?: Partial<PushAlertEvent>): PushAlertEvent {
     return {
         alertId: 'alert-001',
@@ -72,12 +144,14 @@ function buildAlertEvent(overrides?: Partial<PushAlertEvent>): PushAlertEvent {
 describe('registerPushToken', () => {
     beforeEach(() => {
         const { repo } = fakeRepo();
-        bootPushTokensService({ repo });
+        const { expo } = fakeExpoClient();
+        bootPushTokensService({ repo, expo });
     });
 
     it('forwards token, platform, and userAgent to the repo', async () => {
         const { repo, state } = fakeRepo();
-        bootPushTokensService({ repo });
+        const { expo } = fakeExpoClient();
+        bootPushTokensService({ repo, expo });
 
         await registerPushToken({ token: 'tok-A', platform: 'ios', userAgent: 'irrigo/1.0 iOS 17' });
 
@@ -86,7 +160,8 @@ describe('registerPushToken', () => {
 
     it('passes a null userAgent through to the repo', async () => {
         const { repo, state } = fakeRepo();
-        bootPushTokensService({ repo });
+        const { expo } = fakeExpoClient();
+        bootPushTokensService({ repo, expo });
 
         await registerPushToken({ token: 'tok-B', platform: 'android', userAgent: null });
 
@@ -95,7 +170,8 @@ describe('registerPushToken', () => {
 
     it('throws without touching the repo when platform is invalid', async () => {
         const { repo, state } = fakeRepo();
-        bootPushTokensService({ repo });
+        const { expo } = fakeExpoClient();
+        bootPushTokensService({ repo, expo });
 
         await expect(
             registerPushToken({ token: 'tok-X', platform: 'symbian' as unknown as 'ios', userAgent: null }),
@@ -107,7 +183,8 @@ describe('registerPushToken', () => {
 describe('unregisterPushToken', () => {
     it('forwards the token to the repo', async () => {
         const { repo, state } = fakeRepo([buildToken({ token: 'tok-existing' })]);
-        bootPushTokensService({ repo });
+        const { expo } = fakeExpoClient();
+        bootPushTokensService({ repo, expo });
 
         await unregisterPushToken('tok-existing');
 
@@ -116,7 +193,8 @@ describe('unregisterPushToken', () => {
 
     it('resolves successfully when the token does not exist (repo no-ops)', async () => {
         const { repo } = fakeRepo();
-        bootPushTokensService({ repo });
+        const { expo } = fakeExpoClient();
+        bootPushTokensService({ repo, expo });
 
         await expect(unregisterPushToken('tok-missing')).resolves.toBeUndefined();
     });
@@ -126,13 +204,6 @@ describe('dispatchAlertPush', () => {
     let warnSpy: ReturnType<typeof spyOn>;
 
     beforeEach(() => {
-        mockFetch.mockClear();
-        mockFetch.mockResolvedValue({
-            ok: true,
-            status: 200,
-            statusText: 'OK',
-            json: async () => ({ data: [{ status: 'ok' as const, id: 'ticket-1' }] }),
-        } as unknown as Response);
         warnSpy = spyOn(console, 'warn').mockImplementation(() => {});
     });
 
@@ -140,181 +211,296 @@ describe('dispatchAlertPush', () => {
         warnSpy.mockRestore();
     });
 
-    it('does not call fetch when no tokens are registered', async () => {
+    it('does nothing and calls no SDK methods when no tokens are registered', async () => {
         const { repo } = fakeRepo([]);
-        bootPushTokensService({ repo });
+        const { expo, state: expoState } = fakeExpoClient();
+        const { schedulePoll, captured } = recordSchedulePoll();
+        bootPushTokensService({ repo, expo, schedulePoll });
 
         await dispatchAlertPush(buildAlertEvent());
 
-        expect(mockFetch).not.toHaveBeenCalled();
+        expect(expoState.sendChunks).toEqual([]);
+        expect(captured).toEqual([]);
     });
 
-    it('POSTs to the Expo Push URL with title, body, data, and the tokens array', async () => {
-        const { repo } = fakeRepo([buildToken({ token: 'tok-1' }), buildToken({ id: 'pt-2', token: 'tok-2' })]);
-        bootPushTokensService({ repo });
+    it('builds one message per token with title, body, data, and priority', async () => {
+        const { repo } = fakeRepo([
+            buildToken({ token: 'tok-1' }),
+            buildToken({ id: 'pt-2', token: 'tok-2' }),
+        ]);
+        const { expo, state: expoState } = fakeExpoClient();
+        const { schedulePoll } = recordSchedulePoll();
+        bootPushTokensService({ repo, expo, schedulePoll });
 
         await dispatchAlertPush(buildAlertEvent({ alertId: 'alert-X', sub: 'sub-line', zoneId: 'zone-001' }));
 
-        expect(mockFetch).toHaveBeenCalledTimes(1);
-        const [calledUrl, init] = mockFetch.mock.calls[0] as [string, RequestInit];
-        expect(calledUrl).toBe('https://exp.host/--/api/v2/push/send');
-        expect(init.method).toBe('POST');
-        expect((init.headers as Record<string, string>)['Content-Type']).toBe('application/json');
-        const parsed = JSON.parse(init.body as string) as {
-            to: string[];
-            title: string;
-            body: string;
-            data: Record<string, unknown>;
-            priority: string;
-        };
-        expect(parsed.to).toEqual(['tok-1', 'tok-2']);
-        expect(parsed.title).toBe('HA close failed');
-        expect(parsed.body).toBe('sub-line');
-        expect(parsed.data).toEqual({ alertId: 'alert-X', class: 'ha-call-failed', zoneId: 'zone-001' });
+        expect(expoState.sendChunks).toHaveLength(1);
+        const sent = expoState.sendChunks[0]!;
+        expect(sent.map(m => m.to)).toEqual(['tok-1', 'tok-2']);
+        expect(sent[0]!.title).toBe('HA close failed');
+        expect(sent[0]!.body).toBe('sub-line');
+        expect(sent[0]!.data).toEqual({ alertId: 'alert-X', class: 'ha-call-failed', zoneId: 'zone-001' });
+        expect(sent[0]!.priority).toBe('high');
     });
 
     it('uses title as the body when sub is null', async () => {
         const { repo } = fakeRepo([buildToken()]);
-        bootPushTokensService({ repo });
+        const { expo, state: expoState } = fakeExpoClient();
+        const { schedulePoll } = recordSchedulePoll();
+        bootPushTokensService({ repo, expo, schedulePoll });
 
         await dispatchAlertPush(buildAlertEvent({ sub: null, title: 'Only title here' }));
 
-        const parsed = JSON.parse((mockFetch.mock.calls[0]![1] as RequestInit).body as string) as { body: string };
-        expect(parsed.body).toBe('Only title here');
-    });
-
-    it(`sets priority to 'high' for danger tone`, async () => {
-        const { repo } = fakeRepo([buildToken()]);
-        bootPushTokensService({ repo });
-
-        await dispatchAlertPush(buildAlertEvent({ tone: 'danger' }));
-
-        const parsed = JSON.parse((mockFetch.mock.calls[0]![1] as RequestInit).body as string) as { priority: string };
-        expect(parsed.priority).toBe('high');
+        expect(expoState.sendChunks[0]![0]!.body).toBe('Only title here');
     });
 
     it(`sets priority to 'default' for warn tone`, async () => {
         const { repo } = fakeRepo([buildToken()]);
-        bootPushTokensService({ repo });
+        const { expo, state: expoState } = fakeExpoClient();
+        const { schedulePoll } = recordSchedulePoll();
+        bootPushTokensService({ repo, expo, schedulePoll });
 
         await dispatchAlertPush(buildAlertEvent({ tone: 'warn' }));
 
-        const parsed = JSON.parse((mockFetch.mock.calls[0]![1] as RequestInit).body as string) as { priority: string };
-        expect(parsed.priority).toBe('default');
+        expect(expoState.sendChunks[0]![0]!.priority).toBe('default');
     });
 
     it('omits zoneId from data when the event has none (global alert)', async () => {
         const { repo } = fakeRepo([buildToken()]);
-        bootPushTokensService({ repo });
+        const { expo, state: expoState } = fakeExpoClient();
+        const { schedulePoll } = recordSchedulePoll();
+        bootPushTokensService({ repo, expo, schedulePoll });
 
         await dispatchAlertPush(buildAlertEvent({ zoneId: null }));
 
-        const parsed = JSON.parse((mockFetch.mock.calls[0]![1] as RequestInit).body as string) as {
-            data: Record<string, unknown>;
-        };
-        expect(parsed.data).toEqual({ alertId: 'alert-001', class: 'ha-call-failed' });
-        expect('zoneId' in parsed.data).toBe(false);
+        const data = expoState.sendChunks[0]![0]!.data as Record<string, unknown>;
+        expect(data).toEqual({ alertId: 'alert-001', class: 'ha-call-failed' });
+        expect('zoneId' in data).toBe(false);
     });
 
-    it('swallows fetch rejections and warns; does not prune', async () => {
-        mockFetch.mockRejectedValueOnce(new Error('network down'));
-        const { repo, state } = fakeRepo([buildToken({ token: 'tok-1' })]);
-        bootPushTokensService({ repo });
-
-        await expect(dispatchAlertPush(buildAlertEvent())).resolves.toBeUndefined();
-        expect(state.deletes).toEqual([]);
-        expect(warnSpy).toHaveBeenCalled();
-    });
-
-    it('swallows non-2xx responses and warns; does not prune', async () => {
-        mockFetch.mockResolvedValueOnce({
-            ok: false,
-            status: 500,
-            statusText: 'Server Error',
-            json: async () => ({}),
-        } as unknown as Response);
-        const { repo, state } = fakeRepo([buildToken({ token: 'tok-1' })]);
-        bootPushTokensService({ repo });
+    it('chunks 150 tokens into a 100-token send and a 50-token send', async () => {
+        const rows = Array.from({ length: 150 }, (_, i) => buildToken({ id: `pt-${i}`, token: `tok-${i}` }));
+        const { repo } = fakeRepo(rows);
+        const { expo, state: expoState } = fakeExpoClient();
+        const { schedulePoll } = recordSchedulePoll();
+        bootPushTokensService({ repo, expo, schedulePoll });
 
         await dispatchAlertPush(buildAlertEvent());
 
-        expect(state.deletes).toEqual([]);
-        expect(warnSpy).toHaveBeenCalled();
+        expect(expoState.sendChunks).toHaveLength(2);
+        expect(expoState.sendChunks[0]!).toHaveLength(100);
+        expect(expoState.sendChunks[1]!).toHaveLength(50);
+        expect(expoState.sendChunks[0]!.map(m => m.to)).toEqual(rows.slice(0, 100).map(r => r.token));
+        expect(expoState.sendChunks[1]!.map(m => m.to)).toEqual(rows.slice(100).map(r => r.token));
     });
 
-    it('prunes only the tokens flagged DeviceNotRegistered in the receipts', async () => {
-        mockFetch.mockResolvedValueOnce({
-            ok: true,
-            status: 200,
-            statusText: 'OK',
-            json: async () => ({
-                data: [
-                    { status: 'ok' as const, id: 'ticket-A' },
-                    { status: 'error' as const, message: 'unregistered', details: { error: 'DeviceNotRegistered' } },
-                    { status: 'ok' as const, id: 'ticket-C' },
-                ],
-            }),
-        } as unknown as Response);
-        const { repo, state } = fakeRepo([
+    it('prunes only the tokens flagged DeviceNotRegistered in the immediate ticket response', async () => {
+        const { repo, state: repoState } = fakeRepo([
             buildToken({ id: 'pt-A', token: 'tok-A' }),
             buildToken({ id: 'pt-B', token: 'tok-B' }),
             buildToken({ id: 'pt-C', token: 'tok-C' }),
         ]);
-        bootPushTokensService({ repo });
+        const { expo, state: expoState } = fakeExpoClient();
+        expoState.sendResults = [[
+            { status: 'ok', id: 'ticket-A' },
+            { status: 'error', message: 'unregistered', details: { error: 'DeviceNotRegistered' } },
+            { status: 'ok', id: 'ticket-C' },
+        ]];
+        const { schedulePoll, captured } = recordSchedulePoll();
+        bootPushTokensService({ repo, expo, schedulePoll });
 
         await dispatchAlertPush(buildAlertEvent());
 
-        expect(state.deletes).toEqual(['tok-B']);
-        expect(state.rows.map(r => r.token)).toEqual(['tok-A', 'tok-C']);
+        expect(repoState.deletes).toEqual(['tok-B']);
+        expect(repoState.rows.map(r => r.token)).toEqual(['tok-A', 'tok-C']);
+        expect(captured).toHaveLength(1);
     });
 
-    it('tolerates other per-token errors without pruning', async () => {
-        mockFetch.mockResolvedValueOnce({
-            ok: true,
-            status: 200,
-            statusText: 'OK',
-            json: async () => ({
-                data: [
-                    { status: 'error' as const, message: 'too big', details: { error: 'MessageTooBig' } },
-                ],
-            }),
-        } as unknown as Response);
-        const { repo, state } = fakeRepo([buildToken({ token: 'tok-only' })]);
-        bootPushTokensService({ repo });
+    it('swallows a repo deleteByToken rejection during immediate ticket-prune and warns', async () => {
+        const { repo, state: repoState } = fakeRepo([buildToken({ token: 'tok-only' })]);
+        const failingRepo: PushTokensRepository = {
+            ...repo,
+            deleteByToken: async (token) => {
+                repoState.deletes.push(token);
+                throw new Error('db down');
+            },
+        };
+        const { expo, state: expoState } = fakeExpoClient();
+        expoState.sendResults = [[
+            { status: 'error', message: 'gone', details: { error: 'DeviceNotRegistered' } },
+        ]];
+        const { schedulePoll } = recordSchedulePoll();
+        bootPushTokensService({ repo: failingRepo, expo, schedulePoll });
 
-        await dispatchAlertPush(buildAlertEvent());
+        await expect(dispatchAlertPush(buildAlertEvent())).resolves.toBeUndefined();
 
-        expect(state.deletes).toEqual([]);
-    });
-
-    it('warns and skips the receipt scan when the Expo response body is not JSON', async () => {
-        mockFetch.mockResolvedValueOnce({
-            ok: true,
-            status: 200,
-            statusText: 'OK',
-            json: async () => { throw new SyntaxError('Unexpected token < in JSON'); },
-        } as unknown as Response);
-        const { repo, state } = fakeRepo([buildToken({ token: 'tok-only' })]);
-        bootPushTokensService({ repo });
-
-        await dispatchAlertPush(buildAlertEvent());
-
-        expect(state.deletes).toEqual([]);
+        expect(repoState.deletes).toEqual(['tok-only']);
         expect(warnSpy).toHaveBeenCalled();
     });
 
-    it('tolerates a successful response with no data array (no tickets to scan)', async () => {
-        mockFetch.mockResolvedValueOnce({
-            ok: true,
-            status: 200,
-            statusText: 'OK',
-            json: async () => ({}),
-        } as unknown as Response);
-        const { repo, state } = fakeRepo([buildToken({ token: 'tok-only' })]);
-        bootPushTokensService({ repo });
+    it('warns but does not prune for non-DeviceNotRegistered ticket errors', async () => {
+        const { repo, state: repoState } = fakeRepo([buildToken({ token: 'tok-only' })]);
+        const { expo, state: expoState } = fakeExpoClient();
+        expoState.sendResults = [[
+            { status: 'error', message: 'too big', details: { error: 'MessageTooBig' } },
+        ]];
+        const { schedulePoll, captured } = recordSchedulePoll();
+        bootPushTokensService({ repo, expo, schedulePoll });
 
         await dispatchAlertPush(buildAlertEvent());
 
-        expect(state.deletes).toEqual([]);
+        expect(repoState.deletes).toEqual([]);
+        expect(captured).toEqual([]);
+        expect(warnSpy).toHaveBeenCalled();
+    });
+
+    it('schedules a single receipt poll with a 15-second delay when there are ok tickets', async () => {
+        const { repo } = fakeRepo([
+            buildToken({ id: 'pt-A', token: 'tok-A' }),
+            buildToken({ id: 'pt-B', token: 'tok-B' }),
+        ]);
+        const { expo, state: expoState } = fakeExpoClient();
+        expoState.sendResults = [[
+            { status: 'ok', id: 'ticket-A' },
+            { status: 'ok', id: 'ticket-B' },
+        ]];
+        const { schedulePoll, captured } = recordSchedulePoll();
+        bootPushTokensService({ repo, expo, schedulePoll });
+
+        await dispatchAlertPush(buildAlertEvent());
+
+        expect(captured).toHaveLength(1);
+        expect(captured[0]!.delayMs).toBe(15_000);
+        expect(typeof captured[0]!.fn).toBe('function');
+    });
+
+    it('does not schedule a receipt poll when no ticket came back ok', async () => {
+        const { repo } = fakeRepo([buildToken({ token: 'tok-A' })]);
+        const { expo, state: expoState } = fakeExpoClient();
+        expoState.sendResults = [[
+            { status: 'error', message: 'unregistered', details: { error: 'DeviceNotRegistered' } },
+        ]];
+        const { schedulePoll, captured } = recordSchedulePoll();
+        bootPushTokensService({ repo, expo, schedulePoll });
+
+        await dispatchAlertPush(buildAlertEvent());
+
+        expect(captured).toEqual([]);
+    });
+
+    it('warns and keeps processing remaining chunks when one chunk send rejects', async () => {
+        const rows = Array.from({ length: 150 }, (_, i) => buildToken({ id: `pt-${i}`, token: `tok-${i}` }));
+        const { repo, state: repoState } = fakeRepo(rows);
+        const { expo, state: expoState } = fakeExpoClient();
+        expoState.sendRejections = [new Error('network down'), null];
+        expoState.sendResults = [
+            [],
+            [{ status: 'error', message: 'gone', details: { error: 'DeviceNotRegistered' } }, ...Array.from({ length: 49 }, (_, i) => ({ status: 'ok' as const, id: `t-${i}` }))],
+        ];
+        const { schedulePoll, captured } = recordSchedulePoll();
+        bootPushTokensService({ repo, expo, schedulePoll });
+
+        await dispatchAlertPush(buildAlertEvent());
+
+        expect(expoState.sendChunks).toHaveLength(2);
+        expect(warnSpy).toHaveBeenCalled();
+        expect(repoState.deletes).toEqual(['tok-100']);
+        expect(captured).toHaveLength(1);
+    });
+});
+
+describe('pollReceipts', () => {
+    let warnSpy: ReturnType<typeof spyOn>;
+
+    beforeEach(() => {
+        warnSpy = spyOn(console, 'warn').mockImplementation(() => {});
+    });
+
+    afterEach(() => {
+        warnSpy.mockRestore();
+    });
+
+    it('is a no-op when given no pending tickets', async () => {
+        const { repo, state: repoState } = fakeRepo([]);
+        const { expo, state: expoState } = fakeExpoClient();
+        bootPushTokensService({ repo, expo });
+
+        await pollReceipts([]);
+
+        expect(expoState.receiptChunks).toEqual([]);
+        expect(repoState.deletes).toEqual([]);
+    });
+
+    it('prunes only tokens whose receipt comes back as DeviceNotRegistered', async () => {
+        const { repo, state: repoState } = fakeRepo([
+            buildToken({ id: 'pt-A', token: 'tok-A' }),
+            buildToken({ id: 'pt-B', token: 'tok-B' }),
+            buildToken({ id: 'pt-C', token: 'tok-C' }),
+        ]);
+        const { expo, state: expoState } = fakeExpoClient();
+        expoState.receiptResults = [{
+            'ticket-A': { status: 'ok' },
+            'ticket-B': { status: 'error', message: 'gone', details: { error: 'DeviceNotRegistered' } },
+            'ticket-C': { status: 'error', message: 'too big', details: { error: 'MessageTooBig' } },
+        }];
+        bootPushTokensService({ repo, expo });
+
+        await pollReceipts([
+            { ticketId: 'ticket-A', token: 'tok-A' },
+            { ticketId: 'ticket-B', token: 'tok-B' },
+            { ticketId: 'ticket-C', token: 'tok-C' },
+        ]);
+
+        expect(expoState.receiptChunks).toHaveLength(1);
+        expect(expoState.receiptChunks[0]!.sort()).toEqual(['ticket-A', 'ticket-B', 'ticket-C']);
+        expect(repoState.deletes).toEqual(['tok-B']);
+        expect(repoState.rows.map(r => r.token).sort()).toEqual(['tok-A', 'tok-C']);
+    });
+
+    it('swallows a repo deleteByToken rejection during receipt-prune and warns', async () => {
+        const { repo, state: repoState } = fakeRepo([buildToken({ token: 'tok-B' })]);
+        const failingRepo: PushTokensRepository = {
+            ...repo,
+            deleteByToken: async (token) => {
+                repoState.deletes.push(token);
+                throw new Error('db down');
+            },
+        };
+        const { expo, state: expoState } = fakeExpoClient();
+        expoState.receiptResults = [{
+            'ticket-B': { status: 'error', message: 'gone', details: { error: 'DeviceNotRegistered' } },
+        }];
+        bootPushTokensService({ repo: failingRepo, expo });
+
+        await expect(
+            pollReceipts([{ ticketId: 'ticket-B', token: 'tok-B' }]),
+        ).resolves.toBeUndefined();
+
+        expect(repoState.deletes).toEqual(['tok-B']);
+        expect(warnSpy).toHaveBeenCalled();
+    });
+
+    it('warns and skips the rest of the chunk when receipt fetch rejects, then processes the next chunk', async () => {
+        const pending = Array.from({ length: 150 }, (_, i) => ({
+            ticketId: `ticket-${i}`,
+            token: `tok-${i}`,
+        }));
+        const tokens = pending.map(p => buildToken({ id: `pt-${p.token}`, token: p.token }));
+        const { repo, state: repoState } = fakeRepo(tokens);
+        const { expo, state: expoState } = fakeExpoClient();
+        expoState.receiptRejections = [new Error('boom'), null];
+        expoState.receiptResults = [
+            {},
+            {
+                'ticket-100': { status: 'error', message: 'gone', details: { error: 'DeviceNotRegistered' } },
+            },
+        ];
+        bootPushTokensService({ repo, expo });
+
+        await pollReceipts(pending);
+
+        expect(expoState.receiptChunks).toHaveLength(2);
+        expect(warnSpy).toHaveBeenCalled();
+        expect(repoState.deletes).toEqual(['tok-100']);
     });
 });

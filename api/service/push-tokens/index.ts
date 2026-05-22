@@ -1,29 +1,65 @@
+import Expo, {
+    type ExpoPushMessage,
+    type ExpoPushReceipt,
+    type ExpoPushReceiptId,
+    type ExpoPushTicket,
+} from 'expo-server-sdk';
 import type { Database } from '@/db';
 import type { PushAlertEvent, PushRegistration } from '@/models/push-token';
 import {
     createPushTokensRepository,
-    type PushToken,
     type PushTokensRepository,
 } from '@/repositories/push-tokens';
 
-const EXPO_PUSH_URL = 'https://exp.host/--/api/v2/push/send';
+const RECEIPT_POLL_DELAY_MS = 15_000;
+
+/**
+ * Injectable subset of `expo-server-sdk`'s `Expo` class. Production passes a
+ * real `new Expo()` (which satisfies this shape directly); tests pass an
+ * object literal so the chunking, send, and receipt-poll behaviour can be
+ * driven without a network.
+ */
+export type ExpoPushClient = {
+    chunkPushNotifications(messages: ExpoPushMessage[]): ExpoPushMessage[][];
+    sendPushNotificationsAsync(chunk: ExpoPushMessage[]): Promise<ExpoPushTicket[]>;
+    chunkPushNotificationReceiptIds(ids: ExpoPushReceiptId[]): ExpoPushReceiptId[][];
+    getPushNotificationReceiptsAsync(
+        idsChunk: ExpoPushReceiptId[],
+    ): Promise<{ [id: string]: ExpoPushReceipt }>;
+};
+
+/**
+ * Schedules the deferred receipt-poll. Production wires `setTimeout`; tests
+ * pass a recorder that captures the callback so the test can invoke it
+ * synchronously and inspect the resulting receipts behaviour.
+ */
+export type SchedulePoll = (fn: () => void, delayMs: number) => void;
 
 /**
  * Input to `bootPushTokensService`. Production passes `{ db }`; tests pass
- * `{ repo }` with an object-literal fake.
+ * `{ repo }` with an object-literal fake. Both branches optionally accept an
+ * `expo` client and a `schedulePoll` scheduler — defaults wire to a real
+ * `Expo` instance and `setTimeout`.
  */
 export type BootPushTokensServiceInput =
-    | { db: Database }
-    | { repo: PushTokensRepository };
+    | { db: Database; expo?: ExpoPushClient; schedulePoll?: SchedulePoll }
+    | { repo: PushTokensRepository; expo?: ExpoPushClient; schedulePoll?: SchedulePoll };
 
 let repo: PushTokensRepository | null = null;
+let expo: ExpoPushClient | null = null;
+let schedulePoll: SchedulePoll = (fn, delayMs) => {
+    setTimeout(fn, delayMs);
+};
 
 /**
- * Wires the push tokens service to its repository. Call once at process boot;
- * call again in test `beforeEach` with a fake to isolate behavior.
+ * Wires the push tokens service to its repository, Expo client, and poll
+ * scheduler. Call once at process boot; call again in test `beforeEach` with
+ * fakes to isolate behaviour.
  */
 export function bootPushTokensService(input: BootPushTokensServiceInput): void {
     repo = 'repo' in input ? input.repo : createPushTokensRepository(input.db);
+    expo = input.expo ?? new Expo();
+    if (input.schedulePoll) schedulePoll = input.schedulePoll;
 }
 
 function getRepo(): PushTokensRepository {
@@ -31,6 +67,13 @@ function getRepo(): PushTokensRepository {
         throw new Error('Push tokens service not booted — call bootPushTokensService({ db }) at startup.');
     }
     return repo;
+}
+
+function getExpo(): ExpoPushClient {
+    if (!expo) {
+        throw new Error('Push tokens service not booted — call bootPushTokensService({ db }) at startup.');
+    }
+    return expo;
 }
 
 /**
@@ -60,26 +103,23 @@ export async function unregisterPushToken(token: string): Promise<void> {
     console.log('push: unregistered token.');
 }
 
-type ExpoTicket = {
-    status: 'ok' | 'error';
-    id?: string;
-    message?: string;
-    details?: { error?: string };
-};
-
 /**
  * Fires an Expo Push to every registered token for a single alert. Called by
  * the alerter on insert (a brand-new alert) — dedup-updates suppress it,
  * matching the existing "loud once, quiet until acked" semantics.
  *
- * Best-effort throughout: a network or HTTP error is logged at `warn` and
- * swallowed so the alert write is never disrupted. The Expo response is
- * scanned for per-token `DeviceNotRegistered` receipts; matching tokens are
- * pruned from the table so the next dispatch doesn't repeat the error.
+ * Best-effort throughout: chunk-level send failures are logged at `warn` and
+ * the remaining chunks still attempt to deliver. Tickets are scanned for
+ * immediate `DeviceNotRegistered` errors (rare but possible) and matching
+ * tokens are pruned right away. Successful tickets are queued for a deferred
+ * receipt poll — Expo surfaces most `DeviceNotRegistered` outcomes there, not
+ * in the immediate ticket response.
  */
 export async function dispatchAlertPush(event: PushAlertEvent): Promise<void> {
     const tokens = await getRepo().listAll();
     if (tokens.length === 0) return;
+
+    const client = getExpo();
 
     const data: Record<string, unknown> = {
         alertId: event.alertId,
@@ -87,55 +127,109 @@ export async function dispatchAlertPush(event: PushAlertEvent): Promise<void> {
     };
     if (event.zoneId !== null) data['zoneId'] = event.zoneId;
 
-    const body = JSON.stringify({
-        to: tokens.map(t => t.token),
+    const messages: ExpoPushMessage[] = tokens.map(t => ({
+        to: t.token,
         title: event.title,
         body: event.sub ?? event.title,
         data,
         priority: event.tone === 'danger' ? 'high' : 'default',
-    });
+    }));
 
-    let response: Response;
-    try {
-        response = await fetch(EXPO_PUSH_URL, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body,
+    const chunks = client.chunkPushNotifications(messages);
+    const pendingReceipts: Array<{ ticketId: string; token: string }> = [];
+    let messageCursor = 0;
+
+    for (const chunk of chunks) {
+        const chunkTokens = tokens.slice(messageCursor, messageCursor + chunk.length);
+        messageCursor += chunk.length;
+
+        let tickets: ExpoPushTicket[];
+        try {
+            tickets = await client.sendPushNotificationsAsync(chunk);
+        } catch (err) {
+            console.warn(`push: expo send failed for chunk of ${chunk.length}; swallowing.`, err);
+            continue;
+        }
+
+        for (let i = 0; i < tickets.length; i++) {
+            const ticket = tickets[i]!;
+            const token = chunkTokens[i]?.token;
+            if (token === undefined) continue;
+
+            if (ticket.status === 'ok') {
+                pendingReceipts.push({ ticketId: ticket.id, token });
+                continue;
+            }
+
+            if (ticket.details?.error === 'DeviceNotRegistered') {
+                try {
+                    await getRepo().deleteByToken(token);
+                    console.log('push: pruned unregistered token from ticket response (DeviceNotRegistered).');
+                } catch (err) {
+                    console.warn('push: failed to prune unregistered token; swallowing.', err);
+                }
+                continue;
+            }
+
+            console.warn(
+                `push: expo ticket error (${ticket.details?.error ?? 'unknown'}): ${ticket.message}`,
+            );
+        }
+    }
+
+    if (pendingReceipts.length === 0) return;
+
+    schedulePoll(() => {
+        pollReceipts(pendingReceipts).catch(err => {
+            console.warn('push: unhandled receipt poll failure; swallowing.', err);
         });
-    } catch (err) {
-        console.warn('push: expo fetch failed; swallowing.', err);
-        return;
-    }
-
-    if (!response.ok) {
-        console.warn(`push: expo returned ${response.status} ${response.statusText}.`);
-        return;
-    }
-
-    let parsed: { data?: ExpoTicket[] };
-    try {
-        parsed = (await response.json()) as { data?: ExpoTicket[] };
-    } catch (err) {
-        console.warn('push: expo response was not JSON; skipping receipt scan.', err);
-        return;
-    }
-
-    const tickets = parsed.data ?? [];
-    await pruneUnregistered(tokens, tickets);
+    }, RECEIPT_POLL_DELAY_MS);
 }
 
-async function pruneUnregistered(tokens: PushToken[], tickets: ExpoTicket[]): Promise<void> {
-    const max = Math.min(tokens.length, tickets.length);
-    for (let i = 0; i < max; i++) {
-        const ticket = tickets[i]!;
-        if (ticket.status !== 'error') continue;
-        if (ticket.details?.error !== 'DeviceNotRegistered') continue;
-        const token = tokens[i]!.token;
+/**
+ * Polls Expo for the receipts of the given tickets and prunes any token whose
+ * receipt comes back flagged `DeviceNotRegistered`. Best-effort throughout:
+ * per-chunk and per-prune errors are logged at `warn` and skipped.
+ *
+ * Exported for tests; production callers should rely on the scheduled poll
+ * arranged by `dispatchAlertPush`.
+ */
+export async function pollReceipts(
+    pending: ReadonlyArray<{ ticketId: string; token: string }>,
+): Promise<void> {
+    if (pending.length === 0) return;
+    const client = getExpo();
+
+    const ticketToToken = new Map<string, string>();
+    for (const entry of pending) ticketToToken.set(entry.ticketId, entry.token);
+
+    const idChunks = client.chunkPushNotificationReceiptIds([...ticketToToken.keys()]);
+    for (const idChunk of idChunks) {
+        let receipts: { [id: string]: ExpoPushReceipt };
         try {
-            await getRepo().deleteByToken(token);
-            console.log(`push: pruned unregistered token (DeviceNotRegistered).`);
+            receipts = await client.getPushNotificationReceiptsAsync(idChunk);
         } catch (err) {
-            console.warn('push: failed to prune unregistered token; swallowing.', err);
+            console.warn(`push: expo receipt fetch failed for chunk of ${idChunk.length}; swallowing.`, err);
+            continue;
+        }
+
+        for (const [ticketId, receipt] of Object.entries(receipts)) {
+            if (receipt.status !== 'error') continue;
+            if (receipt.details?.error !== 'DeviceNotRegistered') {
+                console.warn(
+                    `push: expo receipt error (${receipt.details?.error ?? 'unknown'}): ${receipt.message}`,
+                );
+                continue;
+            }
+            const token = ticketToToken.get(ticketId);
+            if (token === undefined) continue;
+            try {
+                await getRepo().deleteByToken(token);
+                console.log('push: pruned unregistered token from receipt (DeviceNotRegistered).');
+            } catch (err) {
+                console.warn('push: failed to prune unregistered token; swallowing.', err);
+            }
         }
     }
 }
+
