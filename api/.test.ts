@@ -7,7 +7,7 @@ import type { TonightDto } from '@/tonight';
 import type { ScheduleListItem } from '@/schedules-list';
 import type { DaemonControl, DaemonStatus } from '@/service/daemon';
 import type { ZoneSummary } from '@/models/zone';
-import { BusyError, SystemDisabledError, type ManualController } from '@/manual';
+import { BusyError, SystemDisabledError, type ManualController } from '@/service/manual';
 import type { Zone } from '@/models';
 
 function buildStatus(overrides?: Partial<DaemonStatus>): DaemonStatus {
