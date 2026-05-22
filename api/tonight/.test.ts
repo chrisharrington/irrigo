@@ -117,18 +117,12 @@ function createStub(inputs?: StubInputs): TonightDb {
     const rows = inputs?.rows ?? [];
     bootSchedules(inputs);
 
+    const runJoinedQuery = async () => rows;
+
     const db: TonightDb = {
         select: () => ({
             from: () => ({
-                innerJoin: () => ({
-                    leftJoin: () => ({
-                        where: () => ({
-                            orderBy: () => ({
-                                limit: async () => rows,
-                            }),
-                        }),
-                    }),
-                }),
+                innerJoin: () => ({ leftJoin: () => ({ where: () => ({ orderBy: () => ({ limit: runJoinedQuery }) }) }) }),
             }),
         }),
     } as TonightDb;

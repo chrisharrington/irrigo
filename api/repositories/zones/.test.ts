@@ -93,51 +93,46 @@ function buildJoinChainStub<TRow>(whereCalls: WhereCall[], rows: TRow[]) {
 function stubLoaderDb(rows: ZoneJoinedRow[]): { db: Database; whereCalls: WhereCall[]; getSelectColumns: () => unknown } {
     const whereCalls: WhereCall[] = [];
     let selectColumns: unknown;
-    const db = {
-        select(columns: unknown) {
-            selectColumns = columns;
-            return { from: () => buildJoinChainStub(whereCalls, rows) };
-        },
-    } as unknown as Database;
+    const runSelect = (columns: unknown) => {
+        selectColumns = columns;
+        return { from: () => buildJoinChainStub(whereCalls, rows) };
+    };
+    const db = { select: runSelect } as unknown as Database;
     return { db, whereCalls, getSelectColumns: () => selectColumns };
 }
 
 function stubCountDb(rows: ReadonlyArray<{ total: number; enabled: number }>): Database {
+    const runFrom = async (): Promise<ReadonlyArray<{ total: number; enabled: number }>> => [...rows];
     return {
-        select() {
-            return { from: () => Promise.resolve([...rows]) };
-        },
+        select: () => ({ from: runFrom }),
     } as unknown as Database;
 }
 
 function stubSummaryJoinDb(rows: SummaryJoinedRow[]): { db: Database; getSelectColumns: () => unknown; whereCalls: WhereCall[] } {
     const whereCalls: WhereCall[] = [];
     let selectColumns: unknown;
-    const db = {
-        select(columns: unknown) {
-            selectColumns = columns;
-            return { from: () => buildJoinChainStub(whereCalls, rows) };
-        },
-    } as unknown as Database;
+    const runSelect = (columns: unknown) => {
+        selectColumns = columns;
+        return { from: () => buildJoinChainStub(whereCalls, rows) };
+    };
+    const db = { select: runSelect } as unknown as Database;
     return { db, whereCalls, getSelectColumns: () => selectColumns };
 }
 
 function stubLatestEntriesDb(rows: LatestZoneFire[]): { db: Database; onCalls: Array<ReadonlyArray<unknown>>; orderByCalls: Array<ReadonlyArray<unknown>> } {
     const onCalls: Array<ReadonlyArray<unknown>> = [];
     const orderByCalls: Array<ReadonlyArray<unknown>> = [];
-    const db = {
-        selectDistinctOn(on: ReadonlyArray<unknown>) {
-            onCalls.push(on);
-            return {
-                from: () => ({
-                    orderBy: (...exprs: ReadonlyArray<unknown>) => {
-                        orderByCalls.push(exprs);
-                        return Promise.resolve(rows);
-                    },
-                }),
-            };
-        },
-    } as unknown as Database;
+
+    const runOrderBy = async (...exprs: ReadonlyArray<unknown>): Promise<LatestZoneFire[]> => {
+        orderByCalls.push(exprs);
+        return rows;
+    };
+    const runSelectDistinctOn = (on: ReadonlyArray<unknown>) => {
+        onCalls.push(on);
+        return { from: () => ({ orderBy: runOrderBy }) };
+    };
+
+    const db = { selectDistinctOn: runSelectDistinctOn } as unknown as Database;
     return { db, onCalls, orderByCalls };
 }
 

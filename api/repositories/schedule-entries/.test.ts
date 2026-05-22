@@ -140,54 +140,37 @@ function stubWriterDb(idPlan?: { entries?: string[]; cycles?: string[][] }) {
     let entryIdx = 0;
     let cycleBatchIdx = 0;
 
+    const runDeleteWhere = async (table: unknown, conditions: unknown): Promise<void> => {
+        deleteCalls.push({ table, conditions });
+    };
+
+    const runInsertReturning = async (table: unknown, rows: ReadonlyArray<Record<string, unknown>>): Promise<Array<Record<string, unknown>>> => {
+        insertCalls.push({ table, rows });
+        if (table === scheduleEntries) {
+            const id = idPlan?.entries?.[entryIdx] ?? `entry-${entryIdx}`;
+            entryIdx += 1;
+            return [{ id }];
+        }
+        if (table === irrigationCycles) {
+            const ids = idPlan?.cycles?.[cycleBatchIdx] ?? rows.map((_, i) => `cycle-${cycleBatchIdx}-${i}`);
+            cycleBatchIdx += 1;
+            return rows.map((row, i) => ({
+                id: ids[i],
+                startTime: row['startTime'],
+                durationMin: row['durationMin'],
+            }));
+        }
+        return [];
+    };
+
+    const runUpdateWhere = async (table: unknown, values: Record<string, unknown>, conditions: unknown): Promise<void> => {
+        updateCalls.push({ table, values, conditions });
+    };
+
     const db = {
-        delete(table: unknown) {
-            return {
-                where(conditions: unknown) {
-                    deleteCalls.push({ table, conditions });
-                    return Promise.resolve(undefined);
-                },
-            };
-        },
-        insert(table: unknown) {
-            return {
-                values(rows: ReadonlyArray<Record<string, unknown>>) {
-                    return {
-                        returning() {
-                            insertCalls.push({ table, rows });
-                            if (table === scheduleEntries) {
-                                const id = idPlan?.entries?.[entryIdx] ?? `entry-${entryIdx}`;
-                                entryIdx += 1;
-                                return Promise.resolve([{ id }]);
-                            }
-                            if (table === irrigationCycles) {
-                                const ids = idPlan?.cycles?.[cycleBatchIdx] ?? rows.map((_, i) => `cycle-${cycleBatchIdx}-${i}`);
-                                cycleBatchIdx += 1;
-                                const out = rows.map((row, i) => ({
-                                    id: ids[i],
-                                    startTime: row['startTime'],
-                                    durationMin: row['durationMin'],
-                                }));
-                                return Promise.resolve(out);
-                            }
-                            return Promise.resolve([]);
-                        },
-                    };
-                },
-            };
-        },
-        update(table: unknown) {
-            return {
-                set(values: Record<string, unknown>) {
-                    return {
-                        where(conditions: unknown) {
-                            updateCalls.push({ table, values, conditions });
-                            return Promise.resolve(undefined);
-                        },
-                    };
-                },
-            };
-        },
+        delete: (table: unknown) => ({ where: (conditions: unknown) => runDeleteWhere(table, conditions) }),
+        insert: (table: unknown) => ({ values: (rows: ReadonlyArray<Record<string, unknown>>) => ({ returning: () => runInsertReturning(table, rows) }) }),
+        update: (table: unknown) => ({ set: (values: Record<string, unknown>) => ({ where: (conditions: unknown) => runUpdateWhere(table, values, conditions) }) }),
     } as unknown as Database;
 
     return { db, deleteCalls, insertCalls, updateCalls };

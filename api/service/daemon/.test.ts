@@ -373,14 +373,11 @@ function createDaemonReposStub(inputs?: DaemonStubInputs) {
         },
     };
 
+    const runAlertsUpdate = async (values: Record<string, unknown>, cond: unknown): Promise<void> => {
+        alertTableUpdates.push({ set: values, cond });
+    };
     const alertsDb = {
-        update: () => ({
-            set: (values: Record<string, unknown>) => ({
-                where: async (cond: unknown) => {
-                    alertTableUpdates.push({ set: values, cond });
-                },
-            }),
-        }),
+        update: () => ({ set: (values: Record<string, unknown>) => ({ where: (cond: unknown) => runAlertsUpdate(values, cond) }) }),
     } as unknown as AlertsDb;
 
     return {

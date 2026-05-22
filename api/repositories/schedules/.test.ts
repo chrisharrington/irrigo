@@ -33,52 +33,38 @@ function createStub(rowsByPredicate: Schedule[]) {
     const updateCalls: UpdateCall[] = [];
     const rows: Schedule[] = [...rowsByPredicate];
 
+    // Leaf handlers — the actual SELECT/UPDATE logic. Lifting them out keeps
+    // the Drizzle-mimicking chain wiring (`select().from().where()` etc.) down
+    // to a single line per operation in the `db` object.
+    const runSelectWhere = async (cond: unknown): Promise<Array<{ schedule: Schedule }>> => {
+        selectCalls.push({ where: cond });
+        const params = extractParamValues(cond);
+        // No string params: probably `eq(isActive, true)` — boolean param is
+        // encoded differently. Otherwise treat the first param as a slug.
+        if (params.length === 0) return rows.filter(r => r.isActive).map(s => ({ schedule: s }));
+        const slug = params[0]!;
+        return rows.filter(r => r.slug === slug).map(s => ({ schedule: s }));
+    };
+
+    const runUpdateWhere = async (values: Partial<Schedule>, cond: unknown): Promise<void> => {
+        updateCalls.push({ values, where: cond });
+        const params = extractParamValues(cond);
+        for (const row of rows) {
+            if (params.length === 1 && params[0] === row.id) {
+                Object.assign(row, values);
+            } else if (params.length === 2) {
+                const [siteId, excludeId] = params;
+                if (row.siteId === siteId && row.id !== excludeId) {
+                    Object.assign(row, values);
+                }
+            }
+        }
+    };
+
     const db = {
-        select() {
-            return {
-                from() {
-                    return {
-                        where(cond: unknown) {
-                            selectCalls.push({ where: cond });
-                            const params = extractParamValues(cond);
-                            // No string params: probably `eq(isActive, true)` — boolean param is
-                            // encoded differently. Otherwise treat the first param as a slug.
-                            if (params.length === 0) {
-                                return Promise.resolve(rows.filter(r => r.isActive).map(s => ({ schedule: s })));
-                            }
-                            const slug = params[0]!;
-                            return Promise.resolve(rows.filter(r => r.slug === slug).map(s => ({ schedule: s })));
-                        },
-                    };
-                },
-            };
-        },
-        update() {
-            return {
-                set(values: Partial<Schedule>) {
-                    return {
-                        async where(cond: unknown) {
-                            updateCalls.push({ values, where: cond });
-                            const params = extractParamValues(cond);
-                            for (const row of rows) {
-                                if (params.length === 1 && params[0] === row.id) {
-                                    Object.assign(row, values);
-                                } else if (params.length === 2) {
-                                    const [siteId, excludeId] = params;
-                                    if (row.siteId === siteId && row.id !== excludeId) {
-                                        Object.assign(row, values);
-                                    }
-                                }
-                            }
-                            return Promise.resolve(undefined);
-                        },
-                    };
-                },
-            };
-        },
-        async transaction<T>(cb: (tx: unknown) => Promise<T>): Promise<T> {
-            return cb(db);
-        },
+        select: () => ({ from: () => ({ where: runSelectWhere }) }),
+        update: () => ({ set: (values: Partial<Schedule>) => ({ where: (cond: unknown) => runUpdateWhere(values, cond) }) }),
+        transaction: async <T>(cb: (tx: unknown) => Promise<T>): Promise<T> => cb(db),
     } as unknown as Database;
 
     return { db, selectCalls, updateCalls, getRows: () => [...rows] };

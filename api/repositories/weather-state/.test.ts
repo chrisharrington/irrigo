@@ -16,39 +16,27 @@ type WriterCall = {
 
 function stubWriter(): { db: Database; calls: WriterCall[] } {
     const calls: WriterCall[] = [];
+
+    const runUpsert = async (
+        row: Record<string, unknown>,
+        { target, set }: { target: unknown; set: Record<string, unknown> },
+    ): Promise<void> => {
+        calls.push({ values: row, conflictTarget: target, conflictSet: set });
+    };
+
     const db = {
-        insert: () => ({
-            values: (row: Record<string, unknown>) => ({
-                onConflictDoUpdate: async ({ target, set }: { target: unknown; set: Record<string, unknown> }) => {
-                    calls.push({ values: row, conflictTarget: target, conflictSet: set });
-                },
-            }),
-        }),
-        select: () => ({
-            from: () => ({
-                where: () => ({
-                    limit: async () => [],
-                }),
-            }),
-        }),
+        insert: () => ({ values: (row: Record<string, unknown>) => ({ onConflictDoUpdate: (cfg: { target: unknown; set: Record<string, unknown> }) => runUpsert(row, cfg) }) }),
+        select: () => ({ from: () => ({ where: () => ({ limit: async () => [] }) }) }),
     } as unknown as Database;
     return { db, calls };
 }
 
 function stubReader(rows: ReadonlyArray<{ lastSuccessfulFetchAt: Date | null }>): Database {
+    const runSelectLimit = async (): Promise<ReadonlyArray<{ lastSuccessfulFetchAt: Date | null }>> => [...rows];
+
     return {
-        select: () => ({
-            from: () => ({
-                where: () => ({
-                    limit: async () => [...rows],
-                }),
-            }),
-        }),
-        insert: () => ({
-            values: () => ({
-                onConflictDoUpdate: async () => undefined,
-            }),
-        }),
+        select: () => ({ from: () => ({ where: () => ({ limit: runSelectLimit }) }) }),
+        insert: () => ({ values: () => ({ onConflictDoUpdate: async () => undefined }) }),
     } as unknown as Database;
 }
 
