@@ -46,6 +46,7 @@ Detailed frontend conventions (component structure, hooks, Tailwind/NativeWind) 
 - For UI tests, query elements by visible text, placeholder, or label — never by test IDs.
 - Don't mock first-party components when rendering them in tests. Mock at external boundaries (network, time, third-party SDKs).
 - Place test files alongside the source they test, named `test.ts` or `test.tsx`.
+- **Folder-per-tested-subject.** Anything that requires tests gets its own folder. The subject is `index.(ts|tsx)`; the test is `.test.(ts|tsx)` inside the same folder — e.g. `app/api/client/index.ts` pairs with `app/api/client/.test.ts`. Hook folder names drop the `use-` prefix (the export inside is still `useSystem`), so the hook lives at `app/hooks/system/index.ts` with `app/hooks/system/.test.tsx` next to it. Plain modules that have no tests (type declarations, trivial factory functions, passthrough providers) stay as flat files.
 - Run the project's test command after making changes.
 
 Detailed React Native testing patterns (libraries, render helpers) live in `shared/CLAUDE.md`.
