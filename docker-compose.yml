@@ -57,6 +57,7 @@ services:
             NOTIFY_ON_WATERING_END: ${NOTIFY_ON_WATERING_END}
             NOTIFY_ON_ERROR: ${NOTIFY_ON_ERROR}
             DRY_RUN: ${DRY_RUN}
+            EXPO_ACCESS_TOKEN: ${EXPO_ACCESS_TOKEN}
         ports:
             - "${PORT}:9753"
         command: sh -c "bun run start"

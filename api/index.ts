@@ -47,6 +47,7 @@ import {
     registerPushToken,
     unregisterPushToken,
 } from '@/service/push-tokens';
+import Expo from 'expo-server-sdk';
 import { bootTonightService, getTonightSummary } from '@/service/tonight';
 import {
     bootSchedulesListService,
@@ -158,6 +159,18 @@ export function wrapScheduleWithReplan(base: ScheduleApi, replan: () => Promise<
             return result;
         },
     };
+}
+
+/**
+ * Reads `EXPO_ACCESS_TOKEN` from the given environment object. Returns the
+ * token verbatim when present and non-empty; returns `undefined` when unset
+ * or empty so the caller can fall back to an unauthenticated `new Expo()`.
+ * Pulled out as a pure helper so the conditional is unit-testable without
+ * mutating `process.env`.
+ */
+export function readExpoAccessToken(env: NodeJS.ProcessEnv): string | undefined {
+    const value = env['EXPO_ACCESS_TOKEN'];
+    return typeof value === 'string' && value.length > 0 ? value : undefined;
 }
 
 export type BuildAppOptions = {
@@ -774,6 +787,14 @@ if (import.meta.main) {
     } else {
         console.log('startup: OPEN_METEO_ENABLED=false — Open-Meteo weather integration is disabled; the planner will not be able to fetch forecasts.');
     }
+
+    const expoAccessToken = readExpoAccessToken(process.env);
+    if (expoAccessToken) {
+        console.log('startup: EXPO_ACCESS_TOKEN is set; Expo push API calls will include the bearer token.');
+    } else {
+        console.log('startup: EXPO_ACCESS_TOKEN is unset; Expo push API calls will be unauthenticated (publicly callable — anyone with a leaked push token can target users).');
+    }
+    const expo = expoAccessToken ? new Expo({ accessToken: expoAccessToken }) : new Expo();
     const effectiveOpenZone: typeof openZone =
         dryRun ?
             async zone => {
@@ -796,7 +817,7 @@ if (import.meta.main) {
     bootManualService({ db: typedDb });
     bootSchedulesListService({ db: typedDb });
     bootTonightService({ db: typedDb });
-    bootPushTokensService({ db: typedDb });
+    bootPushTokensService({ db: typedDb, expo });
     bootDaemonService({ db: typedDb });
     const alerter = createAlerter(alertsDb, notifier, dispatchAlertPush);
     const daemon = await daemonStart({
