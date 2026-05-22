@@ -8,6 +8,7 @@ networks:
 services:
     db:
         image: postgres:17
+        container_name: ${COMPOSE_PROJECT_NAME}-db
         restart: unless-stopped
         environment:
             POSTGRES_USER: ${POSTGRES_USER}
@@ -33,6 +34,7 @@ services:
         build:
             context: ./api
             dockerfile: Dockerfile
+        container_name: ${COMPOSE_PROJECT_NAME}-api
         restart: unless-stopped
         depends_on:
             db:
@@ -73,6 +75,7 @@ services:
                 DEV_USER: ${DEV_USER}
                 DEV_UID: ${DEV_UID}
                 DEV_GID: ${DEV_GID}
+        container_name: ${COMPOSE_PROJECT_NAME}-dev
         restart: unless-stopped
         depends_on:
             db:
@@ -119,6 +122,7 @@ services:
                 DEV_USER: ${DEV_USER}
                 DEV_UID: ${DEV_UID}
                 DEV_GID: ${DEV_GID}
+        container_name: ${COMPOSE_PROJECT_NAME}-metro
         restart: unless-stopped
         working_dir: /app/app
         environment:
@@ -137,6 +141,7 @@ services:
 
     pgadmin:
         image: dpage/pgadmin4:8
+        container_name: ${COMPOSE_PROJECT_NAME}-pgadmin
         profiles: ["tools"]
         restart: unless-stopped
         environment:
