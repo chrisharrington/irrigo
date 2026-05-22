@@ -113,6 +113,12 @@ services:
             # ADB keys + auth state. Persists the "always allow from this
             # computer" approval the phone grants on first connect.
             - irrigo-android:/home/${DEV_USER}/.android
+            # VS Code Server install (binaries, extensions, workspace state).
+            # Lives only in the container's writable layer by default, so every
+            # recreate makes VS Code re-prompt to install extensions like
+            # Claude Code. Per-stack volume — auto-namespaced by Compose so
+            # each worktree gets its own isolated VS Code Server state.
+            - vscode-server:/home/${DEV_USER}/.vscode-server
         networks:
             # backend → reach the `db` container.
             # frontend → outbound internet for bun install, gh, etc.
@@ -169,6 +175,10 @@ volumes:
     # Per-stack: Compose auto-namespaces with COMPOSE_PROJECT_NAME so each
     # worktree gets its own Postgres data volume.
     db-data:
+    # Per-stack: VS Code Server binaries, extensions, and workspace state.
+    # Persists across container recreates so VS Code doesn't re-install
+    # extensions every time the dev container is rebuilt.
+    vscode-server:
     # Shared across all worktrees: Android toolchain cache + ADB pairing
     # state. Re-fetching the AGP/Kotlin/RN toolchain from Maven or re-pairing
     # the phone on every fresh stack is ~10 min of pain, so these volumes are
