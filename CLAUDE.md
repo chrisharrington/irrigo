@@ -49,7 +49,7 @@ Detailed React Native testing patterns (libraries, render helpers) live in `shar
 
 ## Database
 
-Postgres (container `irrigo_db`) is the data store; **Drizzle ORM** wraps it, **drizzle-kit** manages schema and migrations.
+Postgres (service `db` in `docker-compose.yml`) is the data store; **Drizzle ORM** wraps it, **drizzle-kit** manages schema and migrations.
 
 - Schema lives in `api/db/schema/` — one file per table plus a barrel `index.ts`.
 - Migrations are written to `api/drizzle/` by `bun run db:generate` after schema changes — commit these.
@@ -84,6 +84,61 @@ Invoke the `/plane` skill before creating, searching, or updating tickets. Use `
 - **PR title**: short and descriptive. Prefix with `[API-XXX]` when there's a ticket.
 - **PR body**: link the ticket if there is one. Brief summary of the change. No template required.
 - After a PR for a ticket merges, update the ticket's state to `Done` via `mcp__plane__update_work_item`.
+
+## Running a second stack from a git worktree
+
+To work on two branches in parallel without tearing down and re-bringing up Docker, use git worktrees as sibling directories of the primary checkout:
+
+```
+/home/chrisharrington/docker/stacks/
+├── irrigo/                # primary checkout (main)
+├── irrigo-API-60/         # worktree for feature/API-60
+└── irrigo-bug-foo/        # worktree for bug/foo
+```
+
+`docker-compose.yml` derives container, network, and per-stack volume names from `COMPOSE_PROJECT_NAME`, which defaults to the directory basename. Sibling worktrees get distinct project names (`irrigo`, `irrigo-API-60`, …) for free.
+
+### One-time host setup
+
+The `irrigo-gradle` and `irrigo-android` volumes are declared `external: true` so the Android toolchain cache and ADB pairing state are shared across all stacks. Create them once on the host before any stack boots:
+
+```bash
+docker volume create irrigo-gradle
+docker volume create irrigo-android
+```
+
+### Spinning up a worktree
+
+```bash
+# from the primary checkout
+git worktree add ../irrigo-API-60 feature/API-60
+cp .env ../irrigo-API-60/.env
+```
+
+Then edit `../irrigo-API-60/.env` and bump the host ports so the two stacks don't collide. Suggested offsets:
+
+| Stack                | `PORT` | `METRO_PORT` | `PGADMIN_PORT` |
+|----------------------|--------|--------------|----------------|
+| Primary (`irrigo/`)  | 9753   | 9097         | 9754           |
+| Worktree #1          | 9853   | 9098         | 9854           |
+| Worktree #2          | 9953   | 9099         | 9954           |
+
+Bring the worktree's stack up from inside that directory:
+
+```bash
+docker compose --project-directory ../irrigo-API-60 up -d
+```
+
+`docker ps` should show the new stack's containers prefixed with `irrigo-api-60-` (Compose normalizes the project name to lowercase + hyphens) alongside the primary's `irrigo-` containers.
+
+### Removing a worktree
+
+```bash
+docker compose --project-directory ../irrigo-API-60 down -v   # drops per-stack db-data
+git worktree remove ../irrigo-API-60
+```
+
+The shared `irrigo-gradle` / `irrigo-android` volumes survive because they're external; only the per-stack `db-data` volume is removed by `down -v`.
 
 ## Working in subprojects
 
