@@ -1,130 +1,91 @@
 import dayjs from 'dayjs';
 import utc from 'dayjs/plugin/utc';
 import timezone from 'dayjs/plugin/timezone';
-import { and, asc, eq, gte, sql } from 'drizzle-orm';
-import { irrigationCycles, scheduleEntries, schedules, zones } from '@/db/schema';
+import type { Database } from '@/db';
+import type {
+    ScheduleAllowedTimeWindow,
+    ScheduleListItem,
+    ScheduleNextRun,
+} from '@/models/schedules-list';
+import {
+    createScheduleEntriesRepository,
+    type NextRunJoinedRow,
+    type ScheduleEntriesRepository,
+} from '@/repositories/schedule-entries';
+import { createSchedulesRepository, type Schedule, type SchedulesRepository } from '@/repositories/schedules';
 import { getSiteTimezone } from '@/service/sites';
-import type { Schedule } from '@/service/schedules';
 
 dayjs.extend(utc);
 dayjs.extend(timezone);
 
+export type { ScheduleAllowedTimeWindow, ScheduleListItem, ScheduleNextRun } from '@/models/schedules-list';
+
 /**
  * Hard cap on how many entry/cycle rows we'll read for the active-schedule
- * next-run lookup. Same rationale as `TONIGHT_FETCH_LIMIT` — well above any
- * realistic single-night row count.
+ * next-run lookup. One night × all zones × handful of cycles is well under
+ * 50 rows even for the largest realistic installs; 200 is room to spare.
  */
 const NEXT_RUN_FETCH_LIMIT = 200;
 
 /**
- * One allowed irrigation window within a day. `start` and `end` are `HH:MM`
- * strings interpreted in the site's local timezone. Mirrors the
- * `ScheduleTimeWindow` shape from the schema so the wire payload doesn't
- * leak Drizzle types.
+ * Input to `bootSchedulesListService`. Production passes `{ db }`; tests
+ * pass object-literal repos.
  */
-export type ScheduleAllowedTimeWindow = {
-    start: string;
-    end: string;
-};
+export type BootSchedulesListServiceInput =
+    | { db: Database }
+    | { schedulesRepo: SchedulesRepository; scheduleEntriesRepo: ScheduleEntriesRepository };
+
+let schedulesRepo: SchedulesRepository | null = null;
+let scheduleEntriesRepo: ScheduleEntriesRepository | null = null;
 
 /**
- * Derived "next run" labels rendered on the active-schedule chip and the
- * Schedules screen's active row. Formatted server-side so each client (app,
- * eventually a web dashboard) doesn't reimplement the rules.
+ * Wires the schedules-list service to its repository dependencies. Call once
+ * at process boot; call again in test `beforeEach` with fakes.
  */
-export type ScheduleNextRun = {
-    inLabel: string;
-    whenLabel: string;
-    zonesLabel: string;
-};
+export function bootSchedulesListService(input: BootSchedulesListServiceInput): void {
+    if ('db' in input) {
+        schedulesRepo = createSchedulesRepository(input.db);
+        scheduleEntriesRepo = createScheduleEntriesRepository(input.db);
+    } else {
+        schedulesRepo = input.schedulesRepo;
+        scheduleEntriesRepo = input.scheduleEntriesRepo;
+    }
+}
 
-/**
- * Wire shape served by `GET /schedules` — one item per row in the `schedules`
- * table. `nextRun` and `skippedTonight` are present only on the active row
- * (and only when there's actually a next run to describe). Inactive rows
- * omit them so the client doesn't have to disambiguate `null` vs missing.
- */
-export type ScheduleListItem = {
-    id: string;
-    slug: string;
-    name: string;
-    isActive: boolean;
-    allowedDays: number[] | null;
-    allowedTimeWindows: ScheduleAllowedTimeWindow[] | null;
-    rootDepthMOverride: number | null;
-    allowableDepletionFractionOverride: number | null;
-    endBySunrise: boolean | null;
-    nextRun?: ScheduleNextRun | null;
-    skippedTonight?: boolean;
-};
+function getSchedulesRepo(): SchedulesRepository {
+    if (!schedulesRepo) {
+        throw new Error('Schedules-list service not booted — call bootSchedulesListService({ db }) at startup.');
+    }
+    return schedulesRepo;
+}
 
-type NextRunJoinedRow = {
-    entry: typeof scheduleEntries.$inferSelect;
-    cycle: typeof irrigationCycles.$inferSelect | null;
-    zone: { id: string; name: string };
-};
-
-/**
- * Minimal db interface for the active schedule's next-night query. Mirrors
- * the shape used by `api/tonight/` for the same data.
- */
-export type ScheduleListLoaderDb = {
-    select: (columns: {
-        entry: typeof scheduleEntries;
-        cycle: typeof irrigationCycles;
-        zone: { id: typeof zones.id; name: typeof zones.name };
-    }) => {
-        from: (table: typeof scheduleEntries) => {
-            innerJoin: (table: typeof zones, on: unknown) => {
-                leftJoin: (table: typeof irrigationCycles, on: unknown) => {
-                    where: (cond: unknown) => {
-                        orderBy: (...exprs: ReadonlyArray<unknown>) => {
-                            limit: (n: number) => Promise<NextRunJoinedRow[]>;
-                        };
-                    };
-                };
-            };
-        };
-    };
-};
-
-/**
- * Composite db interface for the schedules list query (the schedules table
- * read + the next-night join). Site timezone reads go through
- * `@/service/sites` — tests boot that service with a fake.
- */
-export type ScheduleListDb = ScheduleListLoaderDb & {
-    select: (columns: { schedule: unknown }) => {
-        from: (table: unknown) => {
-            where: (cond: unknown) => Promise<Array<{ schedule: Schedule }>>;
-        };
-    };
-};
+function getScheduleEntriesRepo(): ScheduleEntriesRepository {
+    if (!scheduleEntriesRepo) {
+        throw new Error('Schedules-list service not booted — call bootSchedulesListService({ db }) at startup.');
+    }
+    return scheduleEntriesRepo;
+}
 
 /**
  * Lists every schedule for the mobile app's Schedules screen + drawer footer
  * + Home active-schedule chip. The active schedule additionally carries
  * `skippedTonight` and a derived `nextRun` label block.
  *
- * @param db - Drizzle client (or compatible stub).
  * @param now - Wall-clock reference. Drives both the `skippedTonight`
  *   comparison and the `nextRun` "in X" / "Tonight at Y" formatting.
  */
-export async function listSchedules(db: ScheduleListDb, now: Date): Promise<ScheduleListItem[]> {
+export async function listSchedules(now: Date): Promise<ScheduleListItem[]> {
     const siteTimezone = await getSiteTimezone();
     const nowInTz = dayjs(now).tz(siteTimezone);
     const todaySiteLocal = nowInTz.format('YYYY-MM-DD');
 
-    const rows = await db
-        .select({ schedule: schedules })
-        .from(schedules)
-        .where(sql`true`);
+    const rows = await getSchedulesRepo().listAll();
 
     const items: ScheduleListItem[] = [];
     const activeSchedules: Schedule[] = [];
     for (const row of rows) {
-        items.push(toBaseDto(row.schedule));
-        if (row.schedule.isActive) activeSchedules.push(row.schedule);
+        items.push(toBaseDto(row));
+        if (row.isActive) activeSchedules.push(row);
     }
 
     if (activeSchedules.length === 0) return items;
@@ -132,7 +93,7 @@ export async function listSchedules(db: ScheduleListDb, now: Date): Promise<Sche
     // The single-site deploy means there's at most one active schedule; the
     // next-night query doesn't filter by site. If multi-site arrives, this is
     // the spot to filter cycles by `zones.siteId === schedule.siteId`.
-    const nextNight = await loadNextNight(db, now, todaySiteLocal);
+    const nextNight = await loadNextNight(now, todaySiteLocal);
 
     for (const active of activeSchedules) {
         const item = items.find(i => i.id === active.id);
@@ -163,19 +124,8 @@ type NextNight = {
     zoneOrder: string[];
 };
 
-async function loadNextNight(db: ScheduleListLoaderDb, now: Date, todaySiteLocal: string): Promise<NextNight | null> {
-    const rows = await db
-        .select({
-            entry: scheduleEntries,
-            cycle: irrigationCycles,
-            zone: { id: zones.id, name: zones.name },
-        })
-        .from(scheduleEntries)
-        .innerJoin(zones, eq(scheduleEntries.zoneId, zones.id))
-        .leftJoin(irrigationCycles, eq(irrigationCycles.scheduleEntryId, scheduleEntries.id))
-        .where(and(gte(scheduleEntries.date, todaySiteLocal), eq(scheduleEntries.source, 'scheduled')))
-        .orderBy(asc(scheduleEntries.date), asc(zones.id), asc(irrigationCycles.startTime))
-        .limit(NEXT_RUN_FETCH_LIMIT);
+async function loadNextNight(now: Date, todaySiteLocal: string): Promise<NextNight | null> {
+    const rows = await getScheduleEntriesRepo().findScheduledFromDate(todaySiteLocal, NEXT_RUN_FETCH_LIMIT);
 
     const byDate = new Map<string, NextRunJoinedRow[]>();
     for (const row of rows) {

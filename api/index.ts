@@ -40,7 +40,11 @@ import { bootSystemService, getSystemState, setIrrigationEnabled } from '@/servi
 import type { Database } from '@/db';
 import type { SystemStateDto } from '@/models/system';
 import { getTonightSummary, type TonightDb, type TonightDto } from '@/tonight';
-import { listSchedules, type ScheduleListDb, type ScheduleListItem } from '@/schedules-list';
+import {
+    bootSchedulesListService,
+    listSchedules,
+    type ScheduleListItem,
+} from '@/service/schedules-list';
 import { queryLatestMigrationViaDrizzle, readJournalFile, verifyMigrations } from '@/db/verify-migrations';
 import {
     bootManualService,
@@ -720,6 +724,7 @@ if (import.meta.main) {
     bootSchedulesService({ db: typedDb });
     bootZonesService({ db: typedDb });
     bootManualService({ db: typedDb });
+    bootSchedulesListService({ db: typedDb });
     bootDaemonService({ db: typedDb });
     const daemon = await daemonStart({
         notifier,
@@ -761,7 +766,7 @@ if (import.meta.main) {
         system: wrapSystemWithReplan(baseSystem, () => daemon.rePlan()),
         activity: params => listActivity(db as unknown as ActivityDb, params),
         tonight: () => getTonightSummary(db as unknown as TonightDb, realClock.now()),
-        schedulesList: () => listSchedules(db as unknown as ScheduleListDb, realClock.now()),
+        schedulesList: () => listSchedules(realClock.now()),
     });
 
     const onSignal = (signal: NodeJS.Signals): void => {
