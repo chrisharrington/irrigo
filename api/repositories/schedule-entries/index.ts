@@ -1,5 +1,5 @@
 import type dayjs from 'dayjs';
-import { and, eq, gt, gte, isNotNull, isNull } from 'drizzle-orm';
+import { and, asc, eq, gt, gte, isNotNull, isNull } from 'drizzle-orm';
 import type { Database } from '@/db';
 import {
     grassTypes,
@@ -27,6 +27,18 @@ type FutureCycleJoinedRow = {
  */
 export type ReplaceForZoneResult = {
     cycles: PersistedCycle[];
+};
+
+/**
+ * Shape of one row from the schedules-list / tonight join — `scheduleEntries
+ * × zones × leftJoin irrigationCycles`. Each row is one (entry, cycle) pair;
+ * `cycle` is `null` for entries whose cycles haven't been inserted yet (or
+ * for non-scheduled sources like `manual`, though this method filters those out).
+ */
+export type NextRunJoinedRow = {
+    entry: typeof scheduleEntries.$inferSelect;
+    cycle: typeof irrigationCycles.$inferSelect | null;
+    zone: { id: string; name: string };
 };
 
 /**
@@ -65,6 +77,15 @@ export interface ScheduleEntriesRepository {
 
     /** Stamps the cycle's `closed_at` column. Called after a successful HA close. */
     markCycleClosed(cycleId: string, closedAt: Date): Promise<void>;
+
+    /**
+     * Returns up to `limit` rows of the `scheduleEntries × zones × leftJoin
+     * irrigationCycles` join filtered by `date >= fromDate` and
+     * `source = 'scheduled'`. Ordered by date, then zone id, then cycle
+     * start time. Used by the schedules-list and tonight modules to derive
+     * the next upcoming irrigation night.
+     */
+    findScheduledFromDate(fromDate: string, limit: number): Promise<NextRunJoinedRow[]>;
 }
 
 /**
@@ -192,6 +213,21 @@ export function createScheduleEntriesRepository(db: Database): ScheduleEntriesRe
 
         markCycleClosed: async (cycleId, closedAt) => {
             await db.update(irrigationCycles).set({ closedAt }).where(eq(irrigationCycles.id, cycleId));
+        },
+
+        findScheduledFromDate: async (fromDate, limit) => {
+            return db
+                .select({
+                    entry: scheduleEntries,
+                    cycle: irrigationCycles,
+                    zone: { id: zones.id, name: zones.name },
+                })
+                .from(scheduleEntries)
+                .innerJoin(zones, eq(scheduleEntries.zoneId, zones.id))
+                .leftJoin(irrigationCycles, eq(irrigationCycles.scheduleEntryId, scheduleEntries.id))
+                .where(and(gte(scheduleEntries.date, fromDate), eq(scheduleEntries.source, 'scheduled')))
+                .orderBy(asc(scheduleEntries.date), asc(zones.id), asc(irrigationCycles.startTime))
+                .limit(limit);
         },
     };
 }

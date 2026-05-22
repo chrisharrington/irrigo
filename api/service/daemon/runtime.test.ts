@@ -107,6 +107,7 @@ function recordingScheduleEntriesRepo(): { repo: ScheduleEntriesRepository; upda
         markCycleClosed: async (cycleId, closedAt) => {
             updates.push({ cycleId, closedAt });
         },
+        findScheduledFromDate: async () => [],
     };
     return { repo, updates };
 }
@@ -122,6 +123,7 @@ function defaultRepos(scheduleEntries: ScheduleEntriesRepository): DaemonService
         },
         sites: { loadTimezone: async () => 'UTC' },
         schedules: {
+            listAll: async () => [],
             loadActiveBySite: async () => new Map(),
             findBySlug: async () => null,
             enable: async () => null,
