@@ -16,13 +16,10 @@ export type CanvasBackgroundProps = PropsWithChildren<{
 }>;
 
 const BACKGROUND_COLOR = colors.bg;
-const GREEN_GLOW = colors.accent;
-const BLUE_GLOW = colors.info;
-
-// Alphas are intentionally local — they describe this component's glow recipe,
-// not a generic design-system token. The hex values above come from Tailwind.
-const GREEN_GLOW_ALPHA = 0.07;
-const BLUE_GLOW_ALPHA = 0.04;
+// Soft canvas-backdrop tints shared with the modal scrim (grass-glow-3) and
+// info-tinted surfaces (water-glow). See `tailwind.config.js`.
+const GREEN_GLOW = colors['grass-glow-3'];
+const BLUE_GLOW = colors['water-glow'];
 
 const GREEN_GRADIENT_ID = 'irrigoCanvasGreenGlow';
 const BLUE_GRADIENT_ID = 'irrigoCanvasBlueGlow';
@@ -40,11 +37,11 @@ export function CanvasBackground({ accessibilityLabel = 'Irrigo canvas', childre
             <Svg style={StyleSheet.absoluteFill} width='100%' height='100%' pointerEvents='none'>
                 <Defs>
                     <RadialGradient id={GREEN_GRADIENT_ID} cx='20%' cy='-5%' r='50%' fx='20%' fy='-5%'>
-                        <Stop offset='0%' stopColor={GREEN_GLOW} stopOpacity={GREEN_GLOW_ALPHA} />
+                        <Stop offset='0%' stopColor={GREEN_GLOW} />
                         <Stop offset='100%' stopColor={GREEN_GLOW} stopOpacity={0} />
                     </RadialGradient>
                     <RadialGradient id={BLUE_GRADIENT_ID} cx='90%' cy='50%' r='50%' fx='90%' fy='50%'>
-                        <Stop offset='0%' stopColor={BLUE_GLOW} stopOpacity={BLUE_GLOW_ALPHA} />
+                        <Stop offset='0%' stopColor={BLUE_GLOW} />
                         <Stop offset='100%' stopColor={BLUE_GLOW} stopOpacity={0} />
                     </RadialGradient>
                 </Defs>
