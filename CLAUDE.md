@@ -42,6 +42,9 @@ First-time setup:
 
 ## Testing
 
+- **Test commands differ per subproject:**
+  - **`api/`** uses Bun's native test runner. Run with `bun --cwd=./api test` (or `bun --cwd=./api test <pattern>` to filter). Do NOT use `bun run test` — the `run` prefix is unnecessary.
+  - **`app/`** uses `jest` via the `jest-expo` preset (React Native + Flow types require it; Bun's native runner cannot transpile RN's source today). Run with `bun --cwd=./app run test` (or `bun --cwd=./app run test <pattern>`). The `run` prefix is required here — `bun --cwd=./app test` would invoke Bun's runner and fail.
 - **Every change to a code file requires matching test coverage** — new behavior gets new tests, modified behavior gets updated tests. A change isn't complete until the tests cover it.
 - Tests are behavior-driven acceptance tests. Verify via observable behavior (return values, rendered output), not by inspecting internal state.
 - For UI tests, query elements by visible text, placeholder, or label — never by test IDs.

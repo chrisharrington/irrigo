@@ -120,16 +120,28 @@ describe('tailwind.config.js — Irrigo design tokens', () => {
         const fontFamily = theme.fontFamily as Record<string, readonly string[]>;
         const fontSize = theme.fontSize as Record<string, readonly [string, Record<string, string>]>;
 
-        it('declares Bricolage Grotesque, Geist, and Geist Mono as the three families.', () => {
-            expect(fontFamily.display[0]).toBe('Bricolage Grotesque');
-            expect(fontFamily.body[0]).toBe('Geist');
-            expect(fontFamily.mono[0]).toBe('Geist Mono');
+        it('declares the three brand families at their default (regular) weight.', () => {
+            expect(fontFamily.display[0]).toBe('BricolageGrotesque_400Regular');
+            expect(fontFamily.sans[0]).toBe('Geist_400Regular');
+            expect(fontFamily.mono[0]).toBe('GeistMono_400Regular');
+        });
+
+        it('exposes weight-specific aliases for each family (one Tailwind token per loaded weight).', () => {
+            expect(fontFamily['display-medium'][0]).toBe('BricolageGrotesque_500Medium');
+            expect(fontFamily['display-semibold'][0]).toBe('BricolageGrotesque_600SemiBold');
+            expect(fontFamily['display-bold'][0]).toBe('BricolageGrotesque_700Bold');
+            expect(fontFamily['sans-light'][0]).toBe('Geist_300Light');
+            expect(fontFamily['sans-medium'][0]).toBe('Geist_500Medium');
+            expect(fontFamily['sans-semibold'][0]).toBe('Geist_600SemiBold');
+            expect(fontFamily['sans-bold'][0]).toBe('Geist_700Bold');
+            expect(fontFamily['mono-medium'][0]).toBe('GeistMono_500Medium');
+            expect(fontFamily['mono-semibold'][0]).toBe('GeistMono_600SemiBold');
         });
 
         it('exposes the display ramp top (display-1) at 56px.', () => {
             expect(fontSize['display-1'][0]).toBe('56px');
-            expect(fontSize['display-1'][1].fontWeight).toBe('700');
             expect(fontSize['display-1'][1].lineHeight).toBe('0.96');
+            expect(fontSize['display-1'][1].letterSpacing).toBe('-0.02em');
         });
 
         it('exposes the body and numeric scales used for runtimes / mm / time columns.', () => {
@@ -147,26 +159,26 @@ describe('tailwind.config.js — Irrigo design tokens', () => {
     describe('typography (component classes via plugin)', () => {
         const components = collectComponents();
 
-        it('emits display-1 with the Bricolage family at 56px / 700 weight / -0.02em tracking.', () => {
+        it('emits display-1 with the Bricolage Bold family at 56px and -0.02em tracking.', () => {
             const cls = components['.display-1'];
-            expect(cls.fontFamily).toContain('Bricolage Grotesque');
+            expect(cls.fontFamily).toBe('BricolageGrotesque_700Bold');
             expect(cls.fontSize).toBe('56px');
-            expect(cls.fontWeight).toBe('700');
             expect(cls.lineHeight).toBe('0.96');
             expect(cls.letterSpacing).toBe('-0.02em');
         });
 
-        it('emits eyebrow with uppercase + 0.14em tracking + fg-muted color.', () => {
+        it('emits eyebrow with the Geist Medium family + uppercase + 0.14em tracking + fg-muted color.', () => {
             const cls = components['.eyebrow'];
+            expect(cls.fontFamily).toBe('Geist_500Medium');
             expect(cls.fontSize).toBe('11px');
             expect(cls.textTransform).toBe('uppercase');
             expect(cls.letterSpacing).toBe('0.14em');
             expect(cls.color).toBe('#8A9690');
         });
 
-        it('emits num-hero with the mono family + tnum + ss01 feature settings.', () => {
+        it('emits num-hero with the Geist Mono Medium family + tnum + ss01 feature settings.', () => {
             const cls = components['.num-hero'];
-            expect(cls.fontFamily).toContain('Geist Mono');
+            expect(cls.fontFamily).toBe('GeistMono_500Medium');
             expect(cls.fontSize).toBe('72px');
             expect(cls.fontFeatureSettings).toContain('tnum');
             expect(cls.fontFeatureSettings).toContain('ss01');

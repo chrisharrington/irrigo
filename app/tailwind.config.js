@@ -1,9 +1,5 @@
 const plugin = require('tailwindcss/plugin');
 
-const fontDisplay = ['Bricolage Grotesque', 'ui-sans-serif', 'system-ui', 'sans-serif'].join(', ');
-const fontBody = ['Geist', 'ui-sans-serif', 'system-ui', 'sans-serif'].join(', ');
-const fontMono = ['Geist Mono', 'ui-monospace', 'SF Mono', 'Menlo', 'monospace'].join(', ');
-
 /** @type {import('tailwindcss').Config} */
 module.exports = {
     content: [
@@ -112,26 +108,38 @@ module.exports = {
                 'glow-accent': '0 0 0 1px rgba(111, 227, 155, 0.28) inset, 0 0 24px -4px rgba(111, 227, 155, 0.18)',
             },
             fontFamily: {
-                display: ['Bricolage Grotesque', 'ui-sans-serif', 'system-ui', 'sans-serif'],
-                body: ['Geist', 'ui-sans-serif', 'system-ui', 'sans-serif'],
-                mono: ['Geist Mono', 'ui-monospace', 'SF Mono', 'Menlo', 'monospace'],
+                // Bricolage Grotesque — display weights, loaded by FontLoader.
+                display: ['BricolageGrotesque_400Regular'],
+                'display-medium': ['BricolageGrotesque_500Medium'],
+                'display-semibold': ['BricolageGrotesque_600SemiBold'],
+                'display-bold': ['BricolageGrotesque_700Bold'],
+                // Geist — body / UI weights.
+                'sans-light': ['Geist_300Light'],
+                sans: ['Geist_400Regular'],
+                'sans-medium': ['Geist_500Medium'],
+                'sans-semibold': ['Geist_600SemiBold'],
+                'sans-bold': ['Geist_700Bold'],
+                // Geist Mono — numeric weights for values that must align in columns.
+                mono: ['GeistMono_400Regular'],
+                'mono-medium': ['GeistMono_500Medium'],
+                'mono-semibold': ['GeistMono_600SemiBold'],
             },
             fontSize: {
-                'display-1': ['56px', { lineHeight: '0.96', letterSpacing: '-0.02em', fontWeight: '700' }],
-                'display-2': ['40px', { lineHeight: '1.02', letterSpacing: '-0.018em', fontWeight: '600' }],
-                'display-3': ['28px', { lineHeight: '1.08', letterSpacing: '-0.015em', fontWeight: '600' }],
-                'h-1': ['22px', { lineHeight: '1.2', letterSpacing: '-0.01em', fontWeight: '600' }],
-                'h-2': ['18px', { lineHeight: '1.25', letterSpacing: '-0.005em', fontWeight: '600' }],
-                'h-3': ['15px', { lineHeight: '1.3', fontWeight: '600' }],
-                eyebrow: ['11px', { lineHeight: '1.2', letterSpacing: '0.14em', fontWeight: '500' }],
-                label: ['12px', { lineHeight: '1.3', fontWeight: '500' }],
-                'body-lg': ['16px', { lineHeight: '1.5', fontWeight: '400' }],
-                body: ['14px', { lineHeight: '1.5', fontWeight: '400' }],
-                'body-sm': ['12px', { lineHeight: '1.45', fontWeight: '400' }],
-                'num-hero': ['72px', { lineHeight: '0.95', letterSpacing: '-0.04em', fontWeight: '500' }],
-                'num-lg': ['28px', { lineHeight: '1', letterSpacing: '-0.02em', fontWeight: '500' }],
-                num: ['14px', { lineHeight: '1.2', fontWeight: '500' }],
-                'num-sm': ['11px', { lineHeight: '1.2', fontWeight: '500' }],
+                'display-1': ['56px', { lineHeight: '0.96', letterSpacing: '-0.02em' }],
+                'display-2': ['40px', { lineHeight: '1.02', letterSpacing: '-0.018em' }],
+                'display-3': ['28px', { lineHeight: '1.08', letterSpacing: '-0.015em' }],
+                'h-1': ['22px', { lineHeight: '1.2', letterSpacing: '-0.01em' }],
+                'h-2': ['18px', { lineHeight: '1.25', letterSpacing: '-0.005em' }],
+                'h-3': ['15px', { lineHeight: '1.3' }],
+                eyebrow: ['11px', { lineHeight: '1.2', letterSpacing: '0.14em' }],
+                label: ['12px', { lineHeight: '1.3' }],
+                'body-lg': ['16px', { lineHeight: '1.5' }],
+                body: ['14px', { lineHeight: '1.5' }],
+                'body-sm': ['12px', { lineHeight: '1.45' }],
+                'num-hero': ['72px', { lineHeight: '0.95', letterSpacing: '-0.04em' }],
+                'num-lg': ['28px', { lineHeight: '1', letterSpacing: '-0.02em' }],
+                num: ['14px', { lineHeight: '1.2' }],
+                'num-sm': ['11px', { lineHeight: '1.2' }],
             },
             transitionDuration: {
                 1: '120ms',
@@ -146,111 +154,100 @@ module.exports = {
     },
     plugins: [
         plugin(function ({ addComponents }) {
+            // Plugin component classes use the exact font family names registered
+            // by FontLoader's useFonts call (weight baked into the family name).
+            // fontWeight is intentionally omitted — React Native resolves custom
+            // fonts by family name, not by family-name + weight.
             addComponents({
                 '.display-1': {
-                    fontFamily: fontDisplay,
+                    fontFamily: 'BricolageGrotesque_700Bold',
                     fontSize: '56px',
                     lineHeight: '0.96',
-                    fontWeight: '700',
                     letterSpacing: '-0.02em',
                 },
                 '.display-2': {
-                    fontFamily: fontDisplay,
+                    fontFamily: 'BricolageGrotesque_600SemiBold',
                     fontSize: '40px',
                     lineHeight: '1.02',
-                    fontWeight: '600',
                     letterSpacing: '-0.018em',
                 },
                 '.display-3': {
-                    fontFamily: fontDisplay,
+                    fontFamily: 'BricolageGrotesque_600SemiBold',
                     fontSize: '28px',
                     lineHeight: '1.08',
-                    fontWeight: '600',
                     letterSpacing: '-0.015em',
                 },
                 '.h1': {
-                    fontFamily: fontDisplay,
+                    fontFamily: 'BricolageGrotesque_600SemiBold',
                     fontSize: '22px',
                     lineHeight: '1.2',
-                    fontWeight: '600',
                     letterSpacing: '-0.01em',
                 },
                 '.h2': {
-                    fontFamily: fontDisplay,
+                    fontFamily: 'BricolageGrotesque_600SemiBold',
                     fontSize: '18px',
                     lineHeight: '1.25',
-                    fontWeight: '600',
                     letterSpacing: '-0.005em',
                 },
                 '.h3': {
-                    fontFamily: fontBody,
+                    fontFamily: 'Geist_600SemiBold',
                     fontSize: '15px',
                     lineHeight: '1.3',
-                    fontWeight: '600',
                 },
                 '.eyebrow': {
-                    fontFamily: fontBody,
+                    fontFamily: 'Geist_500Medium',
                     fontSize: '11px',
                     lineHeight: '1.2',
-                    fontWeight: '500',
                     textTransform: 'uppercase',
                     letterSpacing: '0.14em',
                     color: '#8A9690',
                 },
                 '.label': {
-                    fontFamily: fontBody,
+                    fontFamily: 'Geist_500Medium',
                     fontSize: '12px',
                     lineHeight: '1.3',
-                    fontWeight: '500',
                     color: '#8A9690',
                 },
                 '.body-lg': {
-                    fontFamily: fontBody,
+                    fontFamily: 'Geist_400Regular',
                     fontSize: '16px',
                     lineHeight: '1.5',
-                    fontWeight: '400',
                 },
                 '.body': {
-                    fontFamily: fontBody,
+                    fontFamily: 'Geist_400Regular',
                     fontSize: '14px',
                     lineHeight: '1.5',
-                    fontWeight: '400',
                 },
                 '.body-sm': {
-                    fontFamily: fontBody,
+                    fontFamily: 'Geist_400Regular',
                     fontSize: '12px',
                     lineHeight: '1.45',
-                    fontWeight: '400',
                     color: '#C7CFC9',
                 },
                 '.num-hero': {
-                    fontFamily: fontMono,
+                    fontFamily: 'GeistMono_500Medium',
                     fontSize: '72px',
                     lineHeight: '0.95',
-                    fontWeight: '500',
                     letterSpacing: '-0.04em',
                     fontFeatureSettings: '"ss01", "tnum"',
                 },
                 '.num-lg': {
-                    fontFamily: fontMono,
+                    fontFamily: 'GeistMono_500Medium',
                     fontSize: '28px',
                     lineHeight: '1',
-                    fontWeight: '500',
                     letterSpacing: '-0.02em',
                     fontFeatureSettings: '"tnum"',
                 },
                 '.num': {
-                    fontFamily: fontMono,
+                    fontFamily: 'GeistMono_500Medium',
                     fontSize: '14px',
                     lineHeight: '1.2',
-                    fontWeight: '500',
                     fontFeatureSettings: '"tnum"',
                 },
                 '.num-sm': {
-                    fontFamily: fontMono,
+                    fontFamily: 'GeistMono_500Medium',
                     fontSize: '11px',
                     lineHeight: '1.2',
-                    fontWeight: '500',
                     fontFeatureSettings: '"tnum"',
                 },
             });

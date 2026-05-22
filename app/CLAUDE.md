@@ -4,7 +4,9 @@ Expo / React Native client for Irrigo — **Expo SDK 54, React Native 0.81, Nati
 
 Shared conventions (typing, shell rules, ticket workflow, git workflow) live in the root `CLAUDE.md`. Detailed frontend conventions (component structure, hooks, comments, NativeWind organization, testing patterns) live in `shared/CLAUDE.md`. This file holds client-only guidance and the scripts table.
 
-@AGENTS.md
+## Expo has changed
+
+Read the exact versioned docs at <https://docs.expo.dev/versions/v54.0.0/> before writing any code that touches Expo APIs.
 
 ## Scripts
 
