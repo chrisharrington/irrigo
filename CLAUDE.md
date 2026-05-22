@@ -12,7 +12,7 @@ First-time setup:
 
 1. `cp .env.example .env` — at the repo root. Docker Compose loads `.env` from the directory containing the compose file.
 2. Edit `.env` and fill in the required values: `HA_URL` (your Home Assistant base URL) and `HA_TOKEN` (a long-lived access token from HA → Profile → Security → Long-Lived Access Tokens). Postgres / pgAdmin / port values have working defaults and only need to be set if you're overriding them. To opt into push notifications via Home Assistant, set `HA_NOTIFY_SERVICE` (e.g. `mobile_app_pixel_8`); the `NOTIFY_ON_WATERING_START` / `NOTIFY_ON_WATERING_END` / `NOTIFY_ON_ERROR` flags toggle each event type (defaults: `false`/`false`/`true`).
-3. From the repo root, bring the stack up: `docker compose up` (or `bun --cwd api run up` for the variant that includes pgAdmin via the `tools` profile).
+3. From the repo root, bring the stack up: `docker compose up` (or `bun --cwd=./api run up` for the variant that includes pgAdmin via the `tools` profile).
 
 `.env` is gitignored — never commit credentials.
 
@@ -31,7 +31,7 @@ Detailed frontend conventions (component structure, hooks, Tailwind/NativeWind) 
 ## Shell commands
 
 - Never prepend `cd /app` (or any other current-directory `cd`) to a command. The working directory is already `/app` — run the command directly. Prepending `cd` triggers a separate permission prompt for every invocation.
-- For commands that need a different cwd, prefer the tool's `--cwd` flag over `cd && …`, and **use a relative path** (`./api`, not `/app/api`) so the permission matcher can pre-approve by prefix across worktrees. Examples: `bun --cwd=./api test`, `bun --cwd=./api run type-check`, `bun --cwd=./api run db:generate`. Same shape for `docker compose --project-directory=./api …`.
+- For commands that need a different cwd, prefer the tool's `--cwd` flag over `cd && …`, and **use a relative path** (`./api`, not `/app/api`) so the permission matcher can pre-approve by prefix across worktrees. The canonical form for `bun` is **always** `bun --cwd=./<dir> <command>` with the equals sign and the leading `./` — e.g. `bun --cwd=./api test`, `bun --cwd=./api run type-check`, `bun --cwd=./app typecheck`. Do not write the space form (`bun --cwd ./api …`) or omit the `./` prefix. Same shape for `docker compose --project-directory=./api …`.
 - `git` always operates on the current working tree — never prefix git commands with `cd`.
 - **No compound commands.** Don't chain shell expressions with `&&`, `||`, or `;` — each Bash call should run exactly one logical command so the permission matcher can pre-approve it by prefix. Run multi-step verification (type-check + tests) as separate Bash calls. The only exception is `git commit -m "$(cat <<'EOF' … EOF)"` heredoc for multi-line messages — that's still one logical command.
 - **No `| tail` / `| head` / `2>&1` redirection.** The Bash tool already captures stdout + stderr in full. Trimming output in the shell triggers a fresh permission prompt for every distinct compound; if a result is too long for context, truncate it when summarizing rather than in the pipe.
