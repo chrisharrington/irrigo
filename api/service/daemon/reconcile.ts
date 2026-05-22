@@ -1,11 +1,10 @@
-import { eq } from 'drizzle-orm';
 import type { Alerter } from '@/alerts';
-import { irrigationCycles } from '@/db/schema';
 import type { ZoneRelayState } from '@/data/home-assistant';
 import type { Zone } from '@/models';
+import type { FutureCyclePair } from '@/models/cycle';
 import type { Notifier } from '@/notifications';
-import type { FutureCyclePair, FutureCyclesDb } from './schedules';
-import type { ArmCloseOnlyInputs, Clock, RuntimeDb, TimerRegistry } from './runtime';
+import { armCloseOnly as defaultArmCloseOnly, type ArmCloseOnlyInputs, type Clock, type TimerRegistry } from './runtime';
+import { getScheduleEntriesRepo } from './state';
 
 /**
  * Counters from a reconciliation pass. The daemon logs these in a single
@@ -13,68 +12,58 @@ import type { ArmCloseOnlyInputs, Clock, RuntimeDb, TimerRegistry } from './runt
  * previous shutdown left state behind that needed cleanup.
  */
 export type ReconcileSummary = {
-    /** In-flight cycles whose close was successfully re-armed for the planned time. */
     resumed: number;
-    /** In-flight cycles HA still had open past their planned close — closed immediately. */
     forcedClosed: number;
-    /** In-flight cycles HA had already closed — `closed_at` recorded after the fact. */
     missedClose: number;
-    /** Managed zones HA had open with no in-flight cycle backing them — force-closed. */
     orphansClosed: number;
-    /** HA state queries (or close calls) that errored — those zones were skipped. */
     errors: number;
 };
 
 /**
- * Db surface needed by the reconciler. The reconciler only updates the
- * `irrigation_cycles` row's `closed_at`; it never inserts.
- */
-export type ReconcileDb = FutureCyclesDb & RuntimeDb;
-
-/**
- * Collaborators injected at construction. Everything external is replaceable
- * so the orchestrator is fully testable without touching HA, the DB, or the
- * real clock.
+ * Collaborators injected at construction. The schedule-entries repo (the
+ * source of `loadInFlightCycles` and the cycle UPDATEs) is read from the
+ * module-level state via `getScheduleEntriesRepo()`.
+ *
+ * `loadInFlightCycles` and `armCloseOnly` remain injectable so tests can
+ * substitute spies without booting the daemon service.
  */
 export type ReconcileDeps = {
-    db: ReconcileDb;
     clock: Clock;
     registry: TimerRegistry;
     notifier: Notifier;
     alerter: Alerter;
     closeZone: (zone: Zone) => Promise<void>;
     getZoneState: (zone: Zone) => Promise<ZoneRelayState>;
-    loadInFlightCycles: (db: ReconcileDb, now: Date) => Promise<FutureCyclePair[]>;
-    armCloseOnly: (inputs: ArmCloseOnlyInputs) => void;
 
     /**
-     * Managed zones for the defensive sweep. Caller (the daemon's `start`)
-     * supplies enabled zones with non-null `homeAssistantEntityId`.
+     * Optional override for the in-flight loader. Defaults to the
+     * schedule-entries repo's `loadInFlightCycles()` (requires `bootDaemonService`).
      */
+    loadInFlightCycles?: () => Promise<FutureCyclePair[]>;
+
+    /** Optional override for the close-only arm. Defaults to runtime's. */
+    armCloseOnly?: (inputs: ArmCloseOnlyInputs) => void;
+
+    /** Managed zones for the defensive sweep — caller supplies enabled zones with HA entities. */
     managedZones: ReadonlyArray<Zone>;
 };
 
 /**
  * Resumes or closes any cycle that was in-flight at the previous shutdown,
  * then defensively force-closes any managed zone that's open with no
- * in-flight cycle backing it. Runs **before** the daemon arms timers for
- * future cycles.
- *
- * Failures of individual zones are tolerated and counted as `errors` —
- * reconciliation should make as much progress as it can rather than abort
- * the whole boot. The caller decides whether to surface a non-zero error
- * count.
- *
- * @param deps - Collaborators and the managed-zone list.
- * @returns Counters describing what changed.
+ * in-flight cycle backing it.
  */
 export async function reconcileCycleAndRelayState(deps: ReconcileDeps): Promise<ReconcileSummary> {
-    const { db, clock, registry, notifier, alerter, closeZone, getZoneState, loadInFlightCycles, armCloseOnly, managedZones } = deps;
+    const {
+        clock, registry, notifier, alerter, closeZone, getZoneState, managedZones,
+        loadInFlightCycles = () => getScheduleEntriesRepo().loadInFlightCycles(),
+        armCloseOnly = defaultArmCloseOnly,
+    } = deps;
 
     const summary: ReconcileSummary = { resumed: 0, forcedClosed: 0, missedClose: 0, orphansClosed: 0, errors: 0 };
     const handledZoneIds = new Set<string>();
 
-    const inFlight = await loadInFlightCycles(db, clock.now());
+    const inFlight = await loadInFlightCycles();
 
     for (const { cycle, zone } of inFlight) {
         const plannedCloseAt = new Date(cycle.startTime.getTime() + cycle.durationMin * 60_000);
@@ -104,7 +93,7 @@ export async function reconcileCycleAndRelayState(deps: ReconcileDeps): Promise<
         }
 
         if (state === 'on' && plannedCloseAt.getTime() > now.getTime()) {
-            armCloseOnly({ db, clock, registry, zone, cycle, closeZone, notifier, alerter, plannedCloseAt });
+            armCloseOnly({ clock, registry, zone, cycle, closeZone, notifier, alerter, plannedCloseAt });
             handledZoneIds.add(zone.id);
             summary.resumed += 1;
             console.log(`daemon: reconcile resumed cycle ${cycle.id} on zone ${zone.id} (closes at ${plannedCloseAt.toISOString()}).`);
@@ -129,7 +118,7 @@ export async function reconcileCycleAndRelayState(deps: ReconcileDeps): Promise<
                 continue;
             }
             const closedAt = clock.now();
-            await db.update(irrigationCycles).set({ closedAt }).where(eq(irrigationCycles.id, cycle.id));
+            await getScheduleEntriesRepo().markCycleClosed(cycle.id, closedAt);
             handledZoneIds.add(zone.id);
             summary.forcedClosed += 1;
             console.warn(`daemon: reconcile force-closed cycle ${cycle.id} on zone ${zone.id} — relay was open past planned close ${plannedCloseAt.toISOString()}.`);
@@ -146,7 +135,7 @@ export async function reconcileCycleAndRelayState(deps: ReconcileDeps): Promise<
 
         // state === 'off'
         const closedAt = plannedCloseAt.getTime() < now.getTime() ? plannedCloseAt : now;
-        await db.update(irrigationCycles).set({ closedAt }).where(eq(irrigationCycles.id, cycle.id));
+        await getScheduleEntriesRepo().markCycleClosed(cycle.id, closedAt);
         handledZoneIds.add(zone.id);
         summary.missedClose += 1;
         console.log(`daemon: reconcile recorded missed close for cycle ${cycle.id} on zone ${zone.id} (set closed_at=${closedAt.toISOString()}).`);

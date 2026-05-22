@@ -1,7 +1,7 @@
 import dayjs from 'dayjs';
 import utc from 'dayjs/plugin/utc';
 import timezone from 'dayjs/plugin/timezone';
-import { clearAlertsByClass, noopAlerter, type Alerter, type AlertsDb } from '@/alerts';
+import { clearAlertsByClass, noopAlerter, type Alerter } from '@/alerts';
 import {
     closeZone as defaultCloseZone,
     getZoneState as defaultGetZoneState,
@@ -9,13 +9,12 @@ import {
     type ZoneRelayState,
 } from '@/data/home-assistant';
 import type { Zone } from '@/models';
+import type { PersistedCycle } from '@/models/cycle';
 import { noopNotifier, type Notifier } from '@/notifications';
 import { runScheduleForZone, type RunScheduleForZoneOptions } from '@/schedules';
 import type { PlanZoneScheduleResult } from '@/schedules/dynamic';
-import { reconcileCycleAndRelayState, type ReconcileSummary } from './reconcile';
-import { clearStaleSkipMarkers, loadActiveSchedulesBySite, type Schedule, type ScheduleManagerDb } from './schedule-manager';
-import { loadFutureCycles, loadInFlightCycles, replaceZoneSchedule, type FutureCyclesDb, type ScheduleWriterDb } from './schedules';
 import { getSystemState } from '@/service/system';
+import { reconcileCycleAndRelayState, type ReconcileSummary } from './reconcile';
 import {
     armCloseOnly,
     armCycle,
@@ -23,81 +22,59 @@ import {
     realClock,
     TimerRegistry,
     type Clock,
-    type RuntimeDb,
     type ScheduleEndMarker,
     type ScheduleStartMarker,
 } from './runtime';
-import type { PersistedCycle } from './schedules';
-import { loadSiteTimezone, type SiteTimezoneDb } from './sites';
 import {
-    isWeatherStale,
-    markWeatherFetchSuccessful,
-    type WeatherStateDb,
-} from './weather-state';
-import { countZones, loadEnabledZones, type ZoneCountDb, type ZoneLoaderDb } from './zones';
+    getAlertsDb,
+    getScheduleEntriesRepo,
+    getSchedulesRepo,
+    getSitesRepo,
+    getWeatherStateRepo,
+    getZonesRepo,
+    setDaemonRepos,
+    type DaemonServiceRepos,
+    type SetDaemonReposInput,
+} from './state';
 
 dayjs.extend(utc);
 dayjs.extend(timezone);
 
 const DEFAULT_REPLAN_HOUR_LOCAL = 4;
 
+export type BootDaemonServiceInput = SetDaemonReposInput;
+
 /**
- * Composite db type the daemon needs across its helpers. Production callers
- * pass the eager `db` export from `@/db`; tests pass a recording stub that
- * implements the union of the smaller per-helper interfaces.
+ * Wires the daemon service to its repositories. Call once at process boot;
+ * call in test `beforeEach` with object-literal fake repos. All service
+ * functions (and the runtime / reconcile sub-modules) read from this state.
  */
-export type DaemonDb = ZoneLoaderDb & ScheduleWriterDb & FutureCyclesDb & RuntimeDb & ZoneCountDb & SiteTimezoneDb & ScheduleManagerDb & WeatherStateDb & AlertsDb;
+export function bootDaemonService(input: BootDaemonServiceInput): void {
+    setDaemonRepos(input);
+}
 
 /**
  * Caller-overridable hooks. Defaults wire to the real planning function and
  * the real Home Assistant client. The clock defaults to `realClock`.
  */
 export type DaemonOptions = {
-    /** Local hour at which the daily re-plan fires. Default 4. */
     rePlanHourLocal?: number;
-
-    /** Planner override. Defaults to the real `runScheduleForZone`. */
     runPlan?: (zone: Zone, options?: RunScheduleForZoneOptions) => Promise<PlanZoneScheduleResult>;
-
-    /** Override the HA open-relay primitive. */
     openZone?: (zone: Zone) => Promise<void>;
-
-    /** Override the HA close-relay primitive. */
     closeZone?: (zone: Zone) => Promise<void>;
-
-    /** Override the HA state-query primitive. Used by boot reconciliation. */
     getZoneState?: (zone: Zone) => Promise<ZoneRelayState>;
-
-    /** Override for time/timer access. */
     clock?: Clock;
-
-    /** Override the resolved site timezone (skips the DB lookup). Used by tests. */
     siteTimezone?: string;
-
-    /** Override the notifier. Defaults to the no-op so tests don't have to. */
     notifier?: Notifier;
-
-    /**
-     * Override the alert recorder. Defaults to the no-op so tests don't have to
-     * provide a recording stub. Production wires `createAlerter(db)`.
-     */
     alerter?: Alerter;
 };
 
 /**
- * Snapshot of the daemon's runtime state for the HTTP `/health` endpoint and
- * any other ops surface that needs to know whether the scheduling loop is
- * alive and what it's currently doing. `lastRePlanAt` is ISO-8601 UTC so it
- * round-trips cleanly through JSON.
+ * Snapshot of the daemon's runtime state for the HTTP `/health` endpoint.
  */
 export type DaemonStatus = {
-    /** True once `start()` has finished its initial bootstrap. */
     alive: boolean;
-
-    /** ISO-8601 UTC of the most recent successful re-plan, or null if none yet. */
     lastRePlanAt: string | null;
-
-    /** Zones whose relay is currently open (cycle fired, close pending). */
     activeZones: ReadonlyArray<{ id: string; name: string }>;
 };
 
@@ -106,27 +83,23 @@ export type DaemonStatus = {
  * tests) drive the daemon without reaching into its internals.
  */
 export type DaemonControl = {
-    /** Forces an immediate re-plan + arm cycle. */
     rePlan: () => Promise<void>;
-
-    /** Cancels all timers and closes any in-flight relay. */
     shutdown: () => Promise<void>;
-
-    /** Snapshot of daemon liveness and currently active zones. */
     getStatus: () => DaemonStatus;
 };
 
 /**
- * Boots the daemon: arms whatever future cycles already exist in the DB and
- * schedules the next daily re-plan. Does **not** trigger an immediate re-plan
- * — bootstrapping a fresh DB requires either waiting for the configured hour
- * or calling `rePlan()` on the returned control handle.
- *
- * @param db - Daemon-compatible Drizzle client.
- * @param options - Overrides for hooks, hour, or clock.
- * @returns Control handle for forcing re-plan or shutting down.
+ * Re-export the repo type so api/index.ts can construct it without importing
+ * from the internal state module.
  */
-export async function start(db: DaemonDb, options?: DaemonOptions): Promise<DaemonControl> {
+export type { DaemonServiceRepos };
+
+/**
+ * Boots the daemon: arms whatever future cycles already exist in the DB and
+ * schedules the next daily re-plan. Reads repositories from the module-level
+ * state set by `bootDaemonService`.
+ */
+export async function start(options?: DaemonOptions): Promise<DaemonControl> {
     const clock = options?.clock ?? realClock;
     const rePlanHourLocal = options?.rePlanHourLocal ?? DEFAULT_REPLAN_HOUR_LOCAL;
     const runPlan = options?.runPlan ?? ((zone, opts) => runScheduleForZone(zone, opts));
@@ -140,39 +113,40 @@ export async function start(db: DaemonDb, options?: DaemonOptions): Promise<Daem
     let lastRePlanAt: Date | null = null;
     let started = false;
 
-    const siteTimezone = options?.siteTimezone ?? await loadSiteTimezone(db);
+    const sitesRepo = getSitesRepo();
+    const zonesRepo = getZonesRepo();
+    const schedulesRepo = getSchedulesRepo();
+    const scheduleEntriesRepo = getScheduleEntriesRepo();
+    const weatherStateRepo = getWeatherStateRepo();
+
+    const siteTimezone = options?.siteTimezone ?? await sitesRepo.loadTimezone();
 
     console.log(`daemon: starting (re-plan hour: ${rePlanHourLocal}:00 ${siteTimezone}).`);
 
-    const enabledZonesAtBoot = await loadEnabledZones(db);
+    const enabledZonesAtBoot = await zonesRepo.loadEnabled();
     const reconcileSummary: ReconcileSummary = await reconcileCycleAndRelayState({
-        db,
         clock,
         registry,
         notifier,
         alerter,
         closeZone,
         getZoneState,
-        loadInFlightCycles,
         armCloseOnly,
         managedZones: enabledZonesAtBoot.filter(z => z.homeAssistantEntityId !== undefined),
     });
     console.log(`daemon: reconcile summary — resumed: ${reconcileSummary.resumed}, forcedClosed: ${reconcileSummary.forcedClosed}, missedClose: ${reconcileSummary.missedClose}, orphansClosed: ${reconcileSummary.orphansClosed}, errors: ${reconcileSummary.errors}.`);
 
-    const futureCycles = await loadFutureCycles(db, clock.now());
+    const futureCycles = await scheduleEntriesRepo.loadFutureCycles(clock.now());
     const systemAtBoot = await getSystemState();
     if (!systemAtBoot.irrigationEnabled) {
         console.warn(`daemon: system irrigation is disabled (since ${systemAtBoot.since}); skipping arm of ${futureCycles.length} future cycle(s).`);
     } else {
-        // Boot-recovery arms leave the schedule markers undefined — schedule-begun
-        // and schedule-ended for this night, if applicable, were already emitted by
-        // the prior process, and re-emitting on every restart would be misleading.
         for (const { cycle, zone } of futureCycles) {
-            armCycle({ db, clock, registry, zone, cycle, openZone, closeZone, notifier, alerter });
+            armCycle({ clock, registry, zone, cycle, openZone, closeZone, notifier, alerter });
         }
     }
 
-    const { total, enabled } = await countZones(db);
+    const { total, enabled } = await zonesRepo.count();
     if (total === 0) {
         console.warn('daemon: has no zones to manage. Did you run `bun run seed`? Daemon is idle until zones are added.');
     } else if (enabled === 0) {
@@ -204,22 +178,15 @@ export async function start(db: DaemonDb, options?: DaemonOptions): Promise<Daem
         }
 
         const today = dayjs(clock.now());
-        // Wipe markers from past nights before snapshotting active schedules so
-        // a stale entry can't accidentally apply to the new night's plan.
-        await clearStaleSkipMarkers(db, today);
+        await schedulesRepo.clearStaleSkipMarkers(today);
 
-        const enabledZones = await loadEnabledZones(db);
-        const activeSchedulesBySite: Map<string, Schedule> = await loadActiveSchedulesBySite(db);
+        const enabledZones = await zonesRepo.loadEnabled();
+        const activeSchedulesBySite = await schedulesRepo.loadActiveBySite();
         const now = clock.now();
         const busyWindows: Array<{ start: Date; end: Date }> = registry.snapshotInFlight()
             .map(({ endTime }) => ({ start: now, end: endTime }));
-        // Sentinel covering the entire past so deconflictCycles shifts any
-        // cycle whose planned start has already passed to fire at or after now.
         const pastWindow: { start: Date; end: Date } = { start: new Date(0), end: now };
 
-        // Defer arming until the planning loop is done so we can group cycles
-        // by irrigation night and tag the first/last cycle of each night for
-        // schedule-begun / schedule-ended notifications.
         const cyclesToArm: Array<{ zone: Zone; cycle: PersistedCycle }> = [];
 
         for (const zone of enabledZones) {
@@ -246,7 +213,9 @@ export async function start(db: DaemonDb, options?: DaemonOptions): Promise<Daem
                     overrides,
                     forecastDays: 14,
                 });
-                const { cycles } = await replaceZoneSchedule(db, zone.id, entries, today, projectedNextDepletionMm, activeSchedule.id);
+                const { cycles } = await scheduleEntriesRepo.replaceForZone(
+                    zone.id, entries, today, projectedNextDepletionMm, activeSchedule.id,
+                );
                 for (const cycle of cycles) {
                     const cycleEnd = new Date(cycle.startTime.getTime() + cycle.durationMin * 60_000);
                     const overlaps = busyWindows.some(w => cycle.startTime < w.end && cycleEnd > w.start);
@@ -260,14 +229,15 @@ export async function start(db: DaemonDb, options?: DaemonOptions): Promise<Daem
                 // Successful runPlan implies a successful weather fetch — refresh
                 // the staleness timestamp and clear any lingering unacked
                 // weather-stale alert so the UI region collapses on recovery.
+                const alertsDb = getAlertsDb();
                 await Promise.all([
-                    markWeatherFetchSuccessful(db, clock.now()),
-                    clearAlertsByClass(db, 'weather-stale'),
+                    weatherStateRepo.markFetchSuccessful(clock.now()),
+                    alertsDb ? clearAlertsByClass(alertsDb, 'weather-stale') : Promise.resolve(),
                 ]);
             } catch (err) {
                 const reason = err instanceof Error ? err.message : String(err);
                 console.error(`daemon: re-plan failed for zone ${zone.id}.`, err);
-                if (await isWeatherStale(db, clock.now())) {
+                if (await weatherStateRepo.isStale(clock.now())) {
                     await alerter({
                         class: 'weather-stale',
                         tone: 'warn',
@@ -280,7 +250,7 @@ export async function start(db: DaemonDb, options?: DaemonOptions): Promise<Daem
         }
 
         armCyclesWithScheduleMarkers(cyclesToArm, siteTimezone, ({ zone, cycle, scheduleStart, scheduleEnd }) => {
-            armCycle({ db, clock, registry, zone, cycle, openZone, closeZone, notifier, alerter, scheduleStart, scheduleEnd });
+            armCycle({ clock, registry, zone, cycle, openZone, closeZone, notifier, alerter, scheduleStart, scheduleEnd });
         });
 
         lastRePlanAt = clock.now();
@@ -291,7 +261,7 @@ export async function start(db: DaemonDb, options?: DaemonOptions): Promise<Daem
     const shutdown = async (): Promise<void> => {
         console.log('daemon: shutdown starting.');
         registry.cancelAllTimers(clock);
-        await closeAllInFlight({ db, clock, registry, closeZone, alerter });
+        await closeAllInFlight({ clock, registry, closeZone, alerter });
         console.log('daemon: shutdown complete.');
     };
 
@@ -310,25 +280,18 @@ export async function start(db: DaemonDb, options?: DaemonOptions): Promise<Daem
 /**
  * Returns the next wall-clock occurrence of `hourLocal:00` after `now`,
  * resolved against the supplied IANA timezone. Pure function exported so the
- * scheduling math is unit-testable directly. The container TZ is irrelevant
- * — the target is always the next 04:00 (or whatever) at the *site*.
- *
- * @param now - Current time (any TZ — only the absolute instant is used).
- * @param hourLocal - Target hour-of-day (0-23) at the site.
- * @param timezone - IANA timezone of the site (e.g. `America/Edmonton`).
- * @returns The absolute Date at which the hour rolls over at the site.
+ * scheduling math is unit-testable directly.
  */
-export function computeNextRePlanAt(now: Date, hourLocal: number, timezone: string): Date {
-    const ref = dayjs(now).tz(timezone);
+export function computeNextRePlanAt(now: Date, hourLocal: number, tz: string): Date {
+    const ref = dayjs(now).tz(tz);
     const todayAtHour = ref.hour(hourLocal).minute(0).second(0).millisecond(0);
     const next = todayAtHour.isAfter(ref) ? todayAtHour : todayAtHour.add(1, 'day');
     return next.toDate();
 }
 
 /**
- * Tagged cycle ready for `armCycle`. The marker fields decide whether the
- * runtime emits `schedule-begun` / `schedule-ended` after the cycle's
- * open/close.
+ * Tagged cycle ready for `armCycle`. Marker fields decide whether the runtime
+ * emits `schedule-begun` / `schedule-ended` after the cycle's open/close.
  */
 export type ArmableCycle = {
     zone: Zone;
@@ -340,18 +303,7 @@ export type ArmableCycle = {
 /**
  * Groups cycles by their `entryDate` (one entry-date = one irrigation
  * night), sorts each group by start time, and tags the earliest cycle of
- * each group with `scheduleStart` and the latest with `scheduleEnd`. The
- * end marker carries the night's per-zone runtime summary and a pointer
- * to the next night's earliest cycle (when one exists in the same batch).
- *
- * Pure function — exported for test coverage of the marking logic
- * independent of the daemon's surrounding orchestration.
- *
- * @param cyclesToArm - Cycles selected for arming, in any order.
- * @param siteTimezone - Site timezone, copied onto each end marker so
- *   `buildMessage` can format the next-irrigation time in site-local.
- * @param arm - Callback that performs the actual arming with the resolved
- *   markers. Invoked once per cycle in chronological order.
+ * each group with `scheduleStart` and the latest with `scheduleEnd`.
  */
 export function armCyclesWithScheduleMarkers(
     cyclesToArm: ReadonlyArray<{ zone: Zone; cycle: PersistedCycle }>,

@@ -1,9 +1,8 @@
-import { eq } from 'drizzle-orm';
 import type { Alerter } from '@/alerts';
-import { irrigationCycles } from '@/db/schema';
 import type { Zone } from '@/models';
+import type { PersistedCycle } from '@/models/cycle';
 import type { Notifier } from '@/notifications';
-import type { PersistedCycle } from './schedules';
+import { getScheduleEntriesRepo } from './state';
 
 /**
  * Opaque handle returned by `Clock.setTimeout`. The runtime doesn't introspect
@@ -38,11 +37,7 @@ export const realClock: Clock = {
 
 /**
  * Tracks timers and in-flight cycles so the daemon can tear things down in
- * the right order on `rePlan` and `shutdown`. Two slots:
- *
- * - `openHandles`: setTimeout handles for cycles whose open hasn't fired yet.
- * - `inFlight`: cycles whose open succeeded but whose close timer is still
- *   pending — they have an active relay in HA.
+ * the right order on `rePlan` and `shutdown`.
  */
 export class TimerRegistry {
     private readonly openHandles = new Set<TimerHandle>();
@@ -69,21 +64,11 @@ export class TimerRegistry {
         this.rePlanHandle = handle;
     }
 
-    /**
-     * Cancels every pending open timer. Leaves in-flight cycles alone so a
-     * watering cycle that's already running can finish before the new plan
-     * takes over.
-     */
     cancelOpenTimers(clock: Clock): void {
         for (const handle of this.openHandles) clock.clearTimeout(handle);
         this.openHandles.clear();
     }
 
-    /**
-     * Cancels every timer the daemon owns: open, close, and the next-re-plan
-     * timer. Used by `shutdown`. The caller is responsible for closing any
-     * in-flight relays before clearing them from the registry.
-     */
     cancelAllTimers(clock: Clock): void {
         this.cancelOpenTimers(clock);
         for (const { closeHandle } of this.inFlight.values()) clock.clearTimeout(closeHandle);
@@ -99,50 +84,31 @@ export class TimerRegistry {
 }
 
 /**
- * Minimal db interface for cycle-row updates. Mirrors Drizzle's
- * `update().set().where()` chain.
- */
-export type RuntimeDb = {
-    update: (table: typeof irrigationCycles) => {
-        set: (values: Record<string, unknown>) => {
-            where: (cond: unknown) => Promise<unknown>;
-        };
-    };
-};
-
-/**
  * Marker placed on the chronologically earliest cycle of an irrigation
  * night. When set, `runOpen` emits `schedule-begun` after the cycle's
  * relay successfully opens.
  */
 export type ScheduleStartMarker = {
-    /** Irrigation night this cycle opens (YYYY-MM-DD, site timezone). */
     scheduleNight: string;
 };
 
 /**
  * Marker placed on the chronologically latest cycle of an irrigation
  * night. When set, `runClose` emits `schedule-ended` after the cycle's
- * relay successfully closes, carrying the per-zone runtime summary and a
- * pointer to the next night's first cycle (if any).
+ * relay successfully closes.
  */
 export type ScheduleEndMarker = {
-    /** Irrigation night this cycle ends (YYYY-MM-DD, site timezone). */
     scheduleNight: string;
-    /** Total minutes watered per zone for the night, keyed by zone display name. */
     perZoneRuntimeMin: Record<string, number>;
-    /** Site timezone used to format `nextIrrigation` for the operator. */
     siteTimezone: string;
-    /** Earliest cycle of the next night, when one was produced by the same re-plan. */
     nextIrrigation?: { zoneName: string; startTime: Date };
 };
 
 /**
- * Inputs to `armCycle` — every external collaborator is injected so tests can
+ * Inputs to `armCycle` — external collaborators are injected so tests can
  * substitute deterministic stubs.
  */
 export type ArmCycleInputs = {
-    db: RuntimeDb;
     clock: Clock;
     registry: TimerRegistry;
     zone: Zone;
@@ -151,32 +117,10 @@ export type ArmCycleInputs = {
     closeZone: (zone: Zone) => Promise<void>;
     notifier: Notifier;
     alerter: Alerter;
-
-    /**
-     * Set on the chronologically earliest armed cycle of an irrigation
-     * night so `runOpen` can emit the night's `schedule-begun` notification.
-     * Boot-recovery arms leave it undefined — the begun notification, if
-     * applicable, was already emitted by the prior process.
-     */
     scheduleStart?: ScheduleStartMarker;
-
-    /**
-     * Set on the chronologically latest armed cycle of an irrigation night
-     * so `runClose` can emit the night's `schedule-ended` notification with
-     * the per-zone summary. Boot-recovery arms leave it undefined.
-     */
     scheduleEnd?: ScheduleEndMarker;
 };
 
-/**
- * Schedules the open-then-close lifecycle for a single irrigation cycle.
- * Records `fired_at` after a successful open; chains a close timer for
- * `durationMin * 60_000` ms; records `closed_at` after a successful close.
- * Failures at either step log to console.error and leave the corresponding
- * column NULL — the daemon never re-fires a failed cycle.
- *
- * @param inputs - Collaborators and the cycle/zone being armed.
- */
 export function armCycle(inputs: ArmCycleInputs): void {
     const { clock, registry, cycle } = inputs;
     const openDelay = Math.max(0, cycle.startTime.getTime() - clock.now().getTime());
@@ -192,7 +136,7 @@ export function armCycle(inputs: ArmCycleInputs): void {
 }
 
 async function runOpen(inputs: ArmCycleInputs): Promise<void> {
-    const { db, clock, registry, zone, cycle, openZone, closeZone, notifier, alerter, scheduleStart, scheduleEnd } = inputs;
+    const { clock, registry, zone, cycle, openZone, closeZone, notifier, alerter, scheduleStart, scheduleEnd } = inputs;
 
     try {
         await openZone(zone);
@@ -211,7 +155,7 @@ async function runOpen(inputs: ArmCycleInputs): Promise<void> {
     }
 
     const firedAt = clock.now();
-    await db.update(irrigationCycles).set({ firedAt }).where(eq(irrigationCycles.id, cycle.id));
+    await getScheduleEntriesRepo().markCycleFired(cycle.id, firedAt);
     console.log(`daemon: opened zone ${zone.id} for cycle ${cycle.id} at ${firedAt.toISOString()}.`);
 
     if (scheduleStart) {
@@ -222,7 +166,7 @@ async function runOpen(inputs: ArmCycleInputs): Promise<void> {
     const closeDelay = cycle.durationMin * 60_000;
     const endTime = new Date(firedAt.getTime() + closeDelay);
     const closeHandle = clock.setTimeout(() => {
-        runClose({ db, clock, registry, zone, cycle, closeZone, notifier, alerter, scheduleEnd }).catch(err => {
+        runClose({ clock, registry, zone, cycle, closeZone, notifier, alerter, scheduleEnd }).catch(err => {
             console.error(`daemon: unhandled error in cycle close path for ${cycle.id}.`, err);
         });
     }, closeDelay);
@@ -230,14 +174,11 @@ async function runOpen(inputs: ArmCycleInputs): Promise<void> {
 }
 
 /**
- * Inputs to `armCloseOnly` — the boot-time reconciliation path that
- * re-arms a close timer for a cycle that was already running when the
- * previous daemon process died. There is no open phase: HA already has
- * the relay energised, the DB already has `firedAt`, and we just need to
- * land the close at the planned time (or immediately if it's past).
+ * Inputs to `armCloseOnly` — the boot-time reconciliation path that re-arms
+ * a close timer for a cycle that was already running when the previous
+ * daemon process died.
  */
 export type ArmCloseOnlyInputs = {
-    db: RuntimeDb;
     clock: Clock;
     registry: TimerRegistry;
     zone: Zone;
@@ -245,26 +186,15 @@ export type ArmCloseOnlyInputs = {
     closeZone: (zone: Zone) => Promise<void>;
     notifier: Notifier;
     alerter: Alerter;
-
-    /** Wall-clock time at which the close should fire. Past times fire immediately. */
     plannedCloseAt: Date;
 };
 
-/**
- * Schedules the close half of a cycle's lifecycle without re-running the
- * open. Pre-registers the cycle as in-flight so `getStatus().activeZones`
- * reflects the resumed zone before the timer fires; the close path itself
- * reuses `runClose` so success/failure semantics match a normally-armed
- * cycle exactly.
- *
- * @param inputs - Collaborators and the cycle/zone whose close is being re-armed.
- */
 export function armCloseOnly(inputs: ArmCloseOnlyInputs): void {
-    const { db, clock, registry, zone, cycle, closeZone, notifier, alerter, plannedCloseAt } = inputs;
+    const { clock, registry, zone, cycle, closeZone, notifier, alerter, plannedCloseAt } = inputs;
     const closeDelay = Math.max(0, plannedCloseAt.getTime() - clock.now().getTime());
 
     const closeHandle = clock.setTimeout(() => {
-        runClose({ db, clock, registry, zone, cycle, closeZone, notifier, alerter }).catch(err => {
+        runClose({ clock, registry, zone, cycle, closeZone, notifier, alerter }).catch(err => {
             console.error(`daemon: unhandled error in close-only path for cycle ${cycle.id}.`, err);
         });
     }, closeDelay);
@@ -272,7 +202,6 @@ export function armCloseOnly(inputs: ArmCloseOnlyInputs): void {
 }
 
 type RunCloseInputs = {
-    db: RuntimeDb;
     clock: Clock;
     registry: TimerRegistry;
     zone: Zone;
@@ -280,12 +209,11 @@ type RunCloseInputs = {
     closeZone: (zone: Zone) => Promise<void>;
     notifier: Notifier;
     alerter: Alerter;
-    /** Set on the last cycle of an irrigation night so close emits `schedule-ended`. */
     scheduleEnd?: ScheduleEndMarker;
 };
 
 async function runClose(inputs: RunCloseInputs): Promise<void> {
-    const { db, clock, registry, zone, cycle, closeZone, notifier, alerter, scheduleEnd } = inputs;
+    const { clock, registry, zone, cycle, closeZone, notifier, alerter, scheduleEnd } = inputs;
 
     try {
         await closeZone(zone);
@@ -305,7 +233,7 @@ async function runClose(inputs: RunCloseInputs): Promise<void> {
     }
 
     const closedAt = clock.now();
-    await db.update(irrigationCycles).set({ closedAt }).where(eq(irrigationCycles.id, cycle.id));
+    await getScheduleEntriesRepo().markCycleClosed(cycle.id, closedAt);
     registry.clearInFlight(cycle.id);
     console.log(`daemon: closed zone ${zone.id} for cycle ${cycle.id} at ${closedAt.toISOString()}.`);
 
@@ -327,13 +255,12 @@ async function runClose(inputs: RunCloseInputs): Promise<void> {
  * update side. Tolerates `closeZone` failures (logs and continues).
  */
 export async function closeAllInFlight(inputs: {
-    db: RuntimeDb;
     clock: Clock;
     registry: TimerRegistry;
     closeZone: (zone: Zone) => Promise<void>;
     alerter: Alerter;
 }): Promise<void> {
-    const { db, clock, registry, closeZone, alerter } = inputs;
+    const { clock, registry, closeZone, alerter } = inputs;
     const inFlight = registry.snapshotInFlight();
 
     if (inFlight.length === 0) return;
@@ -342,7 +269,7 @@ export async function closeAllInFlight(inputs: {
     for (const { cycleId, zone } of inFlight) {
         try {
             await closeZone(zone);
-            await db.update(irrigationCycles).set({ closedAt: clock.now() }).where(eq(irrigationCycles.id, cycleId));
+            await getScheduleEntriesRepo().markCycleClosed(cycleId, clock.now());
         } catch (err) {
             const reason = errorMessage(err);
             console.error(`daemon: shutdown closeZone failed for cycle ${cycleId} on zone ${zone.id}.`, err);

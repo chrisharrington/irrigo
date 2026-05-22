@@ -74,7 +74,7 @@ if (import.meta.main) {
             const { db } = await import('@/db');
             const { eq } = await import('drizzle-orm');
             const { grassTypes, soilTypes, sites, zones } = await import('@/db/schema');
-            const { joinedRowToZone } = await import('@/daemon/zones');
+            const { joinedRowToZone } = await import('@/repositories/zones');
 
             const rows = await db
                 .select({ zone: zones, grassType: grassTypes, soilType: soilTypes, site: sites })

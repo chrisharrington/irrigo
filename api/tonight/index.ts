@@ -3,8 +3,8 @@ import utc from 'dayjs/plugin/utc';
 import timezone from 'dayjs/plugin/timezone';
 import { and, asc, eq, gte } from 'drizzle-orm';
 import { irrigationCycles, scheduleEntries, sites, zones } from '@/db/schema';
-import { loadActiveSchedulesBySite, type ScheduleManagerDb } from '@/daemon/schedule-manager';
-import { loadSiteTimezone, type SiteTimezoneDb } from '@/daemon/sites';
+import { loadActiveSchedulesBySite } from '@/service/schedules';
+import { getSiteTimezone } from '@/service/sites';
 import { getSystemState } from '@/service/system';
 
 dayjs.extend(utc);
@@ -112,9 +112,11 @@ export type TonightLoaderDb = {
 
 /**
  * Composite db interface. Production callers pass the eager `db` export from
- * `@/db`; tests compose stubs from the per-helper interfaces.
+ * `@/db`; tests pass a stub satisfying the join shape. Site timezone and
+ * active-schedule reads now go through `@/service/sites` and
+ * `@/service/schedules` respectively — tests boot those services with fakes.
  */
-export type TonightDb = SiteTimezoneDb & ScheduleManagerDb & TonightLoaderDb;
+export type TonightDb = TonightLoaderDb;
 
 /**
  * Builds the wire payload powering the mobile Home screen's "Next run" hero
@@ -135,7 +137,7 @@ export type TonightDb = SiteTimezoneDb & ScheduleManagerDb & TonightLoaderDb;
  * @param now - Wall-clock reference for the "tonight" determination.
  */
 export async function getTonightSummary(db: TonightDb, now: Date): Promise<TonightDto> {
-    const siteTimezone = await loadSiteTimezone(db);
+    const siteTimezone = await getSiteTimezone();
     const todaySiteLocal = dayjs(now).tz(siteTimezone).format('YYYY-MM-DD');
 
     const system = await getSystemState();
@@ -143,7 +145,7 @@ export async function getTonightSummary(db: TonightDb, now: Date): Promise<Tonig
         return emptyDto('skipped-manual');
     }
 
-    const activeSchedules = await loadActiveSchedulesBySite(db);
+    const activeSchedules = await loadActiveSchedulesBySite();
     for (const sched of activeSchedules.values()) {
         if (sched.skippedNightDate === todaySiteLocal) {
             return emptyDto('skipped-manual');

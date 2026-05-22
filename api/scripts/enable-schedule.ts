@@ -1,18 +1,24 @@
 import Config from '@/config';
-import { enableSchedule, type Schedule, type ScheduleManagerDb } from '@/daemon/schedule-manager';
+import type { Database } from '@/db';
+import {
+    bootSchedulesService,
+    enableSchedule,
+    type Schedule,
+} from '@/service/schedules';
 
 /**
  * Dependencies the CLI entry point pulls from production wiring; the test
  * file injects deterministic stubs.
  */
 export type EnableScheduleCliDeps = {
-    enableSchedule: (db: ScheduleManagerDb, slug: string) => Promise<Schedule | null>;
-    loadDb: () => Promise<ScheduleManagerDb>;
+    /** Boots the schedules service. Production wires `bootSchedulesService({ db })`. */
+    bootService: () => Promise<void>;
+    /** Performs the schedule enable. Defaults to the service's `enableSchedule`. */
+    enable: (slug: string) => Promise<Schedule | null>;
     /**
      * Drives an immediate re-plan against the running api process so the
      * new schedule's effect on cycles materialises within seconds rather
-     * than at the next 04:00 tick. Production wiring POSTs `/replan`; the
-     * tests pass a recording stub.
+     * than at the next 04:00 tick.
      */
     triggerReplan: () => Promise<void>;
     log: (message: string) => void;
@@ -23,10 +29,6 @@ export type EnableScheduleCliDeps = {
  * CLI body for `bun run enable-schedule <slug>`. Exits non-zero when the
  * slug is missing from argv, when the slug is unknown, or when the
  * underlying enable call rejects.
- *
- * @param argv - Process argv (or test fixture). Slug is read from index 2.
- * @param deps - Injectable wiring; production passes the real DB + logger.
- * @returns The exit code (0 or 1).
  */
 export async function enableScheduleCli(argv: ReadonlyArray<string>, deps: EnableScheduleCliDeps): Promise<0 | 1> {
     const slug = argv[2];
@@ -35,8 +37,8 @@ export async function enableScheduleCli(argv: ReadonlyArray<string>, deps: Enabl
         return 1;
     }
 
-    const db = await deps.loadDb();
-    const result = await deps.enableSchedule(db, slug);
+    await deps.bootService();
+    const result = await deps.enable(slug);
     if (result === null) {
         deps.error(`enable-schedule: no schedule with slug '${slug}'.`);
         return 1;
@@ -55,12 +57,6 @@ export async function enableScheduleCli(argv: ReadonlyArray<string>, deps: Enabl
     return 0;
 }
 
-/**
- * Production `triggerReplan` wiring. POSTs `/replan` against the api's
- * own HTTP surface so the running daemon picks up the new schedule
- * within seconds. Override via `IRRIGO_BASE_URL` for non-default host /
- * port (e.g. when the CLI runs from a different host).
- */
 async function postReplan(): Promise<void> {
     const baseUrl = process.env.IRRIGO_BASE_URL ?? `http://127.0.0.1:${Config.port}`;
     const response = await fetch(`${baseUrl}/replan`, { method: 'POST' });
@@ -72,11 +68,11 @@ async function postReplan(): Promise<void> {
 
 if (import.meta.main) {
     const deps: EnableScheduleCliDeps = {
-        enableSchedule,
-        loadDb: async () => {
+        bootService: async () => {
             const { db } = await import('@/db');
-            return db as unknown as ScheduleManagerDb;
+            bootSchedulesService({ db: db as unknown as Database });
         },
+        enable: (slug) => enableSchedule(slug),
         triggerReplan: postReplan,
         log: (m) => console.log(m),
         error: (m) => console.error(m),

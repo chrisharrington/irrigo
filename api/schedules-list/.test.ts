@@ -1,9 +1,10 @@
-import { describe, expect, it } from 'bun:test';
+import { beforeEach, describe, expect, it } from 'bun:test';
 import dayjs from 'dayjs';
 import utc from 'dayjs/plugin/utc';
 import timezone from 'dayjs/plugin/timezone';
 import { irrigationCycles, scheduleEntries, schedules, zones } from '@/db/schema';
-import type { Schedule } from '@/daemon/schedule-manager';
+import { bootSitesService } from '@/service/sites';
+import type { Schedule } from '@/service/schedules';
 import {
     formatInLabel,
     formatWhenLabel,
@@ -82,36 +83,31 @@ function createStub(inputs?: StubInputs): ScheduleListDb {
     const scheduleRows = inputs?.schedules ?? [];
     const nextRunRows = inputs?.nextRunRows ?? [];
 
+    // Leaf handlers per query shape. The schedules-list service dispatches on
+    // the columns argument to `select()`; we mirror that here and return the
+    // matching one-line chain from each branch.
+    const runTimezoneFrom = async () => [{ timezone: SITE_TZ }];
+    const runSchedulesWhere = async () => scheduleRows.map(s => ({ schedule: s }));
+    const runNextRunQuery = async () => nextRunRows;
+
+    const runSelect = (cols: unknown) => {
+        const c = cols as Record<string, unknown>;
+        if ('timezone' in c && Object.keys(c).length === 1) {
+            return { from: runTimezoneFrom } as never;
+        }
+        if ('schedule' in c && Object.keys(c).length === 1) {
+            return { from: () => ({ where: runSchedulesWhere }) } as never;
+        }
+        if ('entry' in c && 'cycle' in c && 'zone' in c) {
+            return {
+                from: () => ({ innerJoin: () => ({ leftJoin: () => ({ where: () => ({ orderBy: () => ({ limit: runNextRunQuery }) }) }) }) }),
+            } as never;
+        }
+        return {} as never;
+    };
+
     const db: ScheduleListDb = {
-        select: (cols: unknown) => {
-            const c = cols as Record<string, unknown>;
-            if ('timezone' in c && Object.keys(c).length === 1) {
-                return { from: () => Promise.resolve([{ timezone: SITE_TZ }]) } as never;
-            }
-            if ('schedule' in c && Object.keys(c).length === 1) {
-                return {
-                    from: () => ({
-                        where: () => Promise.resolve(scheduleRows.map(s => ({ schedule: s }))),
-                    }),
-                } as never;
-            }
-            if ('entry' in c && 'cycle' in c && 'zone' in c) {
-                return {
-                    from: () => ({
-                        innerJoin: () => ({
-                            leftJoin: () => ({
-                                where: () => ({
-                                    orderBy: () => ({
-                                        limit: async () => nextRunRows,
-                                    }),
-                                }),
-                            }),
-                        }),
-                    }),
-                } as never;
-            }
-            return {} as never;
-        },
+        select: runSelect,
         update: () => ({ set: () => ({ where: async () => undefined }) }),
         transaction: async (cb) => cb(db as never),
     };
@@ -119,6 +115,10 @@ function createStub(inputs?: StubInputs): ScheduleListDb {
 }
 
 describe('listSchedules', () => {
+    beforeEach(() => {
+        bootSitesService({ repo: { loadTimezone: async () => SITE_TZ } });
+    });
+
     it('returns an empty array when no schedules exist', async () => {
         const db = createStub();
 

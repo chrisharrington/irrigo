@@ -1,12 +1,13 @@
-import { describe, it, expect } from 'bun:test';
+import { beforeEach, describe, expect, it } from 'bun:test';
 import type { AlertEvent, Alerter } from '@/alerts';
-import { irrigationCycles } from '@/db/schema';
 import type { ZoneRelayState } from '@/data/home-assistant';
 import type { Zone } from '@/models';
+import type { FutureCyclePair } from '@/models/cycle';
 import type { NotificationContext, NotificationEvent, Notifier } from '@/notifications';
-import { reconcileCycleAndRelayState, type ReconcileDb, type ReconcileDeps } from './reconcile';
-import type { FutureCyclePair } from './schedules';
+import type { ScheduleEntriesRepository } from '@/repositories/schedule-entries';
+import { reconcileCycleAndRelayState, type ReconcileDeps } from './reconcile';
 import type { ArmCloseOnlyInputs, Clock, TimerHandle, TimerRegistry } from './runtime';
+import { setDaemonRepos, type DaemonServiceRepos } from './state';
 
 type RecordedNotification = { event: NotificationEvent; context: NotificationContext | undefined };
 
@@ -29,6 +30,8 @@ function buildZone(overrides?: Partial<Zone>): Zone {
         siteTimezone: 'America/Edmonton',
         isEnabled: true,
         homeAssistantEntityId: 'switch.zone_001',
+        microclimateFactor: 1,
+        location: { lat: 51, lon: -114 },
         ...overrides,
     };
 }
@@ -60,6 +63,47 @@ function fakeClock(initial: Date): Clock {
 
 type CycleUpdate = { cycleId: string; closedAt: Date };
 
+function recordingScheduleEntriesRepo(): { repo: ScheduleEntriesRepository; updates: CycleUpdate[] } {
+    const updates: CycleUpdate[] = [];
+    const repo: ScheduleEntriesRepository = {
+        loadFutureCycles: async () => [],
+        loadInFlightCycles: async () => [],
+        replaceForZone: async () => ({ cycles: [] }),
+        markCycleFired: async () => undefined,
+        markCycleClosed: async (cycleId, closedAt) => {
+            updates.push({ cycleId, closedAt });
+        },
+    };
+    return { repo, updates };
+}
+
+function defaultRepos(scheduleEntries: ScheduleEntriesRepository): DaemonServiceRepos {
+    return {
+        zones: {
+            loadEnabled: async () => [],
+            findById: async () => null,
+            count: async () => ({ total: 0, enabled: 0 }),
+            loadJoinedRowsForSummary: async () => [],
+            loadLatestScheduleEntries: async () => [],
+        },
+        sites: { loadTimezone: async () => 'UTC' },
+        schedules: {
+            loadActiveBySite: async () => new Map(),
+            findBySlug: async () => null,
+            enable: async () => null,
+            disable: async () => null,
+            skipActiveTonight: async () => null,
+            resumeActiveTonight: async () => null,
+            clearStaleSkipMarkers: async () => undefined,
+        },
+        scheduleEntries,
+        weatherState: {
+            markFetchSuccessful: async () => undefined,
+            isStale: async () => false,
+        },
+    };
+}
+
 function buildDeps(overrides: {
     inFlight?: FutureCyclePair[];
     managedZones?: Zone[];
@@ -71,35 +115,13 @@ function buildDeps(overrides: {
     deps: ReconcileDeps;
     closes: Zone[];
     armCalls: ArmCloseOnlyInputs[];
-    cycleUpdates: CycleUpdate[];
     notifications: RecordedNotification[];
     alertCalls: AlertEvent[];
 } {
     const closes: Zone[] = [];
     const armCalls: ArmCloseOnlyInputs[] = [];
-    const cycleUpdates: CycleUpdate[] = [];
     const notifications: RecordedNotification[] = [];
     const now = overrides.now ?? NOW;
-
-    const db: ReconcileDb = {
-        select: (() => ({ from: () => ({}) })) as never,
-        update(table) {
-            return {
-                set(values) {
-                    return {
-                        async where(cond) {
-                            if (table !== irrigationCycles) return;
-                            const cycleId = extractIdFromEq(cond);
-                            const closedAt = values['closedAt'];
-                            if (closedAt instanceof Date) {
-                                cycleUpdates.push({ cycleId, closedAt });
-                            }
-                        },
-                    };
-                },
-            };
-        },
-    };
 
     const registry: TimerRegistry = {
         addOpen: () => {},
@@ -124,11 +146,9 @@ function buildDeps(overrides: {
     return {
         closes,
         armCalls,
-        cycleUpdates,
         notifications,
         alertCalls,
         deps: {
-            db,
             clock: fakeClock(now),
             registry,
             notifier,
@@ -145,38 +165,23 @@ function buildDeps(overrides: {
     };
 }
 
-function extractIdFromEq(cond: unknown): string {
-    const seen = new WeakSet<object>();
-    function walk(node: unknown): string | undefined {
-        if (typeof node === 'string') return /^cycle-/.test(node) ? node : undefined;
-        if (typeof node !== 'object' || node === null) return undefined;
-        if (seen.has(node)) return undefined;
-        seen.add(node);
-        if (Array.isArray(node)) {
-            for (const item of node) {
-                const found = walk(item);
-                if (found) return found;
-            }
-            return undefined;
-        }
-        for (const value of Object.values(node)) {
-            const found = walk(value);
-            if (found) return found;
-        }
-        return undefined;
-    }
-    return walk(cond) ?? '';
-}
+let cycleUpdates: CycleUpdate[];
+
+beforeEach(() => {
+    const recording = recordingScheduleEntriesRepo();
+    cycleUpdates = recording.updates;
+    setDaemonRepos({ repos: defaultRepos(recording.repo) });
+});
 
 describe('reconcileCycleAndRelayState — in-flight cycle handling', () => {
     it(`re-arms the close timer when HA is 'on' and planned close is in the future`, async () => {
         const pair = buildPair({
             cycleId: 'cycle-future',
             startTime: new Date('2026-05-04T11:30:00.000Z'),
-            durationMin: 60, // closes at 12:30, after now=12:00
+            durationMin: 60,
         });
         const sweep = buildZone({ id: 'zone-sweep' });
-        const { deps, armCalls, closes, cycleUpdates } = buildDeps({
+        const { deps, armCalls, closes } = buildDeps({
             inFlight: [pair],
             managedZones: [pair.zone, sweep],
             state: async (zone): Promise<ZoneRelayState> => zone.id === pair.zone.id ? 'on' : 'off',
@@ -196,9 +201,9 @@ describe('reconcileCycleAndRelayState — in-flight cycle handling', () => {
         const pair = buildPair({
             cycleId: 'cycle-overrun',
             startTime: new Date('2026-05-04T10:00:00.000Z'),
-            durationMin: 30, // closes at 10:30, well before now=12:00
+            durationMin: 30,
         });
-        const { deps, closes, cycleUpdates } = buildDeps({
+        const { deps, closes } = buildDeps({
             inFlight: [pair],
             state: async (): Promise<ZoneRelayState> => 'on',
         });
@@ -216,7 +221,7 @@ describe('reconcileCycleAndRelayState — in-flight cycle handling', () => {
             startTime: new Date('2026-05-04T10:00:00.000Z'),
             durationMin: 30,
         });
-        const { deps, cycleUpdates, closes } = buildDeps({
+        const { deps, closes } = buildDeps({
             inFlight: [pair],
             state: async (): Promise<ZoneRelayState> => 'off',
         });
@@ -232,9 +237,9 @@ describe('reconcileCycleAndRelayState — in-flight cycle handling', () => {
         const pair = buildPair({
             cycleId: 'cycle-missed-early',
             startTime: new Date('2026-05-04T11:30:00.000Z'),
-            durationMin: 60, // closes at 12:30, after now=12:00
+            durationMin: 60,
         });
-        const { deps, cycleUpdates } = buildDeps({
+        const { deps } = buildDeps({
             inFlight: [pair],
             state: async (): Promise<ZoneRelayState> => 'off',
         });
@@ -246,7 +251,7 @@ describe('reconcileCycleAndRelayState — in-flight cycle handling', () => {
 
     it(`leaves the cycle alone when HA returns 'unknown' and does not mark the zone handled`, async () => {
         const pair = buildPair({ cycleId: 'cycle-unknown' });
-        const { deps, cycleUpdates, closes, armCalls } = buildDeps({
+        const { deps, closes, armCalls } = buildDeps({
             inFlight: [pair],
             managedZones: [pair.zone],
             state: async (): Promise<ZoneRelayState> => 'unknown',
@@ -262,7 +267,7 @@ describe('reconcileCycleAndRelayState — in-flight cycle handling', () => {
 
     it('counts an error and skips the cycle when getZoneState throws', async () => {
         const pair = buildPair({ cycleId: 'cycle-err' });
-        const { deps, cycleUpdates, closes } = buildDeps({
+        const { deps, closes } = buildDeps({
             inFlight: [pair],
             state: async () => { throw new Error('HA timeout'); },
         });
@@ -308,13 +313,11 @@ describe('reconcileCycleAndRelayState — defensive sweep', () => {
         const { deps, closes } = buildDeps({
             inFlight: [pair],
             managedZones: [zone],
-            // State is 'on' for both — without skipping, we'd call closeZone in the sweep too.
             state: async (): Promise<ZoneRelayState> => 'off',
         });
 
         const summary = await reconcileCycleAndRelayState(deps);
 
-        // The cycle path takes care of the missed close; the sweep does NOT then act on it.
         expect(summary).toMatchObject({ missedClose: 1, orphansClosed: 0 });
         expect(closes).toHaveLength(0);
     });
@@ -404,7 +407,7 @@ describe('reconcileCycleAndRelayState — alert recording', () => {
         const pair = buildPair({
             cycleId: 'cycle-missed',
             startTime: new Date('2026-05-04T10:00:00.000Z'),
-            durationMin: 30, // planned close 10:30 < now 12:00
+            durationMin: 30,
         });
         const { deps, alertCalls } = buildDeps({
             inFlight: [pair],

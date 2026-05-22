@@ -1,17 +1,8 @@
-import { describe, it, expect } from 'bun:test';
+import { describe, expect, it } from 'bun:test';
 import dayjs from 'dayjs';
+import type { Database } from '@/db';
 import { schedules } from '@/db/schema';
-import {
-    clearStaleSkipMarkers,
-    disableSchedule,
-    enableSchedule,
-    loadActiveSchedulesBySite,
-    loadScheduleBySlug,
-    resumeActiveScheduleTonight,
-    skipActiveScheduleTonight,
-    type Schedule,
-    type ScheduleManagerDb,
-} from './schedule-manager';
+import { createSchedulesRepository, type Schedule } from '.';
 
 type SelectCall = { where?: unknown };
 type UpdateCall = { values: Partial<Schedule>; where: unknown };
@@ -40,71 +31,46 @@ function buildSchedule(overrides?: Partial<Schedule>): Schedule {
 function createStub(rowsByPredicate: Schedule[]) {
     const selectCalls: SelectCall[] = [];
     const updateCalls: UpdateCall[] = [];
-    let rows: Schedule[] = [...rowsByPredicate];
+    const rows: Schedule[] = [...rowsByPredicate];
 
-    const db: ScheduleManagerDb = {
-        select() {
-            return {
-                from() {
-                    return {
-                        where(cond: unknown) {
-                            selectCalls.push({ where: cond });
-                            const params = extractParamValues(cond);
-                            // No params: probably an `eq(isActive, true)` filter (boolean param
-                            // is encoded differently and not picked up as a string Param value).
-                            // The real call site is loadActiveSchedulesBySite, which wants only
-                            // active rows. Otherwise treat the param as a slug.
-                            if (params.length === 0) {
-                                return Promise.resolve(rows.filter(r => r.isActive).map(s => ({ schedule: s })));
-                            }
-                            const slug = params[0]!;
-                            return Promise.resolve(rows.filter(r => r.slug === slug).map(s => ({ schedule: s })));
-                        },
-                    };
-                },
-            } as unknown as ReturnType<ScheduleManagerDb['select']>;
-        },
-        update() {
-            return {
-                set(values) {
-                    return {
-                        async where(cond) {
-                            updateCalls.push({ values, where: cond });
-                            // Apply mutation in-place so subsequent reads see it. We match
-                            // by inspecting the bound Param values; the conditions targeting
-                            // a single row carry the row id as a Param. The "deactivate
-                            // siblings" condition uses (siteId == X AND id != target.id) — we
-                            // detect it by the presence of two params, treating the second
-                            // as the *exclude* id.
-                            const params = extractParamValues(cond);
-                            for (const row of rows) {
-                                if (params.length === 1 && params[0] === row.id) {
-                                    Object.assign(row, values);
-                                } else if (params.length === 2) {
-                                    const [siteId, excludeId] = params;
-                                    if (row.siteId === siteId && row.id !== excludeId) {
-                                        Object.assign(row, values);
-                                    }
-                                }
-                            }
-                            return Promise.resolve(undefined);
-                        },
-                    };
-                },
-            };
-        },
-        async transaction(cb) {
-            return cb(db);
-        },
+    // Leaf handlers — the actual SELECT/UPDATE logic. Lifting them out keeps
+    // the Drizzle-mimicking chain wiring (`select().from().where()` etc.) down
+    // to a single line per operation in the `db` object.
+    const runSelectWhere = async (cond: unknown): Promise<Array<{ schedule: Schedule }>> => {
+        selectCalls.push({ where: cond });
+        const params = extractParamValues(cond);
+        // No string params: probably `eq(isActive, true)` — boolean param is
+        // encoded differently. Otherwise treat the first param as a slug.
+        if (params.length === 0) return rows.filter(r => r.isActive).map(s => ({ schedule: s }));
+        const slug = params[0]!;
+        return rows.filter(r => r.slug === slug).map(s => ({ schedule: s }));
     };
+
+    const runUpdateWhere = async (values: Partial<Schedule>, cond: unknown): Promise<void> => {
+        updateCalls.push({ values, where: cond });
+        const params = extractParamValues(cond);
+        for (const row of rows) {
+            if (params.length === 1 && params[0] === row.id) {
+                Object.assign(row, values);
+            } else if (params.length === 2) {
+                const [siteId, excludeId] = params;
+                if (row.siteId === siteId && row.id !== excludeId) {
+                    Object.assign(row, values);
+                }
+            }
+        }
+    };
+
+    const db = {
+        select: () => ({ from: () => ({ where: runSelectWhere }) }),
+        update: () => ({ set: (values: Partial<Schedule>) => ({ where: (cond: unknown) => runUpdateWhere(values, cond) }) }),
+        transaction: async <T>(cb: (tx: unknown) => Promise<T>): Promise<T> => cb(db),
+    } as unknown as Database;
 
     return { db, selectCalls, updateCalls, getRows: () => [...rows] };
 }
 
 function extractParamValues(cond: unknown): string[] {
-    // Drizzle's eq/ne/and conditions are SQL objects whose `queryChunks` array
-    // contains `Param` instances; each Param exposes the bound value via `.value`
-    // alongside an `encoder` property. We collect every Param's string value.
     const seen = new WeakSet<object>();
     const values: string[] = [];
     function walk(node: unknown): void {
@@ -123,14 +89,15 @@ function extractParamValues(cond: unknown): string[] {
     return values;
 }
 
-describe('loadActiveSchedulesBySite', () => {
+describe('createSchedulesRepository.loadActiveBySite', () => {
     it('returns a Map<siteId, Schedule> for every active row', async () => {
         const a = buildSchedule({ id: 'sched-A', siteId: 'site-A', isActive: true });
         const b = buildSchedule({ id: 'sched-B', siteId: 'site-B', isActive: true });
         const inactive = buildSchedule({ id: 'sched-C', siteId: 'site-C', isActive: false });
         const { db } = createStub([a, b, inactive]);
+        const repo = createSchedulesRepository(db);
 
-        const result = await loadActiveSchedulesBySite(db);
+        const result = await repo.loadActiveBySite();
 
         expect(result.size).toBe(2);
         expect(result.get('site-A')?.id).toBe('sched-A');
@@ -140,37 +107,41 @@ describe('loadActiveSchedulesBySite', () => {
 
     it('returns an empty map when no active rows exist', async () => {
         const { db } = createStub([buildSchedule({ isActive: false })]);
+        const repo = createSchedulesRepository(db);
 
-        const result = await loadActiveSchedulesBySite(db);
+        const result = await repo.loadActiveBySite();
 
         expect(result.size).toBe(0);
     });
 });
 
-describe('loadScheduleBySlug', () => {
+describe('createSchedulesRepository.findBySlug', () => {
     it('returns the schedule matching the slug', async () => {
         const target = buildSchedule({ slug: 'overseeding' });
         const { db } = createStub([buildSchedule({ slug: 'maintenance' }), target]);
+        const repo = createSchedulesRepository(db);
 
-        const result = await loadScheduleBySlug(db, 'overseeding');
+        const result = await repo.findBySlug('overseeding');
 
         expect(result?.slug).toBe('overseeding');
     });
 
     it('returns null when no schedule matches the slug', async () => {
         const { db } = createStub([buildSchedule({ slug: 'maintenance' })]);
+        const repo = createSchedulesRepository(db);
 
-        const result = await loadScheduleBySlug(db, 'no-such');
+        const result = await repo.findBySlug('no-such');
 
         expect(result).toBeNull();
     });
 });
 
-describe('enableSchedule', () => {
+describe('createSchedulesRepository.enable', () => {
     it('returns null without writing when the slug is unknown', async () => {
         const { db, updateCalls } = createStub([buildSchedule({ slug: 'maintenance' })]);
+        const repo = createSchedulesRepository(db);
 
-        const result = await enableSchedule(db, 'unknown');
+        const result = await repo.enable('unknown');
 
         expect(result).toBeNull();
         expect(updateCalls).toHaveLength(0);
@@ -181,31 +152,29 @@ describe('enableSchedule', () => {
         const target = buildSchedule({ id: 'sched-target', siteId: 'site-A', slug: 'maintenance', isActive: false });
         const otherSite = buildSchedule({ id: 'sched-other', siteId: 'site-B', slug: 'maintenance', isActive: true });
         const { db, updateCalls, getRows } = createStub([previouslyActive, target, otherSite]);
+        const repo = createSchedulesRepository(db);
 
-        const result = await enableSchedule(db, 'maintenance');
+        const result = await repo.enable('maintenance');
 
         expect(result?.id).toBe('sched-target');
         expect(result?.isActive).toBe(true);
-        // Two updates: deactivate siblings on the same site, then activate the target.
         expect(updateCalls).toHaveLength(2);
         expect(updateCalls[0]?.values).toEqual({ isActive: false });
         expect(updateCalls[1]?.values).toEqual({ isActive: true });
-        // Final state: the previous sibling is now inactive, target is active.
         const rows = getRows();
         expect(rows.find(r => r.id === 'sched-prev')?.isActive).toBe(false);
         expect(rows.find(r => r.id === 'sched-target')?.isActive).toBe(true);
-        // The other site's row was not touched by either update — its sibling-deactivate
-        // condition required `siteId = site-A`.
         expect(rows.find(r => r.id === 'sched-other')?.isActive).toBe(true);
     });
 });
 
-describe('disableSchedule', () => {
+describe('createSchedulesRepository.disable', () => {
     it(`writes isActive = false for the matching slug and returns the row`, async () => {
         const target = buildSchedule({ id: 'sched-1', slug: 'maintenance', isActive: true });
         const { db, updateCalls } = createStub([target]);
+        const repo = createSchedulesRepository(db);
 
-        const result = await disableSchedule(db, 'maintenance');
+        const result = await repo.disable('maintenance');
 
         expect(result?.id).toBe('sched-1');
         expect(result?.isActive).toBe(false);
@@ -215,20 +184,22 @@ describe('disableSchedule', () => {
 
     it('returns null without writing when the slug is unknown', async () => {
         const { db, updateCalls } = createStub([]);
+        const repo = createSchedulesRepository(db);
 
-        const result = await disableSchedule(db, 'no-such');
+        const result = await repo.disable('no-such');
 
         expect(result).toBeNull();
         expect(updateCalls).toHaveLength(0);
     });
 });
 
-describe('skipActiveScheduleTonight', () => {
+describe('createSchedulesRepository.skipActiveTonight', () => {
     it('sets skippedNightDate on the active schedule and returns the row', async () => {
         const active = buildSchedule({ id: 'sched-active', slug: 'maintenance', isActive: true, skippedNightDate: null });
         const { db, updateCalls, getRows } = createStub([active]);
+        const repo = createSchedulesRepository(db);
 
-        const result = await skipActiveScheduleTonight(db, dayjs('2026-05-20'));
+        const result = await repo.skipActiveTonight(dayjs('2026-05-20'));
 
         expect(result?.id).toBe('sched-active');
         expect(result?.skippedNightDate).toBe('2026-05-20');
@@ -240,8 +211,9 @@ describe('skipActiveScheduleTonight', () => {
     it('returns null without writing when no schedule is active', async () => {
         const inactive = buildSchedule({ id: 'sched-1', isActive: false });
         const { db, updateCalls } = createStub([inactive]);
+        const repo = createSchedulesRepository(db);
 
-        const result = await skipActiveScheduleTonight(db, dayjs('2026-05-20'));
+        const result = await repo.skipActiveTonight(dayjs('2026-05-20'));
 
         expect(result).toBeNull();
         expect(updateCalls).toHaveLength(0);
@@ -251,20 +223,22 @@ describe('skipActiveScheduleTonight', () => {
         const active = buildSchedule({ id: 'sched-A', siteId: 'site-A', slug: 'maintenance', isActive: true });
         const inactive = buildSchedule({ id: 'sched-B', siteId: 'site-A', slug: 'overseeding', isActive: false });
         const { db, getRows } = createStub([active, inactive]);
+        const repo = createSchedulesRepository(db);
 
-        await skipActiveScheduleTonight(db, dayjs('2026-05-20'));
+        await repo.skipActiveTonight(dayjs('2026-05-20'));
 
         expect(getRows().find(r => r.id === 'sched-A')?.skippedNightDate).toBe('2026-05-20');
         expect(getRows().find(r => r.id === 'sched-B')?.skippedNightDate).toBeNull();
     });
 });
 
-describe('resumeActiveScheduleTonight', () => {
+describe('createSchedulesRepository.resumeActiveTonight', () => {
     it('clears skippedNightDate on the active schedule and returns the row', async () => {
         const active = buildSchedule({ id: 'sched-active', isActive: true, skippedNightDate: '2026-05-20' });
         const { db, updateCalls, getRows } = createStub([active]);
+        const repo = createSchedulesRepository(db);
 
-        const result = await resumeActiveScheduleTonight(db);
+        const result = await repo.resumeActiveTonight();
 
         expect(result?.id).toBe('sched-active');
         expect(result?.skippedNightDate).toBeNull();
@@ -276,32 +250,35 @@ describe('resumeActiveScheduleTonight', () => {
     it('is idempotent: returns the active row even when no marker is set', async () => {
         const active = buildSchedule({ id: 'sched-1', isActive: true, skippedNightDate: null });
         const { db, updateCalls } = createStub([active]);
+        const repo = createSchedulesRepository(db);
 
-        const result = await resumeActiveScheduleTonight(db);
+        const result = await repo.resumeActiveTonight();
 
         expect(result?.id).toBe('sched-1');
         expect(result?.skippedNightDate).toBeNull();
-        expect(updateCalls).toHaveLength(1); // still issues UPDATE, idempotent on the row
+        expect(updateCalls).toHaveLength(1);
     });
 
     it('returns null without writing when no schedule is active', async () => {
         const inactive = buildSchedule({ id: 'sched-1', isActive: false });
         const { db, updateCalls } = createStub([inactive]);
+        const repo = createSchedulesRepository(db);
 
-        const result = await resumeActiveScheduleTonight(db);
+        const result = await repo.resumeActiveTonight();
 
         expect(result).toBeNull();
         expect(updateCalls).toHaveLength(0);
     });
 });
 
-describe('clearStaleSkipMarkers', () => {
+describe('createSchedulesRepository.clearStaleSkipMarkers', () => {
     it('issues one UPDATE with skippedNightDate=null and the lt(today) predicate', async () => {
         const stale = buildSchedule({ id: 'sched-A', skippedNightDate: '2026-05-19' });
         const fresh = buildSchedule({ id: 'sched-B', skippedNightDate: '2026-05-20' });
         const { db, updateCalls } = createStub([stale, fresh]);
+        const repo = createSchedulesRepository(db);
 
-        await clearStaleSkipMarkers(db, dayjs('2026-05-20'));
+        await repo.clearStaleSkipMarkers(dayjs('2026-05-20'));
 
         expect(updateCalls).toHaveLength(1);
         expect(updateCalls[0]?.values).toEqual({ skippedNightDate: null });
@@ -311,13 +288,13 @@ describe('clearStaleSkipMarkers', () => {
         const a = buildSchedule({ id: 'sched-A', skippedNightDate: null });
         const b = buildSchedule({ id: 'sched-B', skippedNightDate: null });
         const { db, updateCalls } = createStub([a, b]);
+        const repo = createSchedulesRepository(db);
 
-        await clearStaleSkipMarkers(db, dayjs('2026-05-20'));
+        await repo.clearStaleSkipMarkers(dayjs('2026-05-20'));
 
         expect(updateCalls).toHaveLength(1);
         expect(updateCalls[0]?.values).toEqual({ skippedNightDate: null });
     });
 });
 
-// Use schedules import so the test file compiles even if Drizzle doesn't tree-shake.
 void schedules;

@@ -3,8 +3,8 @@ import utc from 'dayjs/plugin/utc';
 import timezone from 'dayjs/plugin/timezone';
 import { and, asc, eq, gte, sql } from 'drizzle-orm';
 import { irrigationCycles, scheduleEntries, schedules, zones } from '@/db/schema';
-import { loadSiteTimezone, type SiteTimezoneDb } from '@/daemon/sites';
-import type { Schedule, ScheduleManagerDb } from '@/daemon/schedule-manager';
+import { getSiteTimezone } from '@/service/sites';
+import type { Schedule } from '@/service/schedules';
 
 dayjs.extend(utc);
 dayjs.extend(timezone);
@@ -89,10 +89,17 @@ export type ScheduleListLoaderDb = {
 };
 
 /**
- * Composite db interface. Production callers pass the eager `db` export from
- * `@/db`; tests compose stubs from the per-helper interfaces.
+ * Composite db interface for the schedules list query (the schedules table
+ * read + the next-night join). Site timezone reads go through
+ * `@/service/sites` — tests boot that service with a fake.
  */
-export type ScheduleListDb = ScheduleManagerDb & SiteTimezoneDb & ScheduleListLoaderDb;
+export type ScheduleListDb = ScheduleListLoaderDb & {
+    select: (columns: { schedule: unknown }) => {
+        from: (table: unknown) => {
+            where: (cond: unknown) => Promise<Array<{ schedule: Schedule }>>;
+        };
+    };
+};
 
 /**
  * Lists every schedule for the mobile app's Schedules screen + drawer footer
@@ -104,7 +111,7 @@ export type ScheduleListDb = ScheduleManagerDb & SiteTimezoneDb & ScheduleListLo
  *   comparison and the `nextRun` "in X" / "Tonight at Y" formatting.
  */
 export async function listSchedules(db: ScheduleListDb, now: Date): Promise<ScheduleListItem[]> {
-    const siteTimezone = await loadSiteTimezone(db);
+    const siteTimezone = await getSiteTimezone();
     const nowInTz = dayjs(now).tz(siteTimezone);
     const todaySiteLocal = nowInTz.format('YYYY-MM-DD');
 
