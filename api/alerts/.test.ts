@@ -1,5 +1,6 @@
-import { describe, it, expect } from 'bun:test';
+import { afterEach, beforeEach, describe, it, expect, spyOn } from 'bun:test';
 import { alerts } from '@/db/schema';
+import type { PushAlertEvent, PushDispatcher } from '@/models/push-token';
 import type { NotificationContext, NotificationEvent, Notifier } from '@/notifications';
 import {
     acknowledgeAlert,
@@ -37,7 +38,10 @@ type RecorderCalls = {
     updates: Array<{ table: unknown; set: Record<string, unknown>; cond: unknown }>;
 };
 
-function createRecorderStub(existingMatches: ReadonlyArray<{ id: string }>): {
+function createRecorderStub(
+    existingMatches: ReadonlyArray<{ id: string }>,
+    insertedId: string = 'inserted-id',
+): {
     db: AlertsDb;
     calls: RecorderCalls;
 } {
@@ -57,7 +61,9 @@ function createRecorderStub(existingMatches: ReadonlyArray<{ id: string }>): {
         insert: (table: unknown) => ({
             values: (values: Record<string, unknown>) => {
                 calls.inserts.push({ table, values });
-                return Promise.resolve(undefined);
+                return {
+                    returning: (_cols: unknown) => Promise.resolve([{ id: insertedId }]),
+                };
             },
         }) as unknown as ReturnType<AlertsDb['insert']>,
         update: (table: unknown) => ({
@@ -204,6 +210,77 @@ describe('createAlerter', () => {
             const { db } = createRecorderStub([]);
 
             await expect(createAlerter(db)(event())).resolves.toBeUndefined();
+        });
+    });
+
+    describe('with pushDispatcher wired in', () => {
+        function recordingDispatcher(impl?: PushDispatcher): {
+            dispatcher: PushDispatcher;
+            calls: PushAlertEvent[];
+        } {
+            const calls: PushAlertEvent[] = [];
+            const dispatcher: PushDispatcher = async (e) => {
+                calls.push(e);
+                if (impl) await impl(e);
+            };
+            return { dispatcher, calls };
+        }
+
+        it('fires the dispatcher once with the new alertId on brand-new insert', async () => {
+            const { db } = createRecorderStub([], 'alert-fresh-001');
+            const { dispatcher, calls: dispatched } = recordingDispatcher();
+
+            await createAlerter(db, undefined, dispatcher)(event({ zoneName: 'North' }));
+
+            expect(dispatched).toEqual([
+                {
+                    alertId: 'alert-fresh-001',
+                    class: 'ha-call-failed',
+                    tone: 'danger',
+                    title: 'HA close failed',
+                    sub: 'North · ECONNREFUSED',
+                    zoneId: 'zone-001',
+                },
+            ]);
+        });
+
+        it('does NOT fire the dispatcher when an existing unacked alert is updated (dedup hit)', async () => {
+            const { db } = createRecorderStub([{ id: 'existing-001' }]);
+            const { dispatcher, calls: dispatched } = recordingDispatcher();
+
+            await createAlerter(db, undefined, dispatcher)(event());
+
+            expect(dispatched).toEqual([]);
+        });
+
+        it('coerces sub and zoneId to null in the dispatched event when the alert event omits them', async () => {
+            const { db } = createRecorderStub([], 'alert-global-002');
+            const { dispatcher, calls: dispatched } = recordingDispatcher();
+
+            await createAlerter(db, undefined, dispatcher)(event({ sub: undefined, zoneId: undefined }));
+
+            expect(dispatched[0]?.sub).toBeNull();
+            expect(dispatched[0]?.zoneId).toBeNull();
+        });
+
+        describe('error tolerance', () => {
+            let warnSpy: ReturnType<typeof spyOn>;
+
+            beforeEach(() => {
+                warnSpy = spyOn(console, 'warn').mockImplementation(() => {});
+            });
+
+            afterEach(() => {
+                warnSpy.mockRestore();
+            });
+
+            it('resolves successfully when the dispatcher throws; warns once', async () => {
+                const { db } = createRecorderStub([], 'alert-tolerated-003');
+                const failingDispatcher: PushDispatcher = async () => { throw new Error('expo down'); };
+
+                await expect(createAlerter(db, undefined, failingDispatcher)(event())).resolves.toBeUndefined();
+                expect(warnSpy).toHaveBeenCalled();
+            });
         });
     });
 });

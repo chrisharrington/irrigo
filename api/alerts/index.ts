@@ -1,5 +1,6 @@
 import { and, desc, eq, isNull, sql } from 'drizzle-orm';
 import { alerts } from '@/db/schema';
+import type { PushDispatcher } from '@/models/push-token';
 import type { Notifier } from '@/notifications';
 
 /**
@@ -110,11 +111,17 @@ function rowToDto(row: AlertRow): AlertDto {
  * acked," matching the design's *"loud when present, gone when not"* intent
  * and avoiding the spam loop that prompted API-40.
  *
+ * If `pushDispatcher` is supplied, the alerter also fires an Expo Push to
+ * every registered device — again, **only on insert**, never on dedup-update.
+ * Dispatcher errors are caught and logged at `warn` so a transport failure
+ * never disrupts the alert write.
+ *
  * @param db - Drizzle client (typed loosely so tests can supply a recording stub).
  * @param notifier - Optional HA push channel. Fires on new alerts only.
+ * @param pushDispatcher - Optional Expo Push channel. Fires on new alerts only.
  * @returns An `Alerter` closure that persists to the `alerts` table.
  */
-export function createAlerter(db: AlertsDb, notifier?: Notifier): Alerter {
+export function createAlerter(db: AlertsDb, notifier?: Notifier, pushDispatcher?: PushDispatcher): Alerter {
     return async event => {
         const matchExisting = and(
             eq(alerts.class, event.class),
@@ -143,13 +150,17 @@ export function createAlerter(db: AlertsDb, notifier?: Notifier): Alerter {
             return;
         }
 
-        await (db as unknown as AlerterDb).insert(alerts).values({
-            class: event.class,
-            tone: event.tone,
-            title: event.title,
-            sub: event.sub ?? null,
-            zoneId: event.zoneId ?? null,
-        });
+        const inserted = await (db as unknown as AlerterDb)
+            .insert(alerts)
+            .values({
+                class: event.class,
+                tone: event.tone,
+                title: event.title,
+                sub: event.sub ?? null,
+                zoneId: event.zoneId ?? null,
+            })
+            .returning({ id: alerts.id });
+        const alertId = inserted[0]!.id;
         console.log(`alerts: inserted new ${event.class} alert.`);
 
         if (notifier) {
@@ -158,6 +169,17 @@ export function createAlerter(db: AlertsDb, notifier?: Notifier): Alerter {
                 operation: event.class,
                 reason: event.sub ?? event.title,
             });
+        }
+
+        if (pushDispatcher) {
+            await pushDispatcher({
+                alertId,
+                class: event.class,
+                tone: event.tone,
+                title: event.title,
+                sub: event.sub ?? null,
+                zoneId: event.zoneId ?? null,
+            }).catch(err => console.warn('alerts: push dispatcher failed; swallowing.', err));
         }
     };
 }
@@ -233,7 +255,9 @@ export type AlerterDb = {
         };
     };
     insert: (table: typeof alerts) => {
-        values: (row: Record<string, unknown>) => Promise<unknown>;
+        values: (row: Record<string, unknown>) => {
+            returning: (cols: { id: typeof alerts.id }) => Promise<Array<{ id: string }>>;
+        };
     };
     update: (table: typeof alerts) => {
         set: (values: Record<string, unknown>) => {

@@ -38,8 +38,15 @@ import type { ZoneSummary } from '@/models/zone';
 import { closeZone, getZoneState, openZone } from '@/data/home-assistant';
 import { bootSystemService, getSystemState, setIrrigationEnabled } from '@/service/system';
 import type { Database } from '@/db';
+import type { PushRegistration } from '@/models/push-token';
 import type { SystemStateDto } from '@/models/system';
 import type { TonightDto } from '@/models/tonight';
+import {
+    bootPushTokensService,
+    dispatchAlertPush,
+    registerPushToken,
+    unregisterPushToken,
+} from '@/service/push-tokens';
 import { bootTonightService, getTonightSummary } from '@/service/tonight';
 import {
     bootSchedulesListService,
@@ -217,6 +224,17 @@ export type BuildAppOptions = {
      * DB-backed lister.
      */
     activity?: (params: ActivityListParams) => Promise<ActivityListResult>;
+
+    /**
+     * Optional. When supplied, registers `POST /push/register` and
+     * `POST /push/unregister` — Expo Push token registration for the mobile
+     * app's push notifications. Production wires these to the push-tokens
+     * service.
+     */
+    push?: {
+        register: (input: PushRegistration) => Promise<void>;
+        unregister: (token: string) => Promise<void>;
+    };
 };
 
 /**
@@ -280,7 +298,59 @@ export function buildApp(opts: BuildAppOptions): FastifyInstance {
         registerSchedulesListRoute(app, opts.schedulesList);
     }
 
+    if (opts.push) {
+        registerPushRoutes(app, opts.push);
+    }
+
     return app;
+}
+
+function registerPushRoutes(
+    app: FastifyInstance,
+    push: {
+        register: (input: PushRegistration) => Promise<void>;
+        unregister: (token: string) => Promise<void>;
+    },
+): void {
+    /**
+     * `POST /push/register` — registers (or refreshes) a device's Expo Push
+     * token. Idempotent: re-registering the same token refreshes the row's
+     * `platform`, `user_agent`, and `updated_at`. Returns 400 on missing /
+     * invalid body, 200 with `{ status: 'registered' }` on success.
+     */
+    app.post('/push/register', async (req, reply) => {
+        const body = req.body as Record<string, unknown> | undefined;
+        const tokenRaw = body?.['token'];
+        const platformRaw = body?.['platform'];
+        const userAgentRaw = body?.['userAgent'];
+
+        if (typeof tokenRaw !== 'string' || tokenRaw.length === 0) {
+            return reply.code(400).send({ error: 'bad-request', message: 'token must be a non-empty string.' });
+        }
+        if (platformRaw !== 'ios' && platformRaw !== 'android') {
+            return reply.code(400).send({ error: 'bad-request', message: `platform must be 'ios' or 'android'.` });
+        }
+        const userAgent =
+            typeof userAgentRaw === 'string' && userAgentRaw.length > 0 ? userAgentRaw : null;
+
+        await push.register({ token: tokenRaw, platform: platformRaw, userAgent });
+        return reply.code(200).send({ status: 'registered' });
+    });
+
+    /**
+     * `POST /push/unregister` — removes a device's Expo Push token. Idempotent:
+     * 200 even when the token was never registered.
+     */
+    app.post('/push/unregister', async (req, reply) => {
+        const body = req.body as Record<string, unknown> | undefined;
+        const tokenRaw = body?.['token'];
+        if (typeof tokenRaw !== 'string' || tokenRaw.length === 0) {
+            return reply.code(400).send({ error: 'bad-request', message: 'token must be a non-empty string.' });
+        }
+
+        await push.unregister(tokenRaw);
+        return reply.code(200).send({ status: 'unregistered' });
+    });
 }
 
 function registerTonightRoute(app: FastifyInstance, tonight: () => Promise<TonightDto>): void {
@@ -718,7 +788,6 @@ if (import.meta.main) {
         :   closeZone;
     const effectiveGetZoneState: typeof getZoneState = dryRun ? async _zone => 'off' as const : getZoneState;
     const alertsDb = db as unknown as AlertsDb;
-    const alerter = createAlerter(alertsDb, notifier);
     const typedDb = db as unknown as Database;
     bootSystemService({ db: typedDb });
     bootSitesService({ db: typedDb });
@@ -727,7 +796,9 @@ if (import.meta.main) {
     bootManualService({ db: typedDb });
     bootSchedulesListService({ db: typedDb });
     bootTonightService({ db: typedDb });
+    bootPushTokensService({ db: typedDb });
     bootDaemonService({ db: typedDb });
+    const alerter = createAlerter(alertsDb, notifier, dispatchAlertPush);
     const daemon = await daemonStart({
         notifier,
         alerter,
@@ -769,6 +840,10 @@ if (import.meta.main) {
         activity: params => listActivity(db as unknown as ActivityDb, params),
         tonight: () => getTonightSummary(realClock.now()),
         schedulesList: () => listSchedules(realClock.now()),
+        push: {
+            register: input => registerPushToken(input),
+            unregister: token => unregisterPushToken(token),
+        },
     });
 
     const onSignal = (signal: NodeJS.Signals): void => {

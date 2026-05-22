@@ -1066,6 +1066,154 @@ describe('buildApp alert routes', () => {
     });
 });
 
+describe('buildApp /push routes', () => {
+    type RegisterCall = { token: string; platform: 'ios' | 'android'; userAgent: string | null };
+
+    function buildPushApp(opts?: {
+        register?: (input: RegisterCall) => Promise<void>;
+        unregister?: (token: string) => Promise<void>;
+    }) {
+        return buildApp({
+            getStatus: () => buildStatus(),
+            push: {
+                register: opts?.register ?? (async () => {}),
+                unregister: opts?.unregister ?? (async () => {}),
+            },
+        });
+    }
+
+    describe('POST /push/register', () => {
+        it('returns 200 with status "registered" and forwards token, platform, userAgent verbatim', async () => {
+            const calls: RegisterCall[] = [];
+            const app = buildPushApp({ register: async (input) => { calls.push(input); } });
+
+            const res = await app.inject({
+                method: 'POST',
+                url: '/push/register',
+                payload: { token: 'tok-A', platform: 'ios', userAgent: 'irrigo/1.0 iOS 17' },
+            });
+
+            expect(res.statusCode).toBe(200);
+            expect(res.json()).toEqual({ status: 'registered' });
+            expect(calls).toEqual([{ token: 'tok-A', platform: 'ios', userAgent: 'irrigo/1.0 iOS 17' }]);
+            await app.close();
+        });
+
+        it('normalises a missing userAgent to null before forwarding', async () => {
+            const calls: RegisterCall[] = [];
+            const app = buildPushApp({ register: async (input) => { calls.push(input); } });
+
+            const res = await app.inject({
+                method: 'POST',
+                url: '/push/register',
+                payload: { token: 'tok-B', platform: 'android' },
+            });
+
+            expect(res.statusCode).toBe(200);
+            expect(calls[0]?.userAgent).toBeNull();
+            await app.close();
+        });
+
+        it('returns 400 when token is missing', async () => {
+            const app = buildPushApp();
+
+            const res = await app.inject({
+                method: 'POST',
+                url: '/push/register',
+                payload: { platform: 'ios' },
+            });
+
+            expect(res.statusCode).toBe(400);
+            expect(res.json()).toMatchObject({ error: 'bad-request' });
+            await app.close();
+        });
+
+        it('returns 400 when platform is missing or not ios/android', async () => {
+            const app = buildPushApp();
+
+            const res = await app.inject({
+                method: 'POST',
+                url: '/push/register',
+                payload: { token: 'tok-X', platform: 'symbian' },
+            });
+
+            expect(res.statusCode).toBe(400);
+            expect(res.json()).toMatchObject({ error: 'bad-request' });
+            await app.close();
+        });
+
+        it('returns 404 when the push handler is absent', async () => {
+            const app = buildApp({ getStatus: () => buildStatus() });
+
+            const res = await app.inject({
+                method: 'POST',
+                url: '/push/register',
+                payload: { token: 'tok-A', platform: 'ios' },
+            });
+
+            expect(res.statusCode).toBe(404);
+            await app.close();
+        });
+    });
+
+    describe('POST /push/unregister', () => {
+        it('returns 200 with status "unregistered" and forwards the token', async () => {
+            const calls: string[] = [];
+            const app = buildPushApp({ unregister: async (token) => { calls.push(token); } });
+
+            const res = await app.inject({
+                method: 'POST',
+                url: '/push/unregister',
+                payload: { token: 'tok-B' },
+            });
+
+            expect(res.statusCode).toBe(200);
+            expect(res.json()).toEqual({ status: 'unregistered' });
+            expect(calls).toEqual(['tok-B']);
+            await app.close();
+        });
+
+        it('returns 200 even when the handler is given an unknown token (idempotent)', async () => {
+            const app = buildPushApp({ unregister: async () => {} });
+
+            const res = await app.inject({
+                method: 'POST',
+                url: '/push/unregister',
+                payload: { token: 'tok-missing' },
+            });
+
+            expect(res.statusCode).toBe(200);
+            await app.close();
+        });
+
+        it('returns 400 when token is missing', async () => {
+            const app = buildPushApp();
+
+            const res = await app.inject({
+                method: 'POST',
+                url: '/push/unregister',
+                payload: {},
+            });
+
+            expect(res.statusCode).toBe(400);
+            await app.close();
+        });
+
+        it('returns 404 when the push handler is absent', async () => {
+            const app = buildApp({ getStatus: () => buildStatus() });
+
+            const res = await app.inject({
+                method: 'POST',
+                url: '/push/unregister',
+                payload: { token: 'tok-A' },
+            });
+
+            expect(res.statusCode).toBe(404);
+            await app.close();
+        });
+    });
+});
+
 describe('buildApp /system routes', () => {
     const SINCE_ISO = '2026-05-21T12:34:56.000Z';
     const buildEnabled = () => ({ irrigationEnabled: true, since: SINCE_ISO });
