@@ -8,6 +8,7 @@
             "Bash(gh pr *)",
             "Bash(bun --cwd=./api test *)",
             "Bash(bun --cwd=./api run *)",
+            "Bash(bun --cwd=./app run *)",
             "Bash(bun run *)",
             "Bash(bun test *)",
             "Bash(bun install *)",
