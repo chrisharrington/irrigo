@@ -6,6 +6,7 @@
             "WebSearch",
             "Bash(git *)",
             "Bash(gh pr *)",
+            "Bash(bun --cwd=./api test)",
             "Bash(bun --cwd=./api test *)",
             "Bash(bun --cwd=./api run *)",
             "Bash(bun --cwd=./app run *)",
