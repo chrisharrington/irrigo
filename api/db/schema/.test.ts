@@ -1,6 +1,6 @@
 import { test, expect } from 'bun:test';
 import { getTableConfig } from 'drizzle-orm/pg-core';
-import { grassTypes, irrigationCycles, scheduleEntries, sites, soilTypes, zones } from '.';
+import { grassTypes, irrigationCycles, pushTokens, scheduleEntries, sites, soilTypes, zones } from '.';
 
 function columnsByName(table: Parameters<typeof getTableConfig>[0]) {
     const config = getTableConfig(table);
@@ -165,4 +165,19 @@ test('irrigation_cycles foreign key cascades on schedule_entry delete', () => {
     expect(reference.columns.map(c => c.name)).toContain('schedule_entry_id');
     expect(reference.foreignTable).toBe(scheduleEntries);
     expect(fk!.onDelete).toBe('cascade');
+});
+
+test('push_tokens table has the expected columns and constraints', () => {
+    const config = getTableConfig(pushTokens);
+    const columns = columnsByName(pushTokens);
+
+    expect(config.name).toBe('push_tokens');
+    expect(columns['id']?.primary).toBe(true);
+    expect(columns['id']?.hasDefault).toBe(true);
+    expect(columns['token']?.notNull).toBe(true);
+    expect(columns['token']?.isUnique).toBe(true);
+    expect(columns['platform']?.notNull).toBe(true);
+    expect(columns['user_agent']?.notNull).toBe(false);
+    expect(columns['created_at']?.notNull).toBe(true);
+    expect(columns['updated_at']?.notNull).toBe(true);
 });
