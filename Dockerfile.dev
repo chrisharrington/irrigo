@@ -103,8 +103,22 @@ RUN install -d -o $DEV_UID -g $DEV_GID /home/${DEV_USER}/.vscode-server \
     && install -d -o $DEV_UID -g $DEV_GID /home/${DEV_USER}/.gradle \
     && install -d -o $DEV_UID -g $DEV_GID /home/${DEV_USER}/.android
 
+# Pre-create install targets with DEV_USER ownership so `bun install` (run as
+# DEV_USER below) can create node_modules in them. WORKDIR creates dirs as
+# root, and COPY --chown's effect on auto-created parent dirs isn't reliable.
+RUN install -d -o $DEV_UID -g $DEV_GID /app /app/api /app/app
+
 WORKDIR /app
 USER ${DEV_USER}
+
+# Install api/ and app/ dependencies into the image. The anonymous volumes
+# mounted at /app/api/node_modules and /app/app/node_modules in compose
+# initialize from these locations on first start, preserving the install under
+# the .:/app bind mount — same overlay trick the api service uses.
+COPY --chown=${DEV_UID}:${DEV_GID} api/package.json api/bun.lock /app/api/
+COPY --chown=${DEV_UID}:${DEV_GID} app/package.json app/bun.lock /app/app/
+RUN bun --cwd=/app/api install --frozen-lockfile \
+    && bun --cwd=/app/app install --frozen-lockfile
 
 # Print a ready line on startup so `docker compose logs dev` confirms the
 # container came up healthy. `exec` hands PID 1 to sleep so the container
