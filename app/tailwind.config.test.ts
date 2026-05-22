@@ -1,8 +1,27 @@
-import type { Config } from 'tailwindcss';
+import type { Config, PluginAPI } from 'tailwindcss/types/config';
 
 const config = require('./tailwind.config.js') as Config;
 
 const theme = (config.theme?.extend ?? {}) as Record<string, Record<string, unknown>>;
+
+type ComponentDeclarations = Readonly<Record<string, Readonly<Record<string, string>>>>;
+
+const collectComponents = (): ComponentDeclarations => {
+    const plugins = config.plugins ?? [];
+    const collected: Record<string, Record<string, string>> = {};
+
+    for (const entry of plugins) {
+        const handler = (entry as { handler?: PluginAPI['addComponents'] extends never ? never : (api: PluginAPI) => void }).handler;
+        if (typeof handler !== 'function') continue;
+        handler({
+            addComponents: (components: unknown) => {
+                Object.assign(collected, components as Record<string, Record<string, string>>);
+            },
+        } as unknown as PluginAPI);
+    }
+
+    return collected;
+};
 
 describe('tailwind.config.js — Irrigo design tokens', () => {
     describe('colors', () => {
@@ -97,7 +116,7 @@ describe('tailwind.config.js — Irrigo design tokens', () => {
         });
     });
 
-    describe('typography', () => {
+    describe('typography (theme)', () => {
         const fontFamily = theme.fontFamily as Record<string, readonly string[]>;
         const fontSize = theme.fontSize as Record<string, readonly [string, Record<string, string>]>;
 
@@ -122,6 +141,53 @@ describe('tailwind.config.js — Irrigo design tokens', () => {
         it('exposes the eyebrow label with uppercase-friendly letter-spacing.', () => {
             expect(fontSize.eyebrow[0]).toBe('11px');
             expect(fontSize.eyebrow[1].letterSpacing).toBe('0.14em');
+        });
+    });
+
+    describe('typography (component classes via plugin)', () => {
+        const components = collectComponents();
+
+        it('emits display-1 with the Bricolage family at 56px / 700 weight / -0.02em tracking.', () => {
+            const cls = components['.display-1'];
+            expect(cls.fontFamily).toContain('Bricolage Grotesque');
+            expect(cls.fontSize).toBe('56px');
+            expect(cls.fontWeight).toBe('700');
+            expect(cls.lineHeight).toBe('0.96');
+            expect(cls.letterSpacing).toBe('-0.02em');
+        });
+
+        it('emits eyebrow with uppercase + 0.14em tracking + fg-muted color.', () => {
+            const cls = components['.eyebrow'];
+            expect(cls.fontSize).toBe('11px');
+            expect(cls.textTransform).toBe('uppercase');
+            expect(cls.letterSpacing).toBe('0.14em');
+            expect(cls.color).toBe('#8A9690');
+        });
+
+        it('emits num-hero with the mono family + tnum + ss01 feature settings.', () => {
+            const cls = components['.num-hero'];
+            expect(cls.fontFamily).toContain('Geist Mono');
+            expect(cls.fontSize).toBe('72px');
+            expect(cls.fontFeatureSettings).toContain('tnum');
+            expect(cls.fontFeatureSettings).toContain('ss01');
+        });
+
+        it('emits the rest of the body / heading / numeric classes by name.', () => {
+            const expected = [
+                '.display-2',
+                '.display-3',
+                '.h1',
+                '.h2',
+                '.h3',
+                '.label',
+                '.body-lg',
+                '.body',
+                '.body-sm',
+                '.num-lg',
+                '.num',
+                '.num-sm',
+            ];
+            for (const name of expected) expect(components[name]).toBeDefined();
         });
     });
 

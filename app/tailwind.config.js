@@ -1,3 +1,9 @@
+const plugin = require('tailwindcss/plugin');
+
+const fontDisplay = ['Bricolage Grotesque', 'ui-sans-serif', 'system-ui', 'sans-serif'].join(', ');
+const fontBody = ['Geist', 'ui-sans-serif', 'system-ui', 'sans-serif'].join(', ');
+const fontMono = ['Geist Mono', 'ui-monospace', 'SF Mono', 'Menlo', 'monospace'].join(', ');
+
 /** @type {import('tailwindcss').Config} */
 module.exports = {
     content: [
@@ -138,5 +144,116 @@ module.exports = {
             },
         },
     },
-    plugins: [],
+    plugins: [
+        plugin(function ({ addComponents }) {
+            addComponents({
+                '.display-1': {
+                    fontFamily: fontDisplay,
+                    fontSize: '56px',
+                    lineHeight: '0.96',
+                    fontWeight: '700',
+                    letterSpacing: '-0.02em',
+                },
+                '.display-2': {
+                    fontFamily: fontDisplay,
+                    fontSize: '40px',
+                    lineHeight: '1.02',
+                    fontWeight: '600',
+                    letterSpacing: '-0.018em',
+                },
+                '.display-3': {
+                    fontFamily: fontDisplay,
+                    fontSize: '28px',
+                    lineHeight: '1.08',
+                    fontWeight: '600',
+                    letterSpacing: '-0.015em',
+                },
+                '.h1': {
+                    fontFamily: fontDisplay,
+                    fontSize: '22px',
+                    lineHeight: '1.2',
+                    fontWeight: '600',
+                    letterSpacing: '-0.01em',
+                },
+                '.h2': {
+                    fontFamily: fontDisplay,
+                    fontSize: '18px',
+                    lineHeight: '1.25',
+                    fontWeight: '600',
+                    letterSpacing: '-0.005em',
+                },
+                '.h3': {
+                    fontFamily: fontBody,
+                    fontSize: '15px',
+                    lineHeight: '1.3',
+                    fontWeight: '600',
+                },
+                '.eyebrow': {
+                    fontFamily: fontBody,
+                    fontSize: '11px',
+                    lineHeight: '1.2',
+                    fontWeight: '500',
+                    textTransform: 'uppercase',
+                    letterSpacing: '0.14em',
+                    color: '#8A9690',
+                },
+                '.label': {
+                    fontFamily: fontBody,
+                    fontSize: '12px',
+                    lineHeight: '1.3',
+                    fontWeight: '500',
+                    color: '#8A9690',
+                },
+                '.body-lg': {
+                    fontFamily: fontBody,
+                    fontSize: '16px',
+                    lineHeight: '1.5',
+                    fontWeight: '400',
+                },
+                '.body': {
+                    fontFamily: fontBody,
+                    fontSize: '14px',
+                    lineHeight: '1.5',
+                    fontWeight: '400',
+                },
+                '.body-sm': {
+                    fontFamily: fontBody,
+                    fontSize: '12px',
+                    lineHeight: '1.45',
+                    fontWeight: '400',
+                    color: '#C7CFC9',
+                },
+                '.num-hero': {
+                    fontFamily: fontMono,
+                    fontSize: '72px',
+                    lineHeight: '0.95',
+                    fontWeight: '500',
+                    letterSpacing: '-0.04em',
+                    fontFeatureSettings: '"ss01", "tnum"',
+                },
+                '.num-lg': {
+                    fontFamily: fontMono,
+                    fontSize: '28px',
+                    lineHeight: '1',
+                    fontWeight: '500',
+                    letterSpacing: '-0.02em',
+                    fontFeatureSettings: '"tnum"',
+                },
+                '.num': {
+                    fontFamily: fontMono,
+                    fontSize: '14px',
+                    lineHeight: '1.2',
+                    fontWeight: '500',
+                    fontFeatureSettings: '"tnum"',
+                },
+                '.num-sm': {
+                    fontFamily: fontMono,
+                    fontSize: '11px',
+                    lineHeight: '1.2',
+                    fontWeight: '500',
+                    fontFeatureSettings: '"tnum"',
+                },
+            });
+        }),
+    ],
 };
