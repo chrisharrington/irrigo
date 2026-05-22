@@ -37,10 +37,12 @@ module.exports = {
                 'grass-900': '#0F2A1C',
                 'grass-glow': 'rgba(111, 227, 155, 0.18)',
                 'grass-glow-2': 'rgba(111, 227, 155, 0.06)',
+                'grass-glow-3': 'rgba(111, 227, 155, 0.07)',
 
                 // Accent supplemental.
                 'water-500': '#7CD4FB',
                 'water-700': '#2E7FA8',
+                'water-glow': 'rgba(124, 212, 251, 0.04)',
                 'amber-500': '#FFBE6B',
                 'amber-700': '#B07B2A',
                 'rose-500': '#FF6B7B',

@@ -46,6 +46,12 @@ describe('tailwind.config.js — Irrigo design tokens', () => {
             expect(colors['grass-glow']).toBe('rgba(111, 227, 155, 0.18)');
         });
 
+        it('exposes the soft-glow tints used by canvas, modal, and info surfaces.', () => {
+            expect(colors['grass-glow-2']).toBe('rgba(111, 227, 155, 0.06)');
+            expect(colors['grass-glow-3']).toBe('rgba(111, 227, 155, 0.07)');
+            expect(colors['water-glow']).toBe('rgba(124, 212, 251, 0.04)');
+        });
+
         it('exposes the accent-supplemental ramps (water / amber / rose / moon).', () => {
             expect(colors['water-500']).toBe('#7CD4FB');
             expect(colors['amber-500']).toBe('#FFBE6B');

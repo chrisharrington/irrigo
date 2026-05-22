@@ -1,12 +1,12 @@
-import { DarkTheme, DefaultTheme, ThemeProvider } from '@react-navigation/native';
+import { DarkTheme, ThemeProvider, type Theme } from '@react-navigation/native';
 import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import * as SplashScreen from 'expo-splash-screen';
 import 'react-native-reanimated';
 
 import { ApiProvider } from '@/api/provider';
+import { CanvasBackground } from '@/components/canvas-background';
 import { FontLoader } from '@/components/font-loader';
-import { useColorScheme } from '@/hooks/use-color-scheme';
 import '../global.css';
 
 // Hold the native splash from auto-hiding so FontLoader can keep it visible
@@ -18,23 +18,36 @@ SplashScreen.preventAutoHideAsync().catch(err => {
 });
 
 export const unstable_settings = {
-  anchor: '(tabs)',
+    anchor: '(tabs)',
+};
+
+// Dark-only React Navigation theme. Irrigo has no light mode by design, so
+// we don't branch on `useColorScheme()` — the OS scheme is pinned to dark
+// via `userInterfaceStyle: "dark"` in app.json. Background overrides the
+// default `#000` so screens default to the canvas hex when they don't paint
+// their own backdrop.
+export const irrigoDarkTheme: Theme = {
+    ...DarkTheme,
+    colors: {
+        ...DarkTheme.colors,
+        background: '#06090A',
+    },
 };
 
 export default function RootLayout() {
-  const colorScheme = useColorScheme();
-
-  return (
-    <ApiProvider>
-      <FontLoader>
-        <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
-          <Stack>
-            <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-            <Stack.Screen name="modal" options={{ presentation: 'modal', title: 'Modal' }} />
-          </Stack>
-          <StatusBar style="auto" />
-        </ThemeProvider>
-      </FontLoader>
-    </ApiProvider>
-  );
+    return (
+        <ApiProvider>
+            <FontLoader>
+                <ThemeProvider value={irrigoDarkTheme}>
+                    <CanvasBackground>
+                        <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: 'transparent' } }}>
+                            <Stack.Screen name='(tabs)' />
+                            <Stack.Screen name='modal' options={{ presentation: 'modal', title: 'Modal' }} />
+                        </Stack>
+                    </CanvasBackground>
+                    <StatusBar style='light' />
+                </ThemeProvider>
+            </FontLoader>
+        </ApiProvider>
+    );
 }
