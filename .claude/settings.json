@@ -9,9 +9,20 @@
             "Bash(bun --cwd /app/api test *)",
             "Bash(bun --cwd=/app/api test *)",
             "Bash(bun --cwd=/app/api test)",
+            "Bash(bun --cwd=api run type-check *)",
+            "Bash(bun --cwd=api run type-check)",
+            "Bash(bun --cwd=api test *)",
+            "Bash(bun --cwd=api test)",
+            "Bash(bun --cwd api run type-check *)",
+            "Bash(bun --cwd api run type-check)",
+            "Bash(bun --cwd api test *)",
+            "Bash(bun --cwd api test)",
             "Bash(bun --cwd=/app/app run type-check *)",
             "Bash(bun --cwd=/app/app test *)",
-            "Bash(bunx tsc --noEmit *)"
+            "Bash(bun --cwd=app run type-check *)",
+            "Bash(bun --cwd=app test *)",
+            "Bash(bunx tsc --noEmit *)",
+            "Bash(awk *)"
         ]
     }
 }

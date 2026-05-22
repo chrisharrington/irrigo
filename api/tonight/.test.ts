@@ -3,6 +3,8 @@ import dayjs from 'dayjs';
 import utc from 'dayjs/plugin/utc';
 import timezone from 'dayjs/plugin/timezone';
 import { irrigationCycles, scheduleEntries, sites, zones } from '@/db/schema';
+import { bootSchedulesService } from '@/service/schedules';
+import { bootSitesService } from '@/service/sites';
 import { bootSystemService } from '@/service/system';
 import { getTonightSummary, type TonightDb } from '.';
 
@@ -68,69 +70,76 @@ function bootSystem(irrigationEnabled: boolean) {
     });
 }
 
-function createStub(inputs?: StubInputs): TonightDb {
+function bootSites(timezoneName: string = SITE_TZ) {
+    bootSitesService({ repo: { loadTimezone: async () => timezoneName } });
+}
+
+function bootSchedules(inputs?: StubInputs) {
     const skippedNightDate = inputs?.skippedNightDateOnActive ?? null;
-    const rows = inputs?.rows ?? [];
     const activeSchedulesCount = inputs?.activeSchedules ?? 1;
+    const map = new Map<string, ReturnType<typeof buildScheduleRow>>();
+    for (let i = 0; i < activeSchedulesCount; i++) {
+        const row = buildScheduleRow(i, skippedNightDate);
+        map.set(row.siteId, row);
+    }
+    bootSchedulesService({
+        repo: {
+            loadActiveBySite: async () => map,
+            findBySlug: async () => null,
+            enable: async () => null,
+            disable: async () => null,
+            skipActiveTonight: async () => null,
+            resumeActiveTonight: async () => null,
+            clearStaleSkipMarkers: async () => undefined,
+        },
+    });
+}
+
+function buildScheduleRow(i: number, skippedNightDate: string | null) {
+    return {
+        id: `sched-${i}`,
+        siteId: `site-${i}`,
+        slug: 'maintenance',
+        name: 'Maintenance',
+        isActive: true,
+        allowedDays: null,
+        allowedTimeWindows: null,
+        rootDepthMOverride: null,
+        allowableDepletionFractionOverride: null,
+        endBySunrise: null,
+        skippedNightDate,
+        createdAt: NOW,
+        updatedAt: NOW,
+    };
+}
+
+function createStub(inputs?: StubInputs): TonightDb {
+    const rows = inputs?.rows ?? [];
+    bootSchedules(inputs);
 
     const db: TonightDb = {
-        select: (cols: unknown) => {
-            const c = cols as Record<string, unknown>;
-            // SiteTimezoneDb shape: single 'timezone' column.
-            if ('timezone' in c && Object.keys(c).length === 1) {
-                return { from: () => Promise.resolve([{ timezone: SITE_TZ }]) } as never;
-            }
-            // ScheduleManagerDb shape: single 'schedule' column.
-            if ('schedule' in c && Object.keys(c).length === 1) {
-                const scheduleRows: Array<{ schedule: Record<string, unknown> }> = [];
-                for (let i = 0; i < activeSchedulesCount; i++) {
-                    scheduleRows.push({
-                        schedule: {
-                            id: `sched-${i}`,
-                            siteId: `site-${i}`,
-                            slug: 'maintenance',
-                            name: 'Maintenance',
-                            isActive: true,
-                            allowedDays: null,
-                            allowedTimeWindows: null,
-                            rootDepthMOverride: null,
-                            allowableDepletionFractionOverride: null,
-                            endBySunrise: null,
-                            skippedNightDate,
-                            createdAt: NOW,
-                            updatedAt: NOW,
-                        },
-                    });
-                }
-                return {
-                    from: () => ({
-                        where: () => Promise.resolve(scheduleRows),
-                    }),
-                } as never;
-            }
-            // TonightLoaderDb shape: entry + cycle + zone columns.
-            if ('entry' in c && 'cycle' in c && 'zone' in c) {
-                return {
-                    from: () => ({
-                        innerJoin: () => ({
-                            leftJoin: () => ({
-                                where: () => ({
-                                    orderBy: () => ({
-                                        limit: async () => rows,
-                                    }),
-                                }),
+        select: () => ({
+            from: () => ({
+                innerJoin: () => ({
+                    leftJoin: () => ({
+                        where: () => ({
+                            orderBy: () => ({
+                                limit: async () => rows,
                             }),
                         }),
                     }),
-                } as never;
-            }
-            return {} as never;
-        },
+                }),
+            }),
+        }),
     } as TonightDb;
     return db;
 }
 
 describe('getTonightSummary', () => {
+    beforeEach(() => {
+        bootSites();
+    });
+
     // Default the system kill-switch to enabled for every test. Tests that
     // exercise the disabled path override via bootSystem(false).
     beforeEach(() => {

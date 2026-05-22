@@ -1,9 +1,10 @@
-import { describe, expect, it } from 'bun:test';
+import { beforeEach, describe, expect, it } from 'bun:test';
 import dayjs from 'dayjs';
 import utc from 'dayjs/plugin/utc';
 import timezone from 'dayjs/plugin/timezone';
 import { irrigationCycles, scheduleEntries, schedules, zones } from '@/db/schema';
-import type { Schedule } from '@/daemon/schedule-manager';
+import { bootSitesService } from '@/service/sites';
+import type { Schedule } from '@/service/schedules';
 import {
     formatInLabel,
     formatWhenLabel,
@@ -119,6 +120,10 @@ function createStub(inputs?: StubInputs): ScheduleListDb {
 }
 
 describe('listSchedules', () => {
+    beforeEach(() => {
+        bootSitesService({ repo: { loadTimezone: async () => SITE_TZ } });
+    });
+
     it('returns an empty array when no schedules exist', async () => {
         const db = createStub();
 

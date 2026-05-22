@@ -16,18 +16,25 @@ import {
     type AlertDto,
     type AlertsDb,
 } from '@/alerts';
-import { start as daemonStart, type DaemonControl, type DaemonDb, type DaemonStatus } from '@/daemon';
-import { realClock } from '@/daemon/runtime';
 import {
+    bootDaemonService,
+    start as daemonStart,
+    type DaemonControl,
+    type DaemonStatus,
+} from '@/service/daemon';
+import { realClock } from '@/service/daemon/runtime';
+import {
+    bootSchedulesService,
     disableSchedule as defaultDisableSchedule,
     enableSchedule as defaultEnableSchedule,
     resumeActiveScheduleTonight as defaultResumeActiveScheduleTonight,
     skipActiveScheduleTonight as defaultSkipActiveScheduleTonight,
     type Schedule,
-    type ScheduleManagerDb,
-} from '@/daemon/schedule-manager';
+} from '@/service/schedules';
+import { bootSitesService } from '@/service/sites';
+import { bootZonesService, getZoneById, getZoneSummaries } from '@/service/zones';
 import dayjs from 'dayjs';
-import { loadZoneById, loadZoneSummaries, type ZoneSummary, type ZoneSummaryDb } from '@/daemon/zones';
+import type { ZoneSummary } from '@/models/zone';
 import { closeZone, getZoneState, openZone } from '@/data/home-assistant';
 import { bootSystemService, getSystemState, setIrrigationEnabled } from '@/service/system';
 import type { Database } from '@/db';
@@ -701,8 +708,13 @@ if (import.meta.main) {
     const effectiveGetZoneState: typeof getZoneState = dryRun ? async _zone => 'off' as const : getZoneState;
     const alertsDb = db as unknown as AlertsDb;
     const alerter = createAlerter(alertsDb, notifier);
-    bootSystemService({ db: db as unknown as Database });
-    const daemon = await daemonStart(db as unknown as DaemonDb, {
+    const typedDb = db as unknown as Database;
+    bootSystemService({ db: typedDb });
+    bootSitesService({ db: typedDb });
+    bootSchedulesService({ db: typedDb });
+    bootZonesService({ db: typedDb });
+    bootDaemonService({ db: typedDb });
+    const daemon = await daemonStart({
         notifier,
         alerter,
         openZone: effectiveOpenZone,
@@ -718,12 +730,11 @@ if (import.meta.main) {
         isAnyScheduledInFlight: () => daemon.getStatus().activeZones.length > 0,
         isIrrigationEnabled: async () => (await getSystemState()).irrigationEnabled,
     });
-    const scheduleDb = db as unknown as ScheduleManagerDb;
     const baseSchedule: ScheduleApi = {
-        enable: slug => defaultEnableSchedule(scheduleDb, slug),
-        disable: slug => defaultDisableSchedule(scheduleDb, slug),
-        skipTonight: () => defaultSkipActiveScheduleTonight(scheduleDb, dayjs(realClock.now())),
-        resumeTonight: () => defaultResumeActiveScheduleTonight(scheduleDb),
+        enable: slug => defaultEnableSchedule(slug),
+        disable: slug => defaultDisableSchedule(slug),
+        skipTonight: () => defaultSkipActiveScheduleTonight(dayjs(realClock.now())),
+        resumeTonight: () => defaultResumeActiveScheduleTonight(),
     };
     const baseSystem: SystemApi = {
         get: () => getSystemState(),
@@ -733,10 +744,10 @@ if (import.meta.main) {
     const app = buildApp({
         getStatus: daemon.getStatus,
         manual,
-        zoneById: zoneId => loadZoneById(db as unknown as Parameters<typeof loadZoneById>[0], zoneId),
+        zoneById: zoneId => getZoneById(zoneId),
         schedule: wrapScheduleWithReplan(baseSchedule, () => daemon.rePlan()),
         replan: () => daemon.rePlan(),
-        zonesSummary: () => loadZoneSummaries(db as unknown as ZoneSummaryDb),
+        zonesSummary: () => getZoneSummaries(),
         alerts: {
             list: () => listActiveAlerts(alertsDb),
             ack: id => acknowledgeAlert(alertsDb, id),

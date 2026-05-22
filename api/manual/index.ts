@@ -1,7 +1,7 @@
 import dayjs from 'dayjs';
 import { eq } from 'drizzle-orm';
 import { irrigationCycles, scheduleEntries, zones } from '@/db/schema';
-import type { Clock, TimerHandle } from '@/daemon/runtime';
+import type { Clock, TimerHandle } from '@/service/daemon/runtime';
 import type { Zone } from '@/models';
 import type { Notifier } from '@/notifications';
 

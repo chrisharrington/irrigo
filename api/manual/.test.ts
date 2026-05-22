@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'bun:test';
 import { irrigationCycles, scheduleEntries, zones } from '@/db/schema';
-import type { Clock, TimerHandle } from '@/daemon/runtime';
+import type { Clock, TimerHandle } from '@/service/daemon/runtime';
 import type { Zone } from '@/models';
 import type { NotificationContext, NotificationEvent, Notifier } from '@/notifications';
 import {
