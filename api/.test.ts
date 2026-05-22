@@ -2,7 +2,7 @@ import { describe, it, expect } from 'bun:test';
 import type { ActivityDto, ActivityListParams, ActivityListResult } from '@/activity';
 import { encodeCursor } from '@/util/cursor';
 import type { AlertDto } from '@/alerts';
-import { buildApp, gracefulShutdown, wrapScheduleWithReplan, wrapSystemWithReplan, type ScheduleApi, type SystemApi } from '@/index';
+import { buildApp, gracefulShutdown, readExpoAccessToken, wrapScheduleWithReplan, wrapSystemWithReplan, type ScheduleApi, type SystemApi } from '@/index';
 import type { TonightDto } from '@/models/tonight';
 import type { ScheduleListItem } from '@/service/schedules-list';
 import type { DaemonControl, DaemonStatus } from '@/service/daemon';
@@ -1678,5 +1678,19 @@ describe('buildApp GET /schedules', () => {
         expect(res.statusCode).toBe(200);
         expect(res.json()).toEqual([]);
         await app.close();
+    });
+});
+
+describe('readExpoAccessToken', () => {
+    it('returns undefined when EXPO_ACCESS_TOKEN is unset', () => {
+        expect(readExpoAccessToken({})).toBeUndefined();
+    });
+
+    it('returns undefined when EXPO_ACCESS_TOKEN is an empty string', () => {
+        expect(readExpoAccessToken({ EXPO_ACCESS_TOKEN: '' })).toBeUndefined();
+    });
+
+    it('returns the token verbatim when EXPO_ACCESS_TOKEN is set to a non-empty string', () => {
+        expect(readExpoAccessToken({ EXPO_ACCESS_TOKEN: 'expo-token-abc123' })).toBe('expo-token-abc123');
     });
 });
