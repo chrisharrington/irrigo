@@ -2,14 +2,15 @@ import { beforeEach, describe, expect, it } from 'bun:test';
 import dayjs from 'dayjs';
 import utc from 'dayjs/plugin/utc';
 import timezone from 'dayjs/plugin/timezone';
-import { irrigationCycles, scheduleEntries, schedules, zones } from '@/db/schema';
+import { irrigationCycles, scheduleEntries } from '@/db/schema';
+import type { NextRunJoinedRow, ScheduleEntriesRepository } from '@/repositories/schedule-entries';
+import type { Schedule, SchedulesRepository } from '@/repositories/schedules';
 import { bootSitesService } from '@/service/sites';
-import type { Schedule } from '@/service/schedules';
 import {
+    bootSchedulesListService,
     formatInLabel,
     formatWhenLabel,
     listSchedules,
-    type ScheduleListDb,
 } from '.';
 
 dayjs.extend(utc);
@@ -17,8 +18,6 @@ dayjs.extend(timezone);
 
 type EntryRow = typeof scheduleEntries.$inferSelect;
 type CycleRow = typeof irrigationCycles.$inferSelect;
-type ZoneSubset = { id: string; name: string };
-type JoinedRow = { entry: EntryRow; cycle: CycleRow | null; zone: ZoneSubset };
 
 const NOW = new Date('2026-05-21T22:00:00.000Z'); // 22:00 UTC, before any night cycles
 const SITE_TZ = 'UTC';
@@ -74,44 +73,35 @@ function buildCycle(overrides?: Partial<CycleRow>): CycleRow {
     };
 }
 
-type StubInputs = {
-    schedules?: Schedule[];
-    nextRunRows?: JoinedRow[];
-};
-
-function createStub(inputs?: StubInputs): ScheduleListDb {
-    const scheduleRows = inputs?.schedules ?? [];
-    const nextRunRows = inputs?.nextRunRows ?? [];
-
-    // Leaf handlers per query shape. The schedules-list service dispatches on
-    // the columns argument to `select()`; we mirror that here and return the
-    // matching one-line chain from each branch.
-    const runTimezoneFrom = async () => [{ timezone: SITE_TZ }];
-    const runSchedulesWhere = async () => scheduleRows.map(s => ({ schedule: s }));
-    const runNextRunQuery = async () => nextRunRows;
-
-    const runSelect = (cols: unknown) => {
-        const c = cols as Record<string, unknown>;
-        if ('timezone' in c && Object.keys(c).length === 1) {
-            return { from: runTimezoneFrom } as never;
-        }
-        if ('schedule' in c && Object.keys(c).length === 1) {
-            return { from: () => ({ where: runSchedulesWhere }) } as never;
-        }
-        if ('entry' in c && 'cycle' in c && 'zone' in c) {
-            return {
-                from: () => ({ innerJoin: () => ({ leftJoin: () => ({ where: () => ({ orderBy: () => ({ limit: runNextRunQuery }) }) }) }) }),
-            } as never;
-        }
-        return {} as never;
+function fakeSchedulesRepo(schedules: Schedule[]): SchedulesRepository {
+    return {
+        listAll: async () => schedules,
+        loadActiveBySite: async () => new Map(),
+        findBySlug: async () => null,
+        enable: async () => null,
+        disable: async () => null,
+        skipActiveTonight: async () => null,
+        resumeActiveTonight: async () => null,
+        clearStaleSkipMarkers: async () => undefined,
     };
+}
 
-    const db: ScheduleListDb = {
-        select: runSelect,
-        update: () => ({ set: () => ({ where: async () => undefined }) }),
-        transaction: async (cb) => cb(db as never),
+function fakeScheduleEntriesRepo(nextRunRows: NextRunJoinedRow[]): ScheduleEntriesRepository {
+    return {
+        loadFutureCycles: async () => [],
+        loadInFlightCycles: async () => [],
+        replaceForZone: async () => ({ cycles: [] }),
+        markCycleFired: async () => undefined,
+        markCycleClosed: async () => undefined,
+        findScheduledFromDate: async () => nextRunRows,
     };
-    return db;
+}
+
+function bootWith(inputs?: { schedules?: Schedule[]; nextRunRows?: NextRunJoinedRow[] }) {
+    bootSchedulesListService({
+        schedulesRepo: fakeSchedulesRepo(inputs?.schedules ?? []),
+        scheduleEntriesRepo: fakeScheduleEntriesRepo(inputs?.nextRunRows ?? []),
+    });
 }
 
 describe('listSchedules', () => {
@@ -120,18 +110,18 @@ describe('listSchedules', () => {
     });
 
     it('returns an empty array when no schedules exist', async () => {
-        const db = createStub();
+        bootWith();
 
-        const result = await listSchedules(db, NOW);
+        const result = await listSchedules(NOW);
 
         expect(result).toEqual([]);
     });
 
     it('maps a single inactive schedule with no nextRun or skippedTonight fields', async () => {
         const inactive = buildSchedule({ id: 'sched-X', slug: 'overseeding', name: 'Overseeding', isActive: false });
-        const db = createStub({ schedules: [inactive] });
+        bootWith({ schedules: [inactive] });
 
-        const result = await listSchedules(db, NOW);
+        const result = await listSchedules(NOW);
 
         expect(result).toHaveLength(1);
         const item = result[0]!;
@@ -161,9 +151,9 @@ describe('listSchedules', () => {
             allowableDepletionFractionOverride: 0.35,
             endBySunrise: true,
         });
-        const db = createStub({ schedules: [sched] });
+        bootWith({ schedules: [sched] });
 
-        const [item] = await listSchedules(db, NOW);
+        const [item] = await listSchedules(NOW);
 
         expect(item?.allowedDays).toEqual([3, 5, 7]);
         expect(item?.allowedTimeWindows).toEqual([
@@ -177,9 +167,9 @@ describe('listSchedules', () => {
 
     it('emits nextRun: null on the active schedule when no upcoming entries exist', async () => {
         const active = buildSchedule({ isActive: true });
-        const db = createStub({ schedules: [active], nextRunRows: [] });
+        bootWith({ schedules: [active], nextRunRows: [] });
 
-        const [item] = await listSchedules(db, NOW);
+        const [item] = await listSchedules(NOW);
 
         expect(item?.nextRun).toBeNull();
         expect(item?.skippedTonight).toBe(false);
@@ -188,7 +178,7 @@ describe('listSchedules', () => {
     it('emits nextRun: null when all returned cycles have already ended (past-only rows)', async () => {
         const active = buildSchedule({ isActive: true });
         const past = new Date('2026-05-21T06:00:00.000Z'); // before NOW (22:00)
-        const db = createStub({
+        bootWith({
             schedules: [active],
             nextRunRows: [{
                 entry: buildEntry({ date: '2026-05-21' }),
@@ -197,7 +187,7 @@ describe('listSchedules', () => {
             }],
         });
 
-        const [item] = await listSchedules(db, NOW);
+        const [item] = await listSchedules(NOW);
 
         expect(item?.nextRun).toBeNull();
     });
@@ -205,7 +195,7 @@ describe('listSchedules', () => {
     it('builds nextRun on the active schedule when an upcoming night exists', async () => {
         const active = buildSchedule({ id: 'sched-active', isActive: true });
         const start = new Date('2026-05-22T03:00:00.000Z'); // 5h after NOW
-        const db = createStub({
+        bootWith({
             schedules: [active],
             nextRunRows: [
                 {
@@ -225,7 +215,7 @@ describe('listSchedules', () => {
             ],
         });
 
-        const [item] = await listSchedules(db, NOW);
+        const [item] = await listSchedules(NOW);
 
         expect(item?.nextRun).toEqual({
             // NOW is 22:00 on the 21st; start is 03:00 on the 22nd → 5h.
@@ -240,7 +230,7 @@ describe('listSchedules', () => {
     it('only carries nextRun and skippedTonight on the active row when multiple schedules exist', async () => {
         const inactive = buildSchedule({ id: 'sched-other', slug: 'overseeding', name: 'Overseeding', isActive: false });
         const active = buildSchedule({ id: 'sched-active', slug: 'maintenance', isActive: true });
-        const db = createStub({
+        bootWith({
             schedules: [inactive, active],
             nextRunRows: [
                 {
@@ -251,7 +241,7 @@ describe('listSchedules', () => {
             ],
         });
 
-        const result = await listSchedules(db, NOW);
+        const result = await listSchedules(NOW);
 
         expect(result).toHaveLength(2);
         const inactiveItem = result.find(i => i.id === 'sched-other')!;
@@ -265,18 +255,18 @@ describe('listSchedules', () => {
     it('sets skippedTonight: true when the active schedule’s skip marker matches today site-local', async () => {
         // NOW = 2026-05-21 22:00 UTC; site-local YYYY-MM-DD is 2026-05-21.
         const active = buildSchedule({ isActive: true, skippedNightDate: '2026-05-21' });
-        const db = createStub({ schedules: [active], nextRunRows: [] });
+        bootWith({ schedules: [active], nextRunRows: [] });
 
-        const [item] = await listSchedules(db, NOW);
+        const [item] = await listSchedules(NOW);
 
         expect(item?.skippedTonight).toBe(true);
     });
 
     it('sets skippedTonight: false when the active schedule’s skip marker is stale (not today)', async () => {
         const active = buildSchedule({ isActive: true, skippedNightDate: '2026-05-18' });
-        const db = createStub({ schedules: [active], nextRunRows: [] });
+        bootWith({ schedules: [active], nextRunRows: [] });
 
-        const [item] = await listSchedules(db, NOW);
+        const [item] = await listSchedules(NOW);
 
         expect(item?.skippedTonight).toBe(false);
     });
@@ -329,9 +319,3 @@ describe('formatWhenLabel', () => {
         expect(formatWhenLabel(start, now)).toBe('Sunday at 3:00 AM');
     });
 });
-
-// Keep table imports alive when Drizzle tree-shakes the refs.
-void schedules;
-void scheduleEntries;
-void irrigationCycles;
-void zones;

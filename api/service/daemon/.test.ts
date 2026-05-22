@@ -282,6 +282,7 @@ function createDaemonReposStub(inputs?: DaemonStubInputs) {
     };
 
     const schedulesRepo: SchedulesRepository = {
+        listAll: async () => [],
         loadActiveBySite: async () => {
             if (firstActiveScheduleReadOrder === null) firstActiveScheduleReadOrder = ++callOrder;
             const map = new Map<string, Schedule>();
@@ -371,6 +372,7 @@ function createDaemonReposStub(inputs?: DaemonStubInputs) {
         markCycleClosed: async (cycleId, closedAt) => {
             cycleUpdates.push({ cycleId, closedAt });
         },
+        findScheduledFromDate: async () => [],
     };
 
     const runAlertsUpdate = async (values: Record<string, unknown>, cond: unknown): Promise<void> => {

@@ -4,7 +4,7 @@ import { encodeCursor } from '@/util/cursor';
 import type { AlertDto } from '@/alerts';
 import { buildApp, gracefulShutdown, wrapScheduleWithReplan, wrapSystemWithReplan, type ScheduleApi, type SystemApi } from '@/index';
 import type { TonightDto } from '@/tonight';
-import type { ScheduleListItem } from '@/schedules-list';
+import type { ScheduleListItem } from '@/service/schedules-list';
 import type { DaemonControl, DaemonStatus } from '@/service/daemon';
 import type { ZoneSummary } from '@/models/zone';
 import { BusyError, SystemDisabledError, type ManualController } from '@/service/manual';

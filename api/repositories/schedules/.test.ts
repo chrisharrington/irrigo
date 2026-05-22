@@ -39,9 +39,14 @@ function createStub(rowsByPredicate: Schedule[]) {
     const runSelectWhere = async (cond: unknown): Promise<Array<{ schedule: Schedule }>> => {
         selectCalls.push({ where: cond });
         const params = extractParamValues(cond);
-        // No string params: probably `eq(isActive, true)` — boolean param is
-        // encoded differently. Otherwise treat the first param as a slug.
-        if (params.length === 0) return rows.filter(r => r.isActive).map(s => ({ schedule: s }));
+        if (params.length === 0) {
+            // No string params. Distinguish `eq(isActive, true)` (has a boolean
+            // Param node) from `sql\`true\`` (no Param nodes at all). The
+            // former wants active-only rows; the latter wants every row.
+            return hasAnyParam(cond)
+                ? rows.filter(r => r.isActive).map(s => ({ schedule: s }))
+                : rows.map(s => ({ schedule: s }));
+        }
         const slug = params[0]!;
         return rows.filter(r => r.slug === slug).map(s => ({ schedule: s }));
     };
@@ -88,6 +93,47 @@ function extractParamValues(cond: unknown): string[] {
     walk(cond);
     return values;
 }
+
+/** Returns true if the condition tree contains any Drizzle Param node (string or otherwise). */
+function hasAnyParam(cond: unknown): boolean {
+    const seen = new WeakSet<object>();
+    let found = false;
+    function walk(node: unknown): void {
+        if (found) return;
+        if (typeof node !== 'object' || node === null) return;
+        if (seen.has(node)) return;
+        seen.add(node);
+        const obj = node as Record<string, unknown>;
+        if ('encoder' in obj && 'value' in obj) { found = true; return; }
+        if (Array.isArray(node)) { for (const item of node) walk(item); return; }
+        for (const value of Object.values(obj)) walk(value);
+    }
+    walk(cond);
+    return found;
+}
+
+describe('createSchedulesRepository.listAll', () => {
+    it('returns every schedule in insertion order, regardless of active state', async () => {
+        const a = buildSchedule({ id: 'sched-A', siteId: 'site-A', isActive: true });
+        const b = buildSchedule({ id: 'sched-B', siteId: 'site-A', isActive: false });
+        const c = buildSchedule({ id: 'sched-C', siteId: 'site-B', isActive: false });
+        const { db } = createStub([a, b, c]);
+        const repo = createSchedulesRepository(db);
+
+        const result = await repo.listAll();
+
+        expect(result.map(s => s.id)).toEqual(['sched-A', 'sched-B', 'sched-C']);
+    });
+
+    it('returns an empty array when the schedules table is empty', async () => {
+        const { db } = createStub([]);
+        const repo = createSchedulesRepository(db);
+
+        const result = await repo.listAll();
+
+        expect(result).toEqual([]);
+    });
+});
 
 describe('createSchedulesRepository.loadActiveBySite', () => {
     it('returns a Map<siteId, Schedule> for every active row', async () => {

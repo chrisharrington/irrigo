@@ -1,5 +1,5 @@
 import type dayjs from 'dayjs';
-import { and, eq, isNotNull, lt, ne } from 'drizzle-orm';
+import { and, eq, isNotNull, lt, ne, sql } from 'drizzle-orm';
 import type { Database } from '@/db';
 import { schedules } from '@/db/schema';
 
@@ -17,6 +17,13 @@ export type Schedule = typeof schedules.$inferSelect;
  * service layer can be a thin pass-through.
  */
 export interface SchedulesRepository {
+    /**
+     * Returns every row from the `schedules` table, in the database's
+     * insertion order. Used by the schedules-list module to render the full
+     * Schedules screen + drawer footer.
+     */
+    listAll(): Promise<Schedule[]>;
+
     /**
      * Returns a `Map<siteId, Schedule>` of every active schedule. The partial
      * unique index `schedules_one_active_per_site` guarantees at most one row
@@ -75,6 +82,14 @@ export function createSchedulesRepository(db: Database): SchedulesRepository {
     };
 
     return {
+        listAll: async () => {
+            const rows = await db
+                .select({ schedule: schedules })
+                .from(schedules)
+                .where(sql`true`);
+            return rows.map(r => r.schedule);
+        },
+
         loadActiveBySite: async () => {
             const rows = await db
                 .select({ schedule: schedules })

@@ -11,7 +11,7 @@ import {
 } from '@/db/schema';
 import type { IrrigationScheduleEntry } from '@/models';
 import type { ZoneJoinedRow } from '@/repositories/zones';
-import { createScheduleEntriesRepository } from '.';
+import { createScheduleEntriesRepository, type NextRunJoinedRow } from '.';
 
 const NOW = new Date('2026-05-04T12:00:00.000Z');
 
@@ -504,5 +504,63 @@ describe('createScheduleEntriesRepository.markCycleClosed', () => {
         expect(updateCalls).toHaveLength(1);
         expect(updateCalls[0]?.table).toBe(irrigationCycles);
         expect(updateCalls[0]?.values).toEqual({ closedAt });
+    });
+});
+
+function stubNextRunDb(rows: NextRunJoinedRow[]): { db: Database; limits: number[] } {
+    const limits: number[] = [];
+    const runLimit = async (n: number): Promise<NextRunJoinedRow[]> => {
+        limits.push(n);
+        return rows;
+    };
+    const db = {
+        select: () => ({
+            from: () => ({ innerJoin: () => ({ leftJoin: () => ({ where: () => ({ orderBy: () => ({ limit: runLimit }) }) }) }) }),
+        }),
+    } as unknown as Database;
+    return { db, limits };
+}
+
+function buildNextRunRow(overrides?: Partial<NextRunJoinedRow>): NextRunJoinedRow {
+    return {
+        entry: {
+            id: 'entry-1',
+            zoneId: 'zone-1',
+            scheduleId: 'sched-1',
+            date: '2026-05-22',
+            appliedDepthMm: 5,
+            depletionBeforeMm: 10,
+            depletionAfterMm: 5,
+            source: 'scheduled',
+            sunriseAt: null,
+            sunsetAt: null,
+            createdAt: NOW,
+            updatedAt: NOW,
+        },
+        cycle: null,
+        zone: { id: 'zone-1', name: 'North' },
+        ...overrides,
+    };
+}
+
+describe('createScheduleEntriesRepository.findScheduledFromDate', () => {
+    it('returns the joined rows produced by the chain and forwards the limit', async () => {
+        const seeded = [buildNextRunRow({ entry: { ...buildNextRunRow().entry, date: '2026-05-22' } })];
+        const { db, limits } = stubNextRunDb(seeded);
+        const repo = createScheduleEntriesRepository(db);
+
+        const result = await repo.findScheduledFromDate('2026-05-22', 150);
+
+        expect(result).toEqual(seeded);
+        expect(limits).toEqual([150]);
+    });
+
+    it('returns an empty array when the join yields no rows', async () => {
+        const { db } = stubNextRunDb([]);
+        const repo = createScheduleEntriesRepository(db);
+
+        const result = await repo.findScheduledFromDate('2026-05-22', 200);
+
+        expect(result).toEqual([]);
     });
 });
