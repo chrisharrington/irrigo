@@ -4,6 +4,7 @@ import { StatusBar } from 'expo-status-bar';
 import * as SplashScreen from 'expo-splash-screen';
 import 'react-native-reanimated';
 
+import { ApiProvider } from '@/api/provider';
 import { FontLoader } from '@/components/font-loader';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import '../global.css';
@@ -24,14 +25,16 @@ export default function RootLayout() {
   const colorScheme = useColorScheme();
 
   return (
-    <FontLoader>
-      <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
-        <Stack>
-          <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-          <Stack.Screen name="modal" options={{ presentation: 'modal', title: 'Modal' }} />
-        </Stack>
-        <StatusBar style="auto" />
-      </ThemeProvider>
-    </FontLoader>
+    <ApiProvider>
+      <FontLoader>
+        <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
+          <Stack>
+            <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+            <Stack.Screen name="modal" options={{ presentation: 'modal', title: 'Modal' }} />
+          </Stack>
+          <StatusBar style="auto" />
+        </ThemeProvider>
+      </FontLoader>
+    </ApiProvider>
   );
 }
