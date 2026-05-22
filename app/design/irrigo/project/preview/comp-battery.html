@@ -1,0 +1,58 @@
+<!doctype html>
+<html><head>
+<meta charset="utf-8">
+<link rel="stylesheet" href="../colors_and_type.css">
+<link rel="stylesheet" href="../components.css">
+<link rel="stylesheet" href="_card.css">
+<style>
+  body.card { padding: 22px 24px; }
+  .lbl { font: var(--num-sm); color: var(--fg-dim); text-transform: uppercase; letter-spacing: .12em; margin-bottom: 14px; }
+  .col { display: flex; flex-direction: column; gap: 18px; }
+  .row { display: grid; grid-template-columns: 80px 1fr 120px; gap: 18px; align-items: center; }
+  .name { font: 600 14px/1.2 var(--font-display); }
+  .meta { font: var(--num-sm); color: var(--fg-muted); text-align: right; }
+  .hero { display: grid; grid-template-columns: auto 1fr; gap: 28px; padding: 18px 18px 18px; align-items: center; border: 1px solid var(--border); border-radius: var(--r-3); background: var(--surface); margin-bottom: 18px; }
+  .hero .figure { display: flex; align-items: baseline; gap: 6px; }
+  .hero .v { font: var(--num-hero); color: var(--accent); letter-spacing: -0.04em; line-height: 1; }
+  .hero .u { font: 500 18px/1 var(--font-mono); color: var(--fg-muted); }
+  .hero .ttl { font: var(--h2); color: var(--fg); }
+  .hero .sub { font: var(--body-sm); color: var(--fg-muted); margin-top: 3px; }
+  .hero .batt-wrap { margin-top: 14px; }
+  .hero .axis { display: flex; justify-content: space-between; font: var(--num-sm); color: var(--fg-dim); margin-top: 6px; }
+  .raw-label { color: var(--warn); }
+</style>
+</head>
+<body class="card">
+  <div class="lbl">Depletion battery — hero + inline variants</div>
+  <div class="hero">
+    <div>
+      <div class="ttl">North</div>
+      <div class="sub">RAW 32 mm · root 0.18 m</div>
+      <div class="figure" style="margin-top:10px"><span class="v">27.4</span><span class="u">mm</span></div>
+    </div>
+    <div>
+      <div class="batt batt--tall" data-tone="warn" style="--pct: 86%; --raw: 80%;">
+        <div class="fill"></div>
+        <div class="notch"></div>
+      </div>
+      <div class="axis"><span>0</span><span class="raw-label">RAW · 32</span><span>40</span></div>
+    </div>
+  </div>
+  <div class="col">
+    <div class="row">
+      <div class="name">North</div>
+      <div class="batt" data-tone="warn" style="--pct: 86%; --raw: 80%;"><div class="fill"></div><div class="notch"></div></div>
+      <div class="meta">27.4 / 32 mm</div>
+    </div>
+    <div class="row">
+      <div class="name">South</div>
+      <div class="batt" data-tone="ok" style="--pct: 38%; --raw: 78%;"><div class="fill"></div><div class="notch"></div></div>
+      <div class="meta">11.2 / 28 mm</div>
+    </div>
+    <div class="row">
+      <div class="name">East</div>
+      <div class="batt" data-tone="danger" style="--pct: 110%; --raw: 78%;"><div class="fill"></div><div class="notch"></div></div>
+      <div class="meta" style="color:var(--danger)">past RAW · queued</div>
+    </div>
+  </div>
+</body></html>

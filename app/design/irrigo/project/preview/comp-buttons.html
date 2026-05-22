@@ -1,0 +1,39 @@
+<!doctype html>
+<html><head>
+<meta charset="utf-8">
+<link rel="stylesheet" href="../colors_and_type.css">
+<link rel="stylesheet" href="../components.css">
+<link rel="stylesheet" href="_card.css">
+<style>
+  body.card { padding: 22px 24px; }
+  .lbl { font: var(--num-sm); color: var(--fg-dim); text-transform: uppercase; letter-spacing: .12em; margin-bottom: 14px; }
+  .row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; margin-bottom: 12px; }
+  .row:last-child { margin-bottom: 0; }
+  .row .cap { font: var(--num-sm); color: var(--fg-dim); width: 92px; }
+</style>
+</head>
+<body class="card">
+  <div class="lbl">Buttons — primary · secondary · ghost · danger</div>
+  <div class="row">
+    <span class="cap">Primary</span>
+    <button class="btn btn-primary">Run now</button>
+    <button class="btn btn-primary btn-sm">Re-plan</button>
+    <button class="btn btn-primary" disabled>Disabled</button>
+  </div>
+  <div class="row">
+    <span class="cap">Secondary</span>
+    <button class="btn btn-secondary">Cancel</button>
+    <button class="btn btn-secondary btn-sm">Inspect</button>
+    <button class="btn btn-ghost">Skip tonight</button>
+  </div>
+  <div class="row">
+    <span class="cap">Danger / icon</span>
+    <button class="btn btn-danger">Stop all zones</button>
+    <button class="btn btn-icon btn-secondary" aria-label="More">
+      <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="3" cy="8" r=".8"/><circle cx="8" cy="8" r=".8"/><circle cx="13" cy="8" r=".8"/></svg>
+    </button>
+    <button class="btn btn-icon btn-secondary btn-sm" aria-label="Add">
+      <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M8 3v10M3 8h10"/></svg>
+    </button>
+  </div>
+</body></html>

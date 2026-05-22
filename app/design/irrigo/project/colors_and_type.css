@@ -1,0 +1,172 @@
+/* ============================================================
+   IRRIGO — Design Tokens
+   Dark mode primary. Black canvas with a green undertone.
+   Use semantic vars (--bg, --fg, --accent) in components; the
+   raw palette below exists so we can audit relationships.
+   ============================================================ */
+
+/* ---------- Fonts ---------- */
+@import url("https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400;12..96,500;12..96,600;12..96,700&family=Geist:wght@300;400;500;600;700&family=Geist+Mono:wght@400;500;600&display=swap");
+
+:root {
+  /* ---------- Palette (raw) ---------- */
+  --ink-0:         #04060500;          /* canvas tint, transparent */
+  --ink-50:        #06090A;            /* canvas */
+  --ink-100:       #0B1110;            /* canvas alt */
+  --ink-200:       #0E1412;            /* surface */
+  --ink-300:       #141B18;            /* surface-2 */
+  --ink-400:       #1B231F;            /* elevated */
+  --ink-500:       #232E29;            /* hairline / border */
+  --ink-600:       #344239;            /* border-strong */
+  --ink-700:       #495A50;            /* divider on light surfaces */
+
+  --chalk-50:      #ECF1ED;            /* fg */
+  --chalk-200:     #C7CFC9;            /* fg-soft */
+  --chalk-400:     #8A9690;            /* fg-muted */
+  --chalk-600:     #5A6862;            /* fg-dim */
+  --chalk-800:     #3A4641;            /* fg-faint */
+
+  --grass-300:     #B7F0CB;            /* hover tint */
+  --grass-400:     #8FEAB1;            /* light accent */
+  --grass-500:     #6FE39B;            /* PRIMARY GREEN */
+  --grass-600:     #4FCB7E;            /* primary-press */
+  --grass-700:     #2C8F5A;            /* primary-deep */
+  --grass-900:     #0F2A1C;            /* primary on-bg */
+  --grass-glow:    rgba(111, 227, 155, 0.18);
+  --grass-glow-2:  rgba(111, 227, 155, 0.06);
+
+  --water-500:     #7CD4FB;            /* rain / wet */
+  --water-700:     #2E7FA8;
+  --amber-500:     #FFBE6B;            /* warn / approaching RAW */
+  --amber-700:     #B07B2A;
+  --rose-500:      #FF6B7B;            /* error / past RAW / fired */
+  --rose-700:      #A23744;
+  --moon-500:      #D8C690;            /* sunrise/sunset accent */
+
+  /* ---------- Semantic ---------- */
+  --bg:            var(--ink-50);
+  --bg-alt:        var(--ink-100);
+  --surface:       var(--ink-200);
+  --surface-2:     var(--ink-300);
+  --elevated:      var(--ink-400);
+  --hairline:      var(--ink-500);
+  --border:        var(--ink-500);
+  --border-strong: var(--ink-600);
+
+  --fg:            var(--chalk-50);
+  --fg-soft:       var(--chalk-200);
+  --fg-muted:      var(--chalk-400);
+  --fg-dim:        var(--chalk-600);
+  --fg-faint:      var(--chalk-800);
+
+  --accent:        var(--grass-500);
+  --accent-press:  var(--grass-600);
+  --accent-deep:   var(--grass-700);
+  --accent-glow:   var(--grass-glow);
+
+  --info:          var(--water-500);
+  --warn:          var(--amber-500);
+  --danger:        var(--rose-500);
+
+  /* on-accent for green buttons */
+  --on-accent:     #052013;
+
+  /* ---------- Type ---------- */
+  --font-display:  "Bricolage Grotesque", ui-sans-serif, system-ui, sans-serif;
+  --font-body:     "Geist", ui-sans-serif, system-ui, sans-serif;
+  --font-mono:     "Geist Mono", ui-monospace, "SF Mono", Menlo, monospace;
+
+  /* Display — Bricolage, tightened. Use for hero numbers, page titles,
+     section starters. Optical size handles size shifts automatically. */
+  --display-1:     700 56px/0.96 var(--font-display);
+  --display-2:     600 40px/1.02  var(--font-display);
+  --display-3:     600 28px/1.08  var(--font-display);
+
+  /* Headings — Bricolage at smaller sizes for sub-sections. */
+  --h1:            600 22px/1.2 var(--font-display);
+  --h2:            600 18px/1.25 var(--font-display);
+  --h3:            600 15px/1.3 var(--font-body);
+
+  /* Eyebrows / labels — Geist, uppercase, tracked. */
+  --eyebrow:       500 11px/1.2 var(--font-body);
+  --label:         500 12px/1.3 var(--font-body);
+
+  /* Body */
+  --body-lg:       400 16px/1.5 var(--font-body);
+  --body:          400 14px/1.5 var(--font-body);
+  --body-sm:       400 12px/1.45 var(--font-body);
+
+  /* Numeric — Geist Mono. Used wherever a value must scan, never break,
+     and align in a column (mm, min, time, dates). */
+  --num-hero:      500 72px/0.95 var(--font-mono);
+  --num-lg:        500 28px/1 var(--font-mono);
+  --num:           500 14px/1.2 var(--font-mono);
+  --num-sm:        500 11px/1.2 var(--font-mono);
+
+  /* ---------- Spacing (4px grid) ---------- */
+  --s-1: 4px;
+  --s-2: 8px;
+  --s-3: 12px;
+  --s-4: 16px;
+  --s-5: 20px;
+  --s-6: 24px;
+  --s-7: 32px;
+  --s-8: 40px;
+  --s-9: 48px;
+  --s-10: 64px;
+  --s-11: 80px;
+  --s-12: 96px;
+
+  /* ---------- Radii ---------- */
+  --r-1: 4px;
+  --r-2: 4px;
+  --r-3: 4px;
+  --r-4: 4px;
+  --r-5: 4px;
+  --r-pill: 4px;
+
+  /* ---------- Elevation ---------- */
+  /* Dark-mode shadows are mostly inner highlights and an outer ambient.
+     The glow variants are for primary surfaces only. */
+  --shadow-1: 0 1px 0 0 rgba(255,255,255,0.03) inset, 0 1px 2px rgba(0,0,0,0.4);
+  --shadow-2: 0 1px 0 0 rgba(255,255,255,0.04) inset, 0 4px 14px rgba(0,0,0,0.45), 0 1px 2px rgba(0,0,0,0.3);
+  --shadow-3: 0 1px 0 0 rgba(255,255,255,0.05) inset, 0 20px 48px rgba(0,0,0,0.6), 0 4px 10px rgba(0,0,0,0.4);
+  --glow-accent: 0 0 0 1px rgba(111,227,155,0.28) inset, 0 0 24px -4px var(--grass-glow);
+
+  /* ---------- Motion ---------- */
+  --ease-out: cubic-bezier(.2,.7,.2,1);
+  --ease-in-out: cubic-bezier(.6,.0,.2,1);
+  --d-1: 120ms;
+  --d-2: 220ms;
+  --d-3: 360ms;
+}
+
+/* ============================================================
+   Base
+   ============================================================ */
+html, body {
+  background: var(--bg);
+  color: var(--fg);
+  font: var(--body);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+/* ============================================================
+   Element styles — apply directly to tags inside component cards
+   ============================================================ */
+.display-1 { font: var(--display-1); letter-spacing: -0.02em; }
+.display-2 { font: var(--display-2); letter-spacing: -0.018em; }
+.display-3 { font: var(--display-3); letter-spacing: -0.015em; }
+.h1        { font: var(--h1); letter-spacing: -0.01em; }
+.h2        { font: var(--h2); letter-spacing: -0.005em; }
+.h3        { font: var(--h3); }
+.eyebrow   { font: var(--eyebrow); text-transform: uppercase; letter-spacing: 0.14em; color: var(--fg-muted); }
+.label     { font: var(--label); color: var(--fg-muted); }
+.body-lg   { font: var(--body-lg); }
+.body      { font: var(--body); }
+.body-sm   { font: var(--body-sm); color: var(--fg-soft); }
+.num-hero  { font: var(--num-hero); letter-spacing: -0.04em; font-feature-settings: "ss01","tnum"; }
+.num-lg    { font: var(--num-lg); letter-spacing: -0.02em; font-feature-settings: "tnum"; }
+.num       { font: var(--num); font-feature-settings: "tnum"; }
+.num-sm    { font: var(--num-sm); font-feature-settings: "tnum"; }

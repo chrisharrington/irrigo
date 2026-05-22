@@ -1,0 +1,25 @@
+/* Shared layout for preview cards — keeps each card's body
+   to its rendered content, no chrome/title.
+   Cards target ~700px wide. */
+html, body { margin: 0; padding: 0; background: var(--bg); }
+body.card { padding: 20px 24px; }
+.card-row { display: flex; gap: 16px; align-items: stretch; }
+.card-col { display: flex; flex-direction: column; gap: 12px; }
+.muted { color: var(--fg-muted); }
+.dim   { color: var(--fg-dim); }
+
+/* swatch primitives */
+.swatch {
+  border-radius: var(--r-3);
+  border: 1px solid var(--border);
+  padding: 14px 14px 12px;
+  background: var(--swatch-bg, var(--surface));
+  color: var(--swatch-fg, var(--fg));
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  min-height: 96px;
+}
+.swatch .name { font: var(--label); letter-spacing: 0.06em; text-transform: uppercase; opacity: .9; }
+.swatch .hex  { font: var(--num-sm); opacity: .8; }
+.swatch .tok  { font: var(--num-sm); opacity: .55; }

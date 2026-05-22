@@ -1,0 +1,46 @@
+<!doctype html>
+<html><head>
+<meta charset="utf-8">
+<link rel="stylesheet" href="../colors_and_type.css">
+<link rel="stylesheet" href="../components.css">
+<link rel="stylesheet" href="_card.css">
+<style>
+  body.card { padding: 22px 24px; }
+  .lbl { font: var(--num-sm); color: var(--fg-dim); text-transform: uppercase; letter-spacing: .12em; margin-bottom: 14px; }
+  .row { display: flex; align-items: center; gap: 28px; margin-bottom: 14px; flex-wrap: wrap; }
+  .row:last-child { margin-bottom: 0; }
+  .cap { font: var(--num-sm); color: var(--fg-dim); width: 92px; }
+  .group { display: flex; gap: 18px; align-items: center; }
+  .slider-wrap { width: 220px; }
+</style>
+</head>
+<body class="card">
+  <div class="lbl">Toggle · segmented · check · radio · slider</div>
+  <div class="row">
+    <span class="cap">Toggle</span>
+    <label class="toggle"><input type="checkbox" checked><span class="track"></span><span class="thumb"></span></label>
+    <label class="toggle"><input type="checkbox"><span class="track"></span><span class="thumb"></span></label>
+    <div class="segmented">
+      <button aria-selected="true">Week</button>
+      <button aria-selected="false">Month</button>
+      <button aria-selected="false">Year</button>
+    </div>
+  </div>
+  <div class="row">
+    <span class="cap">Check</span>
+    <label class="check"><input type="checkbox" checked><span class="box"></span>End by sunrise</label>
+    <label class="check"><input type="checkbox"><span class="box"></span>Skip on rain</label>
+  </div>
+  <div class="row">
+    <span class="cap">Radio</span>
+    <label class="radio"><input type="radio" name="r" checked><span class="box"></span>Maintenance</label>
+    <label class="radio"><input type="radio" name="r"><span class="box"></span>Overseeding</label>
+  </div>
+  <div class="row">
+    <span class="cap">Slider</span>
+    <div class="slider-wrap">
+      <input type="range" class="slider" min="0" max="100" value="62" style="--val: 62%;">
+    </div>
+    <span class="num">62%</span>
+  </div>
+</body></html>

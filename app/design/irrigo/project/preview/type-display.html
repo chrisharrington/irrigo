@@ -1,0 +1,23 @@
+<!doctype html>
+<html><head>
+<meta charset="utf-8">
+<link rel="stylesheet" href="../colors_and_type.css">
+<link rel="stylesheet" href="_card.css">
+<style>
+  body.card { padding: 24px 28px 22px; }
+  .stack > * + * { margin-top: 10px; }
+  .display-row { display: flex; align-items: baseline; gap: 18px; }
+  .display-row .tok { font: var(--num-sm); color: var(--fg-dim); white-space: nowrap; }
+  .display-row .spec { flex: 1; min-width: 0; }
+  .lbl { font: var(--num-sm); color: var(--fg-dim); text-transform: uppercase; letter-spacing: .12em; }
+</style>
+</head>
+<body class="card">
+  <div class="lbl">Display — Bricolage Grotesque</div>
+  <div style="height:14px"></div>
+  <div class="stack">
+    <div class="display-row"><div class="spec display-1">Tonight, 10:23</div><div class="tok">display-1 / 56 · 700</div></div>
+    <div class="display-row"><div class="spec display-2">North → South → East</div><div class="tok">display-2 / 40 · 600</div></div>
+    <div class="display-row"><div class="spec display-3">Soil-moisture battery</div><div class="tok">display-3 / 28 · 600</div></div>
+  </div>
+</body></html>

@@ -1,0 +1,31 @@
+<!doctype html>
+<html><head>
+<meta charset="utf-8">
+<link rel="stylesheet" href="../colors_and_type.css">
+<link rel="stylesheet" href="_card.css">
+<style>
+  body.card { padding: 22px 28px; display: flex; gap: 28px; align-items: center; }
+  .hero { display: flex; align-items: baseline; gap: 8px; }
+  .hero .unit { font: 500 22px/1 var(--font-mono); color: var(--fg-muted); }
+  .col { display: flex; flex-direction: column; gap: 10px; flex: 1; }
+  .row { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; padding: 4px 0; border-bottom: 1px solid var(--hairline); }
+  .row:last-child { border-bottom: 0; }
+  .tok { font: var(--num-sm); color: var(--fg-dim); }
+  .lbl { font: var(--num-sm); color: var(--fg-dim); text-transform: uppercase; letter-spacing: .12em; }
+</style>
+</head>
+<body class="card">
+  <div>
+    <div class="lbl" style="margin-bottom:8px">Mono — Geist Mono</div>
+    <div class="hero">
+      <span class="num-hero" style="color: var(--accent)">27.4</span>
+      <span class="unit">mm</span>
+    </div>
+    <div class="tok" style="margin-top: 4px">num-hero / 72 · 500 · tnum</div>
+  </div>
+  <div class="col">
+    <div class="row"><span class="num-lg">06:47:21</span><span class="tok">num-lg / 28</span></div>
+    <div class="row"><span class="num">14.2 mm · 4 cyc · 62 min</span><span class="tok">num / 14</span></div>
+    <div class="row"><span class="num-sm">2025-04-12 · WED</span><span class="tok">num-sm / 11</span></div>
+  </div>
+</body></html>

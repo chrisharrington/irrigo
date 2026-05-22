@@ -1,0 +1,37 @@
+<!doctype html>
+<html><head>
+<meta charset="utf-8">
+<link rel="stylesheet" href="../colors_and_type.css">
+<link rel="stylesheet" href="../components.css">
+<link rel="stylesheet" href="_card.css">
+<style>
+  body.card { padding: 22px 24px; }
+  .lbl { font: var(--num-sm); color: var(--fg-dim); text-transform: uppercase; letter-spacing: .12em; margin-bottom: 14px; }
+  .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-bottom: 12px; }
+  .row:last-child { margin-bottom: 0; }
+  .cap { font: var(--num-sm); color: var(--fg-dim); width: 92px; }
+</style>
+</head>
+<body class="card">
+  <div class="lbl">Badges / status chips</div>
+  <div class="row"><span class="cap">Neutral</span>
+    <span class="badge"><span class="dot"></span>Idle</span>
+    <span class="badge">320 m²</span>
+    <span class="badge">Kentucky bluegrass</span>
+  </div>
+  <div class="row"><span class="cap">Active</span>
+    <span class="badge badge--active"><span class="dot"></span>Watering · Cycle 3 / 6</span>
+    <span class="badge badge--active">Schedule on</span>
+  </div>
+  <div class="row"><span class="cap">Warn</span>
+    <span class="badge badge--warn"><span class="dot"></span>Approaching RAW</span>
+    <span class="badge badge--warn">Skipped — rain</span>
+  </div>
+  <div class="row"><span class="cap">Danger</span>
+    <span class="badge badge--danger"><span class="dot"></span>HA call failed</span>
+    <span class="badge badge--danger">Missed close</span>
+  </div>
+  <div class="row"><span class="cap">Info</span>
+    <span class="badge badge--info"><span class="dot"></span>Rain forecast 6 mm</span>
+  </div>
+</body></html>

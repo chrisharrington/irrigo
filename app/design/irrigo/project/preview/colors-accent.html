@@ -1,0 +1,39 @@
+<!doctype html>
+<html><head>
+<meta charset="utf-8">
+<link rel="stylesheet" href="../colors_and_type.css">
+<link rel="stylesheet" href="_card.css">
+<style>
+  body.card { padding: 20px; }
+  .grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 8px; }
+  .sw { border-radius: var(--r-3); padding: 56px 10px 10px; display: flex; flex-direction: column; gap: 2px; border: 1px solid rgba(255,255,255,0.04); }
+  .sw .nm { font: 500 11px/1.2 var(--font-body); color: #04140A; }
+  .sw .hx { font: 500 10px/1 var(--font-mono); color: #04140A; opacity: .7; }
+  .hero { display: flex; align-items: center; gap: 16px; margin-bottom: 14px; }
+  .hero .chip {
+    width: 72px; height: 72px; border-radius: var(--r-4);
+    background: var(--accent);
+    box-shadow: var(--glow-accent), 0 12px 36px -8px var(--grass-glow);
+  }
+  .hero .meta .ttl { font: var(--h2); color: var(--fg); }
+  .hero .meta .sub { font: var(--body-sm); color: var(--fg-muted); margin-top:4px; }
+</style>
+</head>
+<body class="card">
+  <div class="hero">
+    <div class="chip"></div>
+    <div class="meta">
+      <div class="ttl">Grass — primary green</div>
+      <div class="sub">Lawn-fresh. Glows on near-black. Use sparingly for run-now, active, and progress states.</div>
+    </div>
+  </div>
+  <div class="grid">
+    <div class="sw" style="background:#B7F0CB"><div class="nm">300</div><div class="hx">#B7F0CB</div></div>
+    <div class="sw" style="background:#8FEAB1"><div class="nm">400</div><div class="hx">#8FEAB1</div></div>
+    <div class="sw" style="background:#6FE39B"><div class="nm">500</div><div class="hx">#6FE39B</div></div>
+    <div class="sw" style="background:#4FCB7E"><div class="nm">600</div><div class="hx">#4FCB7E</div></div>
+    <div class="sw" style="background:#2C8F5A"><div class="nm" style="color:#ECF1ED">700</div><div class="hx" style="color:#ECF1ED">#2C8F5A</div></div>
+    <div class="sw" style="background:#164028"><div class="nm" style="color:#ECF1ED">800</div><div class="hx" style="color:#ECF1ED">#164028</div></div>
+    <div class="sw" style="background:#0F2A1C"><div class="nm" style="color:#ECF1ED">900</div><div class="hx" style="color:#ECF1ED">#0F2A1C</div></div>
+  </div>
+</body></html>

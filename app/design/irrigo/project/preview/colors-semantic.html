@@ -1,0 +1,49 @@
+<!doctype html>
+<html><head>
+<meta charset="utf-8">
+<link rel="stylesheet" href="../colors_and_type.css">
+<link rel="stylesheet" href="_card.css">
+<style>
+  body.card { padding: 22px 24px; }
+  .grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
+  .cell {
+    border-radius: var(--r-3);
+    padding: 14px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    display: flex; flex-direction: column; gap: 10px;
+    min-height: 96px;
+  }
+  .swatch-bar { height: 8px; border-radius: 4px; }
+  .nm { font: 500 12px/1.2 var(--font-body); color: var(--fg); }
+  .hx { font: 500 10px/1 var(--font-mono); color: var(--fg-dim); }
+  .role { font: var(--num-sm); color: var(--fg-muted); }
+  .lbl { font: var(--num-sm); color: var(--fg-dim); text-transform: uppercase; letter-spacing: .12em; margin-bottom: 14px; }
+  .dot { display:inline-block; width: 10px; height: 10px; border-radius: 4px; vertical-align: middle; margin-right: 8px; }
+</style>
+</head>
+<body class="card">
+  <div class="lbl">Semantic — info · warn · danger · moon</div>
+  <div class="grid">
+    <div class="cell">
+      <div class="swatch-bar" style="background:#7CD4FB"></div>
+      <div><div class="nm"><span class="dot" style="background:#7CD4FB"></span>Info / water</div><div class="hx">#7CD4FB · --info</div></div>
+      <div class="role">Rain forecast, wet-state, info banners.</div>
+    </div>
+    <div class="cell">
+      <div class="swatch-bar" style="background:#FFBE6B"></div>
+      <div><div class="nm"><span class="dot" style="background:#FFBE6B"></span>Warn / dry</div><div class="hx">#FFBE6B · --warn</div></div>
+      <div class="role">Approaching RAW, schedule paused, soft alarms.</div>
+    </div>
+    <div class="cell">
+      <div class="swatch-bar" style="background:#FF6B7B"></div>
+      <div><div class="nm"><span class="dot" style="background:#FF6B7B"></span>Danger / fired</div><div class="hx">#FF6B7B · --danger</div></div>
+      <div class="role">Errors, missed closes, past-RAW.</div>
+    </div>
+    <div class="cell">
+      <div class="swatch-bar" style="background:#D8C690"></div>
+      <div><div class="nm"><span class="dot" style="background:#D8C690"></span>Moon</div><div class="hx">#D8C690 · --moon</div></div>
+      <div class="role">Sunrise/sunset markers in the night-window strip.</div>
+    </div>
+  </div>
+</body></html>

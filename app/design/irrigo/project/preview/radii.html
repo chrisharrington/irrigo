@@ -1,0 +1,31 @@
+<!doctype html>
+<html><head>
+<meta charset="utf-8">
+<link rel="stylesheet" href="../colors_and_type.css">
+<link rel="stylesheet" href="_card.css">
+<style>
+  body.card { padding: 22px 24px; }
+  .lbl { font: var(--num-sm); color: var(--fg-dim); text-transform: uppercase; letter-spacing: .12em; margin-bottom: 14px; }
+  .row { display: flex; gap: 18px; align-items: flex-end; }
+  .it { display: flex; flex-direction: column; align-items: center; gap: 10px; }
+  .blk {
+    width: 96px; height: 64px; background: var(--elevated);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+  }
+  .t1 { font: var(--label); }
+  .t2 { font: var(--num-sm); color: var(--fg-dim); white-space: nowrap; }
+  .note { font: var(--body-sm); color: var(--fg-muted); margin-top: 14px; }
+</style>
+</head>
+<body class="card">
+  <div class="lbl">Radii — one corner, used everywhere</div>
+  <div class="row">
+    <div class="it"><div class="blk"></div><div class="t1">Card</div><div class="t2">4px</div></div>
+    <div class="it"><div class="blk"></div><div class="t1">Input</div><div class="t2">4px</div></div>
+    <div class="it"><div class="blk"></div><div class="t1">Chip</div><div class="t2">4px</div></div>
+    <div class="it"><div class="blk"></div><div class="t1">Modal · sheet</div><div class="t2">4px</div></div>
+    <div class="it"><div class="blk"></div><div class="t1">Pill</div><div class="t2">4px</div></div>
+  </div>
+  <div class="note">All <code>--r-*</code> tokens (including <code>--r-pill</code>) resolve to 4px. The system is intentionally sharp — no pillowy bezels.</div>
+</body></html>
