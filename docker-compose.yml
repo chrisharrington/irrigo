@@ -10,9 +10,9 @@ services:
         image: postgres:17
         restart: unless-stopped
         environment:
-            POSTGRES_USER: ${POSTGRES_USER:-postgres}
-            POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
-            POSTGRES_DB: ${POSTGRES_DB:-irrigation}
+            POSTGRES_USER: ${POSTGRES_USER}
+            POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+            POSTGRES_DB: ${POSTGRES_DB}
         expose:
             - "5432"
         volumes:
@@ -41,22 +41,22 @@ services:
             - ./api:/app
             - /app/node_modules
         environment:
-            NODE_ENV: ${NODE_ENV:-production}
-            PORT: ${PORT:-9753}
-            DATABASE_URL: ${DATABASE_URL:-postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@db:5432/${POSTGRES_DB:-irrigation}}
-            HA_URL: ${HA_URL:-}
-            HA_TOKEN: ${HA_TOKEN:-}
-            HA_RETRY_MAX: ${HA_RETRY_MAX:-3}
-            HA_RETRY_BASE_MS: ${HA_RETRY_BASE_MS:-1000}
-            HA_NOTIFY_SERVICE: ${HA_NOTIFY_SERVICE:-}
-            NOTIFY_ON_SCHEDULE_START: ${NOTIFY_ON_SCHEDULE_START:-true}
-            NOTIFY_ON_SCHEDULE_END: ${NOTIFY_ON_SCHEDULE_END:-true}
-            NOTIFY_ON_WATERING_START: ${NOTIFY_ON_WATERING_START:-false}
-            NOTIFY_ON_WATERING_END: ${NOTIFY_ON_WATERING_END:-false}
-            NOTIFY_ON_ERROR: ${NOTIFY_ON_ERROR:-true}
-            DRY_RUN: ${DRY_RUN:-false}
+            NODE_ENV: ${NODE_ENV}
+            PORT: ${PORT}
+            DATABASE_URL: ${DATABASE_URL}
+            HA_URL: ${HA_URL}
+            HA_TOKEN: ${HA_TOKEN}
+            HA_RETRY_MAX: ${HA_RETRY_MAX}
+            HA_RETRY_BASE_MS: ${HA_RETRY_BASE_MS}
+            HA_NOTIFY_SERVICE: ${HA_NOTIFY_SERVICE}
+            NOTIFY_ON_SCHEDULE_START: ${NOTIFY_ON_SCHEDULE_START}
+            NOTIFY_ON_SCHEDULE_END: ${NOTIFY_ON_SCHEDULE_END}
+            NOTIFY_ON_WATERING_START: ${NOTIFY_ON_WATERING_START}
+            NOTIFY_ON_WATERING_END: ${NOTIFY_ON_WATERING_END}
+            NOTIFY_ON_ERROR: ${NOTIFY_ON_ERROR}
+            DRY_RUN: ${DRY_RUN}
         ports:
-            - "${PORT:-9753}:9753"
+            - "${PORT}:9753"
         command: sh -c "bun run start"
         networks:
             - backend
@@ -70,9 +70,9 @@ services:
             context: .
             dockerfile: Dockerfile.dev
             args:
-                DEV_USER: ${DEV_USER:-chrisharrington}
-                DEV_UID: ${DEV_UID:-1000}
-                DEV_GID: ${DEV_GID:-1000}
+                DEV_USER: ${DEV_USER}
+                DEV_UID: ${DEV_UID}
+                DEV_GID: ${DEV_GID}
         restart: unless-stopped
         depends_on:
             db:
@@ -83,24 +83,24 @@ services:
             # Shared with host so Claude sessions inside the container see the
             # same skills/commands and can write auth, history, and session
             # state back. Same path on both sides because DEV_USER aligns.
-            - ${HOME}/.claude:/home/${DEV_USER:-chrisharrington}/.claude
+            - ${HOME}/.claude:/home/${DEV_USER}/.claude
             # User-scope MCP server config lives here (not under .claude/), so
             # mount it explicitly to expose host-registered MCP servers inside
             # the container. Read-write because Claude Code updates it.
-            - ${HOME}/.claude.json:/home/${DEV_USER:-chrisharrington}/.claude.json
+            - ${HOME}/.claude.json:/home/${DEV_USER}/.claude.json
             # Share the host's gh CLI auth so `gh` works without re-login.
-            - ${HOME}/.config/gh:/home/${DEV_USER:-chrisharrington}/.config/gh
+            - ${HOME}/.config/gh:/home/${DEV_USER}/.config/gh
             # Share the host's git identity (user.name, user.email, signing
             # keys, aliases) so commits made inside the container are
             # attributed correctly without per-container configuration.
-            - ${HOME}/.gitconfig:/home/${DEV_USER:-chrisharrington}/.gitconfig:ro
+            - ${HOME}/.gitconfig:/home/${DEV_USER}/.gitconfig:ro
             # Gradle build cache + wrapper dists. Survives image rebuilds so
             # the first `expo run:android` after a rebuild doesn't re-fetch
             # the entire AGP/Kotlin/RN toolchain from Maven.
-            - irrigo-gradle:/home/${DEV_USER:-chrisharrington}/.gradle
+            - irrigo-gradle:/home/${DEV_USER}/.gradle
             # ADB keys + auth state. Persists the "always allow from this
             # computer" approval the phone grants on first connect.
-            - irrigo-android:/home/${DEV_USER:-chrisharrington}/.android
+            - irrigo-android:/home/${DEV_USER}/.android
         networks:
             # backend → reach the `db` container.
             # frontend → outbound internet for bun install, gh, etc.
@@ -116,9 +116,9 @@ services:
             context: .
             dockerfile: Dockerfile.dev
             args:
-                DEV_USER: ${DEV_USER:-chrisharrington}
-                DEV_UID: ${DEV_UID:-1000}
-                DEV_GID: ${DEV_GID:-1000}
+                DEV_USER: ${DEV_USER}
+                DEV_UID: ${DEV_UID}
+                DEV_GID: ${DEV_GID}
         restart: unless-stopped
         working_dir: /app/app
         environment:
@@ -126,11 +126,11 @@ services:
             # inside the container it picks the docker bridge IP (172.x.x.x)
             # which the phone can't reach. Forcing the host's LAN address
             # makes the URLs the phone receives actually resolve.
-            REACT_NATIVE_PACKAGER_HOSTNAME: ${METRO_HOST:-192.168.2.100}
+            REACT_NATIVE_PACKAGER_HOSTNAME: ${METRO_HOST}
         volumes:
             - .:/app
         ports:
-            - "${METRO_PORT:-9097}:9097"
+            - "${METRO_PORT}:9097"
         command: bunx expo start --dev-client --port 9097
         networks:
             - frontend
@@ -140,10 +140,10 @@ services:
         profiles: ["tools"]
         restart: unless-stopped
         environment:
-            PGADMIN_DEFAULT_EMAIL: ${PGADMIN_EMAIL:-admin@example.com}
-            PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_PASSWORD:-admin}
+            PGADMIN_DEFAULT_EMAIL: ${PGADMIN_EMAIL}
+            PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_PASSWORD}
         ports:
-            - "${PGADMIN_PORT:-9754}:80"
+            - "${PGADMIN_PORT}:80"
         depends_on:
             db:
                 condition: service_healthy
