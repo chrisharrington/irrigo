@@ -79,7 +79,7 @@ export async function reconcileCycleAndRelayState(deps: ReconcileDeps): Promise<
                 class: 'ha-call-failed',
                 tone: 'danger',
                 title: 'HA state query failed',
-                sub: `${zone.name} · ${reason}`,
+                sub: `Last attempt failed: ${reason}.`,
                 zoneId: zone.id,
                 zoneName: zone.name,
             });
@@ -109,8 +109,8 @@ export async function reconcileCycleAndRelayState(deps: ReconcileDeps): Promise<
                 await alerter({
                     class: 'ha-call-failed',
                     tone: 'danger',
-                    title: 'HA close failed (reconcile)',
-                    sub: `${zone.name} · ${reason}`,
+                    title: 'HA close failed during reconcile',
+                    sub: `Last attempt failed: ${reason}.`,
                     zoneId: zone.id,
                     zoneName: zone.name,
                 });
@@ -125,8 +125,8 @@ export async function reconcileCycleAndRelayState(deps: ReconcileDeps): Promise<
             await alerter({
                 class: 'missed-close',
                 tone: 'danger',
-                title: 'Missed close (relay overran)',
-                sub: `${zone.name} cycle relay was still open past planned close ${plannedCloseAt.toISOString()}`,
+                title: 'Missed close',
+                sub: `Relay was still open past planned close at ${plannedCloseAt.toISOString()}.`,
                 zoneId: zone.id,
                 zoneName: zone.name,
             });
@@ -143,7 +143,7 @@ export async function reconcileCycleAndRelayState(deps: ReconcileDeps): Promise<
             class: 'missed-close',
             tone: 'danger',
             title: 'Missed close',
-            sub: `${zone.name} cycle missed expected close · set closed_at=${closedAt.toISOString()}`,
+            sub: `Cycle missed expected close; recorded closed at ${closedAt.toISOString()}.`,
             zoneId: zone.id,
             zoneName: zone.name,
         });
@@ -162,8 +162,8 @@ export async function reconcileCycleAndRelayState(deps: ReconcileDeps): Promise<
             await alerter({
                 class: 'ha-call-failed',
                 tone: 'danger',
-                title: 'HA state query failed (sweep)',
-                sub: `${zone.name} · ${reason}`,
+                title: 'HA state query failed during sweep',
+                sub: `Last attempt failed: ${reason}.`,
                 zoneId: zone.id,
                 zoneName: zone.name,
             });
@@ -181,8 +181,8 @@ export async function reconcileCycleAndRelayState(deps: ReconcileDeps): Promise<
             await alerter({
                 class: 'ha-call-failed',
                 tone: 'danger',
-                title: 'HA close failed (orphan)',
-                sub: `${zone.name} · ${reason}`,
+                title: 'HA close failed for orphan relay',
+                sub: `Last attempt failed: ${reason}.`,
                 zoneId: zone.id,
                 zoneName: zone.name,
             });
@@ -195,7 +195,7 @@ export async function reconcileCycleAndRelayState(deps: ReconcileDeps): Promise<
             class: 'ha-call-failed',
             tone: 'danger',
             title: 'Orphan relay closed',
-            sub: `${zone.name} relay was on at boot with no in-flight cycle backing it`,
+            sub: `Relay was on at boot with no in-flight cycle backing it.`,
             zoneId: zone.id,
             zoneName: zone.name,
         });

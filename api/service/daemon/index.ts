@@ -242,7 +242,7 @@ export async function start(options?: DaemonOptions): Promise<DaemonControl> {
                         class: 'weather-stale',
                         tone: 'warn',
                         title: 'Weather API stale',
-                        sub: `Planner on fallback ET₀ · last attempt failed: ${reason}`,
+                        sub: `Planner using fallback ET zero. Last fetch error: ${reason}.`,
                         zoneName: zone.name,
                     });
                 }

@@ -445,7 +445,7 @@ describe('reconcileCycleAndRelayState — alert recording', () => {
         expect(alertCalls[0]).toMatchObject({
             class: 'missed-close',
             tone: 'danger',
-            title: 'Missed close (relay overran)',
+            title: 'Missed close',
             zoneId: pair.zone.id,
         });
     });
@@ -486,7 +486,7 @@ describe('reconcileCycleAndRelayState — alert recording', () => {
         expect(alertCalls[0]).toMatchObject({
             class: 'ha-call-failed',
             tone: 'danger',
-            title: 'HA close failed (reconcile)',
+            title: 'HA close failed during reconcile',
             zoneId: pair.zone.id,
         });
     });
@@ -530,7 +530,7 @@ describe('reconcileCycleAndRelayState — alert recording', () => {
         expect(alertCalls[0]).toMatchObject({
             class: 'ha-call-failed',
             tone: 'danger',
-            title: 'HA state query failed (sweep)',
+            title: 'HA state query failed during sweep',
             zoneId: 'zone-sweep',
         });
     });
@@ -549,7 +549,7 @@ describe('reconcileCycleAndRelayState — alert recording', () => {
         expect(alertCalls[0]).toMatchObject({
             class: 'ha-call-failed',
             tone: 'danger',
-            title: 'HA close failed (orphan)',
+            title: 'HA close failed for orphan relay',
             zoneId: 'zone-bad',
         });
     });
