@@ -8,7 +8,8 @@
 # while the toolchain populates; subsequent builds are incremental.
 #
 # Re-run expo prebuild manually after editing app.json or adding a native
-# module — this script does not:
+# module — this script only runs it automatically on first build (when
+# app/android is missing):
 #   docker compose exec dev bash -c 'cd /app/app && bunx expo prebuild --platform android'
 
 set -euo pipefail
@@ -21,6 +22,11 @@ APK_DEST='./irrigo.apk'
 if ! docker compose ps --status running --services 2>/dev/null | grep -qx dev; then
     echo 'error: dev container is not running. Start it with: docker compose up -d dev' >&2
     exit 1
+fi
+
+if [[ ! -d app/android ]]; then
+    echo '==> app/android missing; running expo prebuild...'
+    docker compose exec -T dev bash -c 'cd /app/app && bunx expo prebuild --platform android'
 fi
 
 echo '==> building debug APK inside dev container...'
