@@ -8,16 +8,10 @@ import {
 import { BlurView } from 'expo-blur';
 import type { ReactNode } from 'react';
 
-const tailwindConfig = require('../../tailwind.config.js') as {
-    theme: {
-        extend: {
-            colors: Record<string, string>;
-            boxShadow: Record<string, string>;
-        };
-    };
-};
-const colors = tailwindConfig.theme.extend.colors;
-const shadows = tailwindConfig.theme.extend.boxShadow;
+import config from '../../tailwind.config';
+
+const colors = config.theme.extend.colors;
+const shadows = config.theme.extend.boxShadow;
 
 /**
  * Props for the Irrigo bottom-sheet primitive.

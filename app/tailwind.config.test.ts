@@ -1,6 +1,6 @@
-import type { Config, PluginAPI } from 'tailwindcss/types/config';
+import type { PluginAPI } from 'tailwindcss/types/config';
 
-const config = require('./tailwind.config.js') as Config;
+import config from './tailwind.config';
 
 const theme = (config.theme?.extend ?? {}) as Record<string, Record<string, unknown>>;
 

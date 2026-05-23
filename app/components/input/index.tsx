@@ -2,10 +2,9 @@ import { useCallback, useState, type ReactNode } from 'react';
 import { TextInput, View, Text, type TextInputProps } from 'react-native';
 import { tv, type VariantProps } from 'tailwind-variants';
 
-const tailwindConfig = require('../../tailwind.config.js') as {
-    theme: { extend: { colors: Record<string, string> } };
-};
-const colors = tailwindConfig.theme.extend.colors;
+import config from '../../tailwind.config';
+
+const colors = config.theme.extend.colors;
 
 const input = tv({
     slots: {

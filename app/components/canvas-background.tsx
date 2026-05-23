@@ -2,10 +2,9 @@ import type { PropsWithChildren } from 'react';
 import { StyleSheet, View } from 'react-native';
 import Svg, { Defs, RadialGradient, Rect, Stop } from 'react-native-svg';
 
-const tailwindConfig = require('../tailwind.config.js') as {
-    theme: { extend: { colors: Record<string, string> } };
-};
-const colors = tailwindConfig.theme.extend.colors;
+import config from '../tailwind.config';
+
+const colors = config.theme.extend.colors;
 
 /**
  * Props for the Irrigo canvas background.
@@ -17,7 +16,7 @@ export type CanvasBackgroundProps = PropsWithChildren<{
 
 const BACKGROUND_COLOR = colors.bg;
 // Soft canvas-backdrop tints shared with the modal scrim (grass-glow-3) and
-// info-tinted surfaces (water-glow). See `tailwind.config.js`.
+// info-tinted surfaces (water-glow). See `tailwind.config.ts`.
 const GREEN_GLOW = colors['grass-glow-3'];
 const BLUE_GLOW = colors['water-glow'];
 

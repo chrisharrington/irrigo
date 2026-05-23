@@ -1,12 +1,14 @@
-const plugin = require('tailwindcss/plugin');
+import type { Config } from 'tailwindcss';
+import plugin from 'tailwindcss/plugin';
+// @ts-expect-error — `nativewind/preset` ships an empty `.d.ts`; the CJS module exports a Tailwind preset object at runtime.
+import nativewindPreset from 'nativewind/preset';
 
-/** @type {import('tailwindcss').Config} */
-module.exports = {
+export default {
     content: [
         './app/**/*.{js,jsx,ts,tsx}',
         './components/**/*.{js,jsx,ts,tsx}',
     ],
-    presets: [require('nativewind/preset')],
+    presets: [nativewindPreset],
     theme: {
         extend: {
             colors: {
@@ -264,4 +266,4 @@ module.exports = {
             });
         }),
     ],
-};
+} satisfies Config;
