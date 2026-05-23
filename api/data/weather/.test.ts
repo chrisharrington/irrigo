@@ -1,10 +1,10 @@
 import { describe, it, expect, beforeEach, afterEach, mock, spyOn } from 'bun:test';
 import { fetchWithRetry, getWeatherData } from '.';
 
-// Production defaults are [500, 1500]; tests pass a no-op sleep so the
-// retry loop runs synchronously and doesn't pile two seconds of waits onto
-// every failure case.
-const FAST_RETRY_OPTS = { sleep: async () => {} };
+// Production defaults wait 500 ms then 1500 ms between attempts; tests
+// short-circuit both via `minTimeout: 0` so the retry loop runs without
+// piling two seconds of real waits onto every failure case.
+const FAST_RETRY_OPTS = { retries: 2, factor: 3, minTimeout: 0, maxTimeout: 0, randomize: false };
 
 // Mock the global fetch function.
 const mockFetch = mock(() => Promise.resolve({} as Response));
@@ -347,7 +347,7 @@ describe('fetchWithRetry', () => {
 
         expect(response.ok).toBe(true);
         expect(mockFetch).toHaveBeenCalledTimes(2);
-        expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('attempt 1/3 failed (502 Bad Gateway)'));
+        expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('Open-Meteo API request failed: 502 Bad Gateway'));
     });
 
     it('retries a network rejection and succeeds on a later attempt', async () => {
@@ -359,7 +359,7 @@ describe('fetchWithRetry', () => {
 
         expect(response.ok).toBe(true);
         expect(mockFetch).toHaveBeenCalledTimes(2);
-        expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('attempt 1/3 failed (network: Network request failed)'));
+        expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('Open-Meteo network error: Network request failed'));
     });
 
     it('throws after exhausting all attempts on persistent 5xx', async () => {
@@ -398,22 +398,15 @@ describe('fetchWithRetry', () => {
         expect(warnSpy).not.toHaveBeenCalled();
     });
 
-    it('respects the configurable attempt cap', async () => {
-        // 2 attempts (1 retry); 5xx twice should throw with no third try.
+    it('honours a custom retries cap', async () => {
+        // 1 retry → 2 total attempts; 5xx twice should throw with no third try.
         mockFetch
             .mockResolvedValueOnce({ ok: false, status: 500, statusText: 'Internal Server Error' } as Response)
             .mockResolvedValueOnce({ ok: false, status: 500, statusText: 'Internal Server Error' } as Response);
 
         await expect(
-            fetchWithRetry('https://example.test/', { attempts: 2, backoffsMs: [0], sleep: async () => {} }),
+            fetchWithRetry('https://example.test/', { ...FAST_RETRY_OPTS, retries: 1 }),
         ).rejects.toThrow('Open-Meteo API request failed: 500 Internal Server Error');
         expect(mockFetch).toHaveBeenCalledTimes(2);
-    });
-
-    it('rejects mis-sized backoff arrays at the boundary', async () => {
-        await expect(
-            fetchWithRetry('https://example.test/', { attempts: 3, backoffsMs: [100], sleep: async () => {} }),
-        ).rejects.toThrow(/backoffsMs must have 2 entries for 3 attempts/);
-        expect(mockFetch).not.toHaveBeenCalled();
     });
 });

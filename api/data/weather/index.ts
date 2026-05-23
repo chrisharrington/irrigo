@@ -2,6 +2,7 @@ import type { DailyWeather } from "@/models";
 import dayjs from "dayjs";
 import utc from "dayjs/plugin/utc";
 import tzPlugin from "dayjs/plugin/timezone";
+import pRetry, { AbortError, type Options as PRetryOptions } from 'p-retry';
 
 dayjs.extend(utc);
 dayjs.extend(tzPlugin);
@@ -51,88 +52,66 @@ export type WeatherDataParams = {
 };
 
 /**
- * Tuning for `fetchWithRetry`. Production callers use the defaults; tests
- * inject `sleep: async () => {}` to skip real timers, and may override
- * `attempts` / `backoffsMs` to exercise specific boundary cases.
+ * `p-retry` timing defaults tuned for Open-Meteo's free-tier reliability
+ * profile. 2 retries → 3 total attempts. `factor: 3` + `minTimeout: 500`
+ * produces the 500 ms → 1500 ms backoff. Tests override `minTimeout` /
+ * `maxTimeout` to skip the real waits.
  */
-export type FetchWithRetryOptions = {
-    /** Maximum total attempts including the first try. Default 3 (1 initial + 2 retries). */
-    attempts?: number;
-    /** Delay in ms before each retry. Length must equal `attempts - 1`. Default `[500, 1500]`. */
-    backoffsMs?: readonly number[];
-    /** Injectable sleep for tests. Default uses real `setTimeout`. */
-    sleep?: (ms: number) => Promise<void>;
+const RETRY_TIMING_DEFAULTS: PRetryOptions = {
+    retries: 2,
+    factor: 3,
+    minTimeout: 500,
+    maxTimeout: 1500,
+    randomize: false,
 };
 
-const DEFAULT_ATTEMPTS = 3;
-const DEFAULT_BACKOFFS_MS = [500, 1500] as const;
-
-function defaultSleep(ms: number): Promise<void> {
-    return new Promise(resolve => setTimeout(resolve, ms));
+function logFailedAttempt({ error, attemptNumber, retriesLeft }: { error: Error; attemptNumber: number; retriesLeft: number }): void {
+    if (retriesLeft > 0) {
+        console.warn(`weather: attempt ${attemptNumber} failed (${error.message}); ${retriesLeft} retries left.`);
+    }
 }
 
 /**
- * Internal helper. Fetches a URL, retrying on 5xx responses and network-layer
- * rejections (e.g. DNS / TCP errors thrown by `fetch`). On a 4xx response,
- * throws immediately — those signal a bad request, invalid API key, or
- * rate-limit hit and won't improve with another attempt. On success, returns
- * the 2xx `Response` for the caller to parse.
+ * Internal helper. Fetches a URL via `p-retry`, retrying on 5xx responses
+ * and network-layer rejections. 4xx responses throw immediately via
+ * `AbortError` — those signal bad request / auth / rate-limit and won't
+ * improve with another attempt. On success, returns the 2xx `Response` for
+ * the caller to parse. Final failures log at `console.error` and rethrow
+ * with the same message shape the alerter expects.
  *
  * Exported for tests; production code reaches it through `getWeatherData`.
+ * Tests may pass `retryOptions` to override the timing defaults — the
+ * `onFailedAttempt` logger is always installed by this helper, since the
+ * daemon runs unattended and silent retries would defeat the point.
  *
  * @internal
  */
-export async function fetchWithRetry(url: string, opts: FetchWithRetryOptions = {}): Promise<Response> {
-    const attempts = opts.attempts ?? DEFAULT_ATTEMPTS;
-    const backoffsMs = opts.backoffsMs ?? DEFAULT_BACKOFFS_MS;
-    const sleep = opts.sleep ?? defaultSleep;
-
-    if (backoffsMs.length !== attempts - 1) {
-        throw new Error(`fetchWithRetry: backoffsMs must have ${attempts - 1} entries for ${attempts} attempts; got ${backoffsMs.length}.`);
-    }
-
-    let lastNetworkError: Error | undefined;
-
-    for (let attempt = 1; attempt <= attempts; attempt++) {
-        let response: Response | undefined;
-        try {
-            response = await fetch(url);
-        } catch (err) {
-            const detail = err instanceof Error ? err.message : String(err);
-            lastNetworkError = err instanceof Error ? err : new Error(detail);
-            if (attempt < attempts) {
-                console.warn(`weather: attempt ${attempt}/${attempts} failed (network: ${detail}); retrying in ${backoffsMs[attempt - 1]}ms.`);
-                await sleep(backoffsMs[attempt - 1]!);
-                continue;
+export async function fetchWithRetry(url: string, retryOptions: PRetryOptions = RETRY_TIMING_DEFAULTS): Promise<Response> {
+    try {
+        return await pRetry(async () => {
+            let response: Response;
+            try {
+                response = await fetch(url);
+            } catch (err) {
+                const detail = err instanceof Error ? err.message : String(err);
+                throw new Error(`Open-Meteo network error: ${detail}`);
             }
-            const message = `Open-Meteo network error: ${detail}`;
-            console.error(`weather: ${message}`);
-            throw new Error(message);
-        }
 
-        if (response.ok) return response;
+            if (response.ok) return response;
 
-        // 4xx → bad request / auth / rate-limit. Don't retry.
-        if (response.status >= 400 && response.status < 500) {
             const message = `Open-Meteo API request failed: ${response.status} ${response.statusText}`;
-            console.error(`weather: ${message}`);
+            // 4xx → bad request / auth / rate-limit; abort the retry loop.
+            if (response.status >= 400 && response.status < 500) {
+                throw new AbortError(message);
+            }
+            // 5xx → let p-retry retry (or surface the final throw).
             throw new Error(message);
-        }
-
-        // 5xx → retry if attempts remain.
-        if (attempt < attempts) {
-            console.warn(`weather: attempt ${attempt}/${attempts} failed (${response.status} ${response.statusText}); retrying in ${backoffsMs[attempt - 1]}ms.`);
-            await sleep(backoffsMs[attempt - 1]!);
-            continue;
-        }
-        const message = `Open-Meteo API request failed: ${response.status} ${response.statusText}`;
+        }, { ...retryOptions, onFailedAttempt: logFailedAttempt });
+    } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
         console.error(`weather: ${message}`);
-        throw new Error(message);
+        throw err instanceof Error ? err : new Error(message);
     }
-
-    // Unreachable — the loop always returns or throws. Kept to satisfy the
-    // return-type contract.
-    throw lastNetworkError ?? new Error('Open-Meteo: unknown error after retries.');
 }
 
 /**
