@@ -75,6 +75,17 @@ describe('tailwind.config.js — Irrigo design tokens', () => {
             expect(colors['on-accent']).toBe('#052013');
         });
 
+        it('exposes tinted border / fill aliases (0.4 / 0.06 alpha) per semantic tone for tag-style chrome.', () => {
+            expect(colors['accent-border']).toBe('rgba(111, 227, 155, 0.4)');
+            expect(colors['accent-tint']).toBe('rgba(111, 227, 155, 0.06)');
+            expect(colors['warn-border']).toBe('rgba(255, 190, 107, 0.4)');
+            expect(colors['warn-tint']).toBe('rgba(255, 190, 107, 0.06)');
+            expect(colors['danger-border']).toBe('rgba(255, 107, 123, 0.4)');
+            expect(colors['danger-tint']).toBe('rgba(255, 107, 123, 0.06)');
+            expect(colors['info-border']).toBe('rgba(124, 212, 251, 0.4)');
+            expect(colors['info-tint']).toBe('rgba(124, 212, 251, 0.06)');
+        });
+
         it('exposes the seven-stop depletion ramp end-to-end.', () => {
             expect(colors['depletion-0']).toBe('#6FE39B');
             expect(colors['depletion-3']).toBe('#E9C96D');
