@@ -67,9 +67,17 @@ module.exports = {
                 'accent-press': '#4FCB7E',
                 'accent-deep': '#2C8F5A',
                 'accent-glow': 'rgba(111, 227, 155, 0.18)',
+                'accent-border': 'rgba(111, 227, 155, 0.4)',
+                'accent-tint': 'rgba(111, 227, 155, 0.06)',
                 info: '#7CD4FB',
+                'info-border': 'rgba(124, 212, 251, 0.4)',
+                'info-tint': 'rgba(124, 212, 251, 0.06)',
                 warn: '#FFBE6B',
+                'warn-border': 'rgba(255, 190, 107, 0.4)',
+                'warn-tint': 'rgba(255, 190, 107, 0.06)',
                 danger: '#FF6B7B',
+                'danger-border': 'rgba(255, 107, 123, 0.4)',
+                'danger-tint': 'rgba(255, 107, 123, 0.06)',
                 'on-accent': '#052013',
 
                 // Depletion ramp (saturated → past RAW).

@@ -1,5 +1,7 @@
 import { StyleSheet, Text, View, type ViewStyle, type TextStyle } from 'react-native';
 
+import { FontFamily } from '../../constants/fonts';
+
 const tailwindConfig = require('../../tailwind.config.js') as {
     theme: { extend: { colors: Record<string, string> } };
 };
@@ -39,26 +41,26 @@ const TONE_PALETTE: Readonly<Record<BadgeTone, TonePalette>> = {
     },
     active: {
         text: colors.accent,
-        border: 'rgba(111, 227, 155, 0.4)',
-        background: 'rgba(111, 227, 155, 0.06)',
+        border: colors['accent-border'],
+        background: colors['accent-tint'],
         dot: colors.accent,
     },
     warn: {
         text: colors.warn,
-        border: 'rgba(255, 190, 107, 0.4)',
-        background: 'rgba(255, 190, 107, 0.06)',
+        border: colors['warn-border'],
+        background: colors['warn-tint'],
         dot: colors.warn,
     },
     danger: {
         text: colors.danger,
-        border: 'rgba(255, 107, 123, 0.4)',
-        background: 'rgba(255, 107, 123, 0.06)',
+        border: colors['danger-border'],
+        background: colors['danger-tint'],
         dot: colors.danger,
     },
     info: {
         text: colors.info,
-        border: 'rgba(124, 212, 251, 0.4)',
-        background: 'rgba(124, 212, 251, 0.06)',
+        border: colors['info-border'],
+        background: colors['info-tint'],
         dot: colors.info,
     },
 };
@@ -118,7 +120,7 @@ const styles = StyleSheet.create({
         borderRadius: 4,
     },
     text: {
-        fontFamily: 'Geist_500Medium',
+        fontFamily: FontFamily.sansMedium,
         fontSize: 11,
         lineHeight: 11,
         letterSpacing: 0.11,
