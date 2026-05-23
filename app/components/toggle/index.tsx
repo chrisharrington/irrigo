@@ -2,6 +2,7 @@ import { useEffect, useRef } from 'react';
 import { Animated, Pressable, View } from 'react-native';
 import { tv, type VariantProps } from 'tailwind-variants';
 
+import { Duration } from '@/constants/motion';
 import config from '@/tailwind.config';
 
 const colors = config.theme.extend.colors;
@@ -15,8 +16,6 @@ const SIZE_SPEC = {
     default: { width: 44, height: 26, padding: 3 },
     lg: { width: 54, height: 30, padding: 3 },
 } as const;
-
-const TRANSITION_MS = 220;
 
 const toggle = tv({
     slots: {
@@ -80,7 +79,7 @@ export function Toggle({
     useEffect(() => {
         Animated.timing(animated, {
             toValue: value ? 1 : 0,
-            duration: TRANSITION_MS,
+            duration: Duration.default,
             useNativeDriver: false,
         }).start();
     }, [animated, value]);
