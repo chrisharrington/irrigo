@@ -1,5 +1,10 @@
 import { describe, it, expect, beforeEach, afterEach, mock, spyOn } from 'bun:test';
-import { getWeatherData } from '.';
+import { fetchWithRetry, getWeatherData } from '.';
+
+// Production defaults wait 500 ms then 1500 ms between attempts; tests
+// short-circuit both via `minTimeout: 0` so the retry loop runs without
+// piling two seconds of real waits onto every failure case.
+const FAST_RETRY_OPTS = { retries: 2, factor: 3, minTimeout: 0, maxTimeout: 0, randomize: false };
 
 // Mock the global fetch function.
 const mockFetch = mock(() => Promise.resolve({} as Response));
@@ -121,11 +126,14 @@ describe('Weather Data', () => {
         expect(result[2]!.evapotranspirationMmPerDay).toBe(1.04);
     });
 
-    it('should throw error when API request fails', async () => {
+    it('should throw immediately on a 4xx response without retrying', async () => {
+        // Routed through the public getWeatherData entrypoint so we cover the
+        // integration; 4xx skips retries entirely, so the production-default
+        // backoffs never sleep.
         mockFetch.mockResolvedValueOnce({
             ok: false,
-            status: 500,
-            statusText: 'Internal Server Error',
+            status: 404,
+            statusText: 'Not Found',
         } as Response);
 
         await expect(
@@ -133,9 +141,10 @@ describe('Weather Data', () => {
                 latitude: 52.52,
                 longitude: 13.41,
             })
-        ).rejects.toThrow('Open-Meteo API request failed: 500 Internal Server Error');
+        ).rejects.toThrow('Open-Meteo API request failed: 404 Not Found');
+        expect(mockFetch).toHaveBeenCalledTimes(1);
         expect(errorSpy).toHaveBeenCalledWith(
-            'weather: Open-Meteo API request failed: 500 Internal Server Error',
+            'weather: Open-Meteo API request failed: 404 Not Found',
         );
     });
 
@@ -172,18 +181,6 @@ describe('Weather Data', () => {
         expect(result[0]!.sunrise).toBeDefined();
         // Verify the offset matches the specified timezone (MDT = -360 min in Oct 2025).
         expect(result[0]!.sunrise!.utcOffset()).toBe(-360);
-    });
-
-    it('should throw error on network failure', async () => {
-        mockFetch.mockRejectedValueOnce(new Error('Network error'));
-
-        await expect(
-            getWeatherData({
-                latitude: 52.52,
-                longitude: 13.41,
-            })
-        ).rejects.toThrow('Open-Meteo network error: Network error');
-        expect(errorSpy).toHaveBeenCalledWith('weather: Open-Meteo network error: Network error');
     });
 
     it('should handle empty response arrays', async () => {
@@ -313,5 +310,103 @@ describe('Weather Data', () => {
         const calledUrl = new URL((mockFetch.mock.calls[0] as any[])[0] as string);
         expect(calledUrl.hostname).toBe('api.open-meteo.com');
         expect(calledUrl.searchParams.get('apikey')).toBeNull();
+    });
+});
+
+describe('fetchWithRetry', () => {
+    let warnSpy: ReturnType<typeof spyOn>;
+    let errorSpy: ReturnType<typeof spyOn>;
+
+    beforeEach(() => {
+        mockFetch.mockClear();
+        warnSpy = spyOn(console, 'warn').mockImplementation(() => {});
+        errorSpy = spyOn(console, 'error').mockImplementation(() => {});
+    });
+
+    afterEach(() => {
+        warnSpy.mockRestore();
+        errorSpy.mockRestore();
+    });
+
+    it('returns a 2xx response on the first attempt without retrying', async () => {
+        mockFetch.mockResolvedValueOnce({ ok: true, status: 200 } as Response);
+
+        const response = await fetchWithRetry('https://example.test/', FAST_RETRY_OPTS);
+
+        expect(response.ok).toBe(true);
+        expect(mockFetch).toHaveBeenCalledTimes(1);
+        expect(warnSpy).not.toHaveBeenCalled();
+    });
+
+    it('retries a 5xx response and succeeds on a later attempt', async () => {
+        mockFetch
+            .mockResolvedValueOnce({ ok: false, status: 502, statusText: 'Bad Gateway' } as Response)
+            .mockResolvedValueOnce({ ok: true, status: 200 } as Response);
+
+        const response = await fetchWithRetry('https://example.test/', FAST_RETRY_OPTS);
+
+        expect(response.ok).toBe(true);
+        expect(mockFetch).toHaveBeenCalledTimes(2);
+        expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('Open-Meteo API request failed: 502 Bad Gateway'));
+    });
+
+    it('retries a network rejection and succeeds on a later attempt', async () => {
+        mockFetch
+            .mockRejectedValueOnce(new TypeError('Network request failed'))
+            .mockResolvedValueOnce({ ok: true, status: 200 } as Response);
+
+        const response = await fetchWithRetry('https://example.test/', FAST_RETRY_OPTS);
+
+        expect(response.ok).toBe(true);
+        expect(mockFetch).toHaveBeenCalledTimes(2);
+        expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('Open-Meteo network error: Network request failed'));
+    });
+
+    it('throws after exhausting all attempts on persistent 5xx', async () => {
+        mockFetch
+            .mockResolvedValueOnce({ ok: false, status: 503, statusText: 'Service Unavailable' } as Response)
+            .mockResolvedValueOnce({ ok: false, status: 503, statusText: 'Service Unavailable' } as Response)
+            .mockResolvedValueOnce({ ok: false, status: 503, statusText: 'Service Unavailable' } as Response);
+
+        await expect(
+            fetchWithRetry('https://example.test/', FAST_RETRY_OPTS),
+        ).rejects.toThrow('Open-Meteo API request failed: 503 Service Unavailable');
+        expect(mockFetch).toHaveBeenCalledTimes(3);
+        expect(errorSpy).toHaveBeenCalledWith('weather: Open-Meteo API request failed: 503 Service Unavailable');
+    });
+
+    it('throws after exhausting all attempts on persistent network errors', async () => {
+        mockFetch
+            .mockRejectedValueOnce(new Error('Network error'))
+            .mockRejectedValueOnce(new Error('Network error'))
+            .mockRejectedValueOnce(new Error('Network error'));
+
+        await expect(
+            fetchWithRetry('https://example.test/', FAST_RETRY_OPTS),
+        ).rejects.toThrow('Open-Meteo network error: Network error');
+        expect(mockFetch).toHaveBeenCalledTimes(3);
+        expect(errorSpy).toHaveBeenCalledWith('weather: Open-Meteo network error: Network error');
+    });
+
+    it('throws immediately on a 4xx without retrying', async () => {
+        mockFetch.mockResolvedValueOnce({ ok: false, status: 401, statusText: 'Unauthorized' } as Response);
+
+        await expect(
+            fetchWithRetry('https://example.test/', FAST_RETRY_OPTS),
+        ).rejects.toThrow('Open-Meteo API request failed: 401 Unauthorized');
+        expect(mockFetch).toHaveBeenCalledTimes(1);
+        expect(warnSpy).not.toHaveBeenCalled();
+    });
+
+    it('honours a custom retries cap', async () => {
+        // 1 retry → 2 total attempts; 5xx twice should throw with no third try.
+        mockFetch
+            .mockResolvedValueOnce({ ok: false, status: 500, statusText: 'Internal Server Error' } as Response)
+            .mockResolvedValueOnce({ ok: false, status: 500, statusText: 'Internal Server Error' } as Response);
+
+        await expect(
+            fetchWithRetry('https://example.test/', { ...FAST_RETRY_OPTS, retries: 1 }),
+        ).rejects.toThrow('Open-Meteo API request failed: 500 Internal Server Error');
+        expect(mockFetch).toHaveBeenCalledTimes(2);
     });
 });

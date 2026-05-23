@@ -2,6 +2,7 @@ import type { DailyWeather } from "@/models";
 import dayjs from "dayjs";
 import utc from "dayjs/plugin/utc";
 import tzPlugin from "dayjs/plugin/timezone";
+import pRetry, { AbortError, type Options as PRetryOptions } from 'p-retry';
 
 dayjs.extend(utc);
 dayjs.extend(tzPlugin);
@@ -51,12 +52,77 @@ export type WeatherDataParams = {
 };
 
 /**
+ * `p-retry` timing defaults tuned for Open-Meteo's free-tier reliability
+ * profile. 2 retries → 3 total attempts. `factor: 3` + `minTimeout: 500`
+ * produces the 500 ms → 1500 ms backoff. Tests override `minTimeout` /
+ * `maxTimeout` to skip the real waits.
+ */
+const RETRY_TIMING_DEFAULTS: PRetryOptions = {
+    retries: 2,
+    factor: 3,
+    minTimeout: 500,
+    maxTimeout: 1500,
+    randomize: false,
+};
+
+function logFailedAttempt({ error, attemptNumber, retriesLeft }: { error: Error; attemptNumber: number; retriesLeft: number }): void {
+    if (retriesLeft > 0) {
+        console.warn(`weather: attempt ${attemptNumber} failed (${error.message}); ${retriesLeft} retries left.`);
+    }
+}
+
+/**
+ * Internal helper. Fetches a URL via `p-retry`, retrying on 5xx responses
+ * and network-layer rejections. 4xx responses throw immediately via
+ * `AbortError` — those signal bad request / auth / rate-limit and won't
+ * improve with another attempt. On success, returns the 2xx `Response` for
+ * the caller to parse. Final failures log at `console.error` and rethrow
+ * with the same message shape the alerter expects.
+ *
+ * Exported for tests; production code reaches it through `getWeatherData`.
+ * Tests may pass `retryOptions` to override the timing defaults — the
+ * `onFailedAttempt` logger is always installed by this helper, since the
+ * daemon runs unattended and silent retries would defeat the point.
+ *
+ * @internal
+ */
+export async function fetchWithRetry(url: string, retryOptions: PRetryOptions = RETRY_TIMING_DEFAULTS): Promise<Response> {
+    try {
+        return await pRetry(async () => {
+            let response: Response;
+            try {
+                response = await fetch(url);
+            } catch (err) {
+                const detail = err instanceof Error ? err.message : String(err);
+                throw new Error(`Open-Meteo network error: ${detail}`);
+            }
+
+            if (response.ok) return response;
+
+            const message = `Open-Meteo API request failed: ${response.status} ${response.statusText}`;
+            // 4xx → bad request / auth / rate-limit; abort the retry loop.
+            if (response.status >= 400 && response.status < 500) {
+                throw new AbortError(message);
+            }
+            // 5xx → let p-retry retry (or surface the final throw).
+            throw new Error(message);
+        }, { ...retryOptions, onFailedAttempt: logFailedAttempt });
+    } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        console.error(`weather: ${message}`);
+        throw err instanceof Error ? err : new Error(message);
+    }
+}
+
+/**
  * Retrieves daily weather data from Open-Meteo API including sunrise times,
- * rainfall totals, and reference evapotranspiration (ET0).
+ * rainfall totals, and reference evapotranspiration (ET0). Transient 5xx
+ * responses and network-layer errors are retried up to two times with
+ * exponential backoff before the final failure surfaces to the caller.
  *
  * @param params - Weather data request parameters
  * @returns Promise resolving to array of daily weather data
- * @throws Error if the API request fails
+ * @throws Error if the API request fails after all retries
  */
 export async function getWeatherData(params: WeatherDataParams): Promise<DailyWeather[]> {
     if (process.env.OPEN_METEO_ENABLED === 'false') {
@@ -82,20 +148,7 @@ export async function getWeatherData(params: WeatherDataParams): Promise<DailyWe
         url.searchParams.set('apikey', apiKey);
     }
 
-    let response: Response;
-    try {
-        response = await fetch(url.toString());
-    } catch (err) {
-        const detail = err instanceof Error ? err.message : String(err);
-        console.error(`weather: Open-Meteo network error: ${detail}`);
-        throw new Error(`Open-Meteo network error: ${detail}`);
-    }
-
-    if (!response.ok) {
-        const message = `Open-Meteo API request failed: ${response.status} ${response.statusText}`;
-        console.error(`weather: ${message}`);
-        throw new Error(message);
-    }
+    const response = await fetchWithRetry(url.toString());
 
     // Parse a time string in the correct timezone so that downstream dayjs
     // operations (startOf('day'), isoWeekday, hour comparisons) all use the
