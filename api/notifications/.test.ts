@@ -53,7 +53,7 @@ describe('createNotifier', () => {
         const notifier = createNotifier();
 
         expect(notifier).toBe(noopNotifier);
-        await notifier('error', { zoneName: 'Front Lawn', operation: 'open', reason: 'oops' });
+        await notifier('error', { zoneName: 'Front Lawn', errorTitle: 'Manual open failed', errorSub: 'Last attempt failed: oops.' });
         expect(mockFetch).not.toHaveBeenCalled();
         expect(warnSpy).toHaveBeenCalledTimes(1);
     });
@@ -124,7 +124,7 @@ describe('createNotifier', () => {
     it('POSTs an error event by default (errors should be loud)', async () => {
         const notifier = createNotifier();
 
-        await notifier('error', { zoneName: 'Front Lawn', operation: 'open', reason: 'HA down' });
+        await notifier('error', { zoneName: 'Front Lawn', errorTitle: 'HA open failed', errorSub: 'Last attempt failed: HA down.' });
 
         expect(mockFetch).toHaveBeenCalledTimes(1);
     });
@@ -154,45 +154,11 @@ describe('createNotifier', () => {
         expect(parsed.message).toContain('2026-05-15');
     });
 
-    it('builds a manual-fire qualified message for manual-driven watering-started events', async () => {
-        process.env.NOTIFY_ON_WATERING_START = 'true';
-        const notifier = createNotifier();
-
-        await notifier('watering-started', { zoneName: 'Front Lawn', durationMin: 20, reason: 'manual' });
-
-        const init = mockFetch.mock.calls[0]![1] as RequestInit;
-        const message = (JSON.parse(init.body as string) as { message: string }).message;
-        expect(message).toContain('manual fire');
-    });
-
-    it('builds a shutdown-qualified message for shutdown-driven watering-ended events', async () => {
-        process.env.NOTIFY_ON_WATERING_END = 'true';
-        const notifier = createNotifier();
-
-        await notifier('watering-ended', { zoneName: 'Front Lawn', reason: 'shutdown' });
-
-        const init = mockFetch.mock.calls[0]![1] as RequestInit;
-        const message = (JSON.parse(init.body as string) as { message: string }).message;
-        expect(message).toContain('shutdown');
-    });
-
-    it('includes operation and reason in error event messages', async () => {
-        const notifier = createNotifier();
-
-        await notifier('error', { zoneName: 'Front Lawn', operation: 'open', reason: 'HA 502' });
-
-        const init = mockFetch.mock.calls[0]![1] as RequestInit;
-        const message = (JSON.parse(init.body as string) as { message: string }).message;
-        expect(message).toContain('open');
-        expect(message).toContain('HA 502');
-        expect(message).toContain('Front Lawn');
-    });
-
     it('swallows fetch rejections without throwing and logs a warning', async () => {
         mockFetch.mockRejectedValueOnce(new Error('network down'));
         const notifier = createNotifier();
 
-        await expect(notifier('error', { operation: 'open', reason: 'oops' })).resolves.toBeUndefined();
+        await expect(notifier('error', { errorTitle: 'HA open failed', errorSub: 'Last attempt failed: oops.' })).resolves.toBeUndefined();
         expect(warnSpy).toHaveBeenCalled();
     });
 
@@ -200,7 +166,7 @@ describe('createNotifier', () => {
         mockFetch.mockResolvedValueOnce({ ok: false, status: 502, statusText: 'Bad Gateway' } as Response);
         const notifier = createNotifier();
 
-        await expect(notifier('error', { operation: 'open', reason: 'oops' })).resolves.toBeUndefined();
+        await expect(notifier('error', { errorTitle: 'HA open failed', errorSub: 'Last attempt failed: oops.' })).resolves.toBeUndefined();
         expect(warnSpy).toHaveBeenCalled();
     });
 
@@ -208,7 +174,7 @@ describe('createNotifier', () => {
         process.env.NOTIFY_ON_ERROR = 'false';
         const notifier = createNotifier();
 
-        await notifier('error', { operation: 'open', reason: 'oops' });
+        await notifier('error', { errorTitle: 'HA open failed', errorSub: 'Last attempt failed: oops.' });
 
         expect(mockFetch).not.toHaveBeenCalled();
     });
@@ -225,99 +191,103 @@ describe('createNotifier', () => {
     });
 });
 
-describe('buildMessage', () => {
-    it('names the irrigation night for schedule-begun', () => {
-        const msg = buildMessage('schedule-begun', { scheduleNight: '2026-05-15' });
-        expect(msg).toContain('Irrigation schedule started');
-        expect(msg).toContain('2026-05-15');
+// Golden-string assertions. These pin the exact operator-facing copy for every
+// `(event, context)` combination so the next time someone touches a builder,
+// the diff is intentional (it forces the test author to update the literal).
+//
+// API-63 added these after a push leaked `weather-stale on South: Planner on
+// fallback ET₀ ·` to a phone. The asserts below cover that scenario and every
+// other branch in `buildMessage` end-to-end.
+describe('buildMessage — golden output', () => {
+    it('schedule-begun (with night) — exact string.', () => {
+        expect(buildMessage('schedule-begun', { scheduleNight: '2026-05-15' }))
+            .toBe('Irrigation schedule started for the night of 2026-05-15.');
     });
 
-    it('falls back to a generic schedule-begun message when scheduleNight is omitted', () => {
-        const msg = buildMessage('schedule-begun', {});
-        expect(msg).toContain('Irrigation schedule started');
-        expect(msg).not.toMatch(/\d{4}-\d{2}-\d{2}/);
+    it('schedule-begun (no context) — generic fallback.', () => {
+        expect(buildMessage('schedule-begun'))
+            .toBe('Irrigation schedule started.');
     });
 
-    it('formats the per-zone summary alphabetically for schedule-ended', () => {
+    it('schedule-ended (per-zone summary + next, fixed timezone) — exact string.', () => {
         const msg = buildMessage('schedule-ended', {
             scheduleNight: '2026-05-15',
             perZoneRuntimeMin: { South: 32, North: 47, East: 28 },
             siteTimezone: 'America/Edmonton',
-        });
-        expect(msg).toContain('Irrigation complete');
-        // Alphabetical ordering of zone names.
-        expect(msg.indexOf('East')).toBeLessThan(msg.indexOf('North'));
-        expect(msg.indexOf('North')).toBeLessThan(msg.indexOf('South'));
-        expect(msg).toContain('East 28 min');
-        expect(msg).toContain('North 47 min');
-        expect(msg).toContain('South 32 min');
-    });
-
-    it('appends the next-irrigation line in site-local time for schedule-ended', () => {
-        const msg = buildMessage('schedule-ended', {
-            scheduleNight: '2026-05-15',
-            perZoneRuntimeMin: { North: 47 },
-            siteTimezone: 'America/Edmonton',
-            // 2026-05-23T04:23Z = 22:23 MDT on 2026-05-22.
+            // 2026-05-23T04:23Z = 22:23 MDT on 2026-05-22 (Friday).
             nextIrrigation: { zoneName: 'North', startTime: new Date('2026-05-23T04:23:00.000Z') },
         });
-        expect(msg).toContain('Next irrigation: North');
-        expect(msg).toContain('Fri 22 May');
-        expect(msg).toContain('10:23pm');
+        expect(msg).toBe('Irrigation complete: East 28 min, North 47 min, South 32 min. Next irrigation: North on Fri 22 May at 10:23pm.');
     });
 
-    it('omits the next-irrigation line when none is provided', () => {
-        const msg = buildMessage('schedule-ended', {
-            scheduleNight: '2026-05-15',
-            perZoneRuntimeMin: { North: 47 },
-            siteTimezone: 'America/Edmonton',
-        });
-        expect(msg).not.toContain('Next irrigation');
+    it('schedule-ended (no summary, no next) — generic complete message.', () => {
+        expect(buildMessage('schedule-ended', { scheduleNight: '2026-05-15' }))
+            .toBe('Irrigation complete.');
     });
 
-    it('rounds fractional minutes in the summary to one decimal', () => {
-        const msg = buildMessage('schedule-ended', {
+    it('schedule-ended rounds fractional minutes to one decimal.', () => {
+        expect(buildMessage('schedule-ended', {
             scheduleNight: '2026-05-15',
             perZoneRuntimeMin: { North: 47.36 },
             siteTimezone: 'America/Edmonton',
+        })).toBe('Irrigation complete: North 47.4 min.');
+    });
+
+    it('watering-started (auto-fire, with duration) — exact string.', () => {
+        expect(buildMessage('watering-started', { zoneName: 'Front Lawn', durationMin: 20 }))
+            .toBe('Front Lawn watering started (~20 min).');
+    });
+
+    it('watering-started (manual fire, with duration) — exact string.', () => {
+        expect(buildMessage('watering-started', { zoneName: 'Front Lawn', durationMin: 20, reason: 'manual' }))
+            .toBe('Front Lawn watering started (~20 min) (manual fire).');
+    });
+
+    it('watering-started (no duration, missing zone name) — falls back to Zone.', () => {
+        expect(buildMessage('watering-started', {}))
+            .toBe('Zone watering started.');
+    });
+
+    it('watering-ended (default) — exact string.', () => {
+        expect(buildMessage('watering-ended', { zoneName: 'Back Garden' }))
+            .toBe('Back Garden watering ended.');
+    });
+
+    it('watering-ended (shutdown) — exact string.', () => {
+        expect(buildMessage('watering-ended', { zoneName: 'Back Garden', reason: 'shutdown' }))
+            .toBe('Back Garden watering ended (closed during daemon shutdown).');
+    });
+
+    it('watering-ended (manual) — exact string.', () => {
+        expect(buildMessage('watering-ended', { zoneName: 'Back Garden', reason: 'manual' }))
+            .toBe('Back Garden watering ended (manual fire).');
+    });
+
+    it('error (zone + title + sub — the original bug scenario, now ASCII and slug-free).', () => {
+        const msg = buildMessage('error', {
+            zoneName: 'South',
+            errorTitle: 'Weather API stale',
+            errorSub: 'Planner using fallback ET zero. Last fetch error: 502 Bad Gateway.',
         });
-        expect(msg).toContain('North 47.4 min');
+        expect(msg).toBe('South: Weather API stale. Planner using fallback ET zero. Last fetch error: 502 Bad Gateway.');
+        // Guardrails: the slug, the subscript, and the middot must never leak.
+        expect(msg).not.toContain('weather-stale');
+        expect(msg).not.toContain('·');
+        expect(msg).not.toContain('₀');
     });
 
-    it('includes zone name and duration for watering-started (manual fire)', () => {
-        const msg = buildMessage('watering-started', { zoneName: 'Front Lawn', durationMin: 20, reason: 'manual' });
-        expect(msg).toContain('Front Lawn');
-        expect(msg).toContain('20');
-        expect(msg).toContain('manual fire');
+    it('error (zone + title, no sub) — exact string.', () => {
+        expect(buildMessage('error', { zoneName: 'North', errorTitle: 'HA close failed' }))
+            .toBe('North: HA close failed.');
     });
 
-    it('omits duration for watering-started when not provided', () => {
-        const msg = buildMessage('watering-started', { zoneName: 'Front Lawn' });
-        expect(msg).toContain('Front Lawn');
-        expect(msg).not.toContain('min');
+    it('error (title only, no zone, no sub) — exact string.', () => {
+        expect(buildMessage('error', { errorTitle: 'Weather API stale' }))
+            .toBe('Weather API stale.');
     });
 
-    it('returns a simple ended message for watering-ended', () => {
-        const msg = buildMessage('watering-ended', { zoneName: 'Back Garden' });
-        expect(msg).toContain('Back Garden');
-        expect(msg).toContain('watering ended');
-        expect(msg).not.toContain('shutdown');
-    });
-
-    it('appends shutdown qualifier for watering-ended with reason=shutdown', () => {
-        const msg = buildMessage('watering-ended', { zoneName: 'Back Garden', reason: 'shutdown' });
-        expect(msg).toContain('shutdown');
-    });
-
-    it('includes operation and reason for error events', () => {
-        const msg = buildMessage('error', { zoneName: 'Front Lawn', operation: 'open', reason: 'HA 502' });
-        expect(msg).toContain('Front Lawn');
-        expect(msg).toContain('open');
-        expect(msg).toContain('HA 502');
-    });
-
-    it('falls back to Zone when zoneName is omitted', () => {
-        const msg = buildMessage('watering-started', {});
-        expect(msg).toContain('Zone');
+    it('error (no context at all) — generic fallback.', () => {
+        expect(buildMessage('error'))
+            .toBe('Irrigo error.');
     });
 });

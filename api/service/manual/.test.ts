@@ -193,7 +193,7 @@ describe('manual controller — open', () => {
         await expect(controller.open(buildZone())).rejects.toThrow('HA 502');
         expect(controller.getActiveZone()).toBeNull();
         const errorCall = calls.find(c => c.event === 'error');
-        expect(errorCall?.context).toEqual({ zoneName: 'Front Lawn', operation: 'open', reason: 'HA 502' });
+        expect(errorCall?.context).toEqual({ zoneName: 'Front Lawn', errorTitle: 'Manual open failed', errorSub: 'Last attempt failed: HA 502.' });
     });
 });
 
@@ -296,7 +296,7 @@ describe('manual controller — close', () => {
 
         expect(controller.getActiveZone()).toBeNull();
         const errorCall = calls.find(c => c.event === 'error');
-        expect(errorCall?.context?.operation).toBe('close');
+        expect(errorCall?.context?.errorTitle).toBe('Manual close failed');
     });
 });
 
@@ -410,8 +410,8 @@ describe('manual controller — run', () => {
         await advanceTo(new Date('2026-05-04T15:05:30.000Z'));
 
         expect(controller.getActiveZone()).toBeNull();
-        const errorCall = calls.find(c => c.event === 'error' && c.context?.operation === 'close');
-        expect(errorCall?.context?.reason).toBe('HA 504');
+        const errorCall = calls.find(c => c.event === 'error' && c.context?.errorTitle === 'Manual close failed');
+        expect(errorCall?.context?.errorSub).toBe('Last attempt failed: HA 504.');
     });
 });
 

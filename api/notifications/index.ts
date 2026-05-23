@@ -41,11 +41,14 @@ export type NotificationContext = {
     /** Cycle duration in minutes. Included on `watering-started` for manual fires. */
     durationMin?: number;
 
-    /** Operation that failed for `error` events (e.g. `open`, `close`, `re-plan`). */
-    operation?: string;
-
-    /** Free-form qualifier (`manual`, `shutdown`, error message, etc.). */
+    /** Qualifier for watering-* events: `'manual'` flips the message to the manual-fire variant; `'shutdown'` flips watering-ended to the daemon-shutdown variant. Not consumed by the error path. */
     reason?: string;
+
+    /** Required for the `'error'` event: the human-readable failure mode. Sentence-cased, no terminal period. Example: `'Weather API stale'`. */
+    errorTitle?: string;
+
+    /** Optional sub-line for the `'error'` event: the consequence or context. Should end in a period. Example: `'Planner using fallback ET zero. Last fetch error: 502 Bad Gateway.'`. */
+    errorSub?: string;
 
     /**
      * The irrigation night the schedule event refers to, as a local-date string
@@ -158,10 +161,11 @@ export function buildMessage(event: NotificationEvent, context?: NotificationCon
         return `${zone} watering ended.`;
     }
     // error
-    const zone = context?.zoneName ?? 'Zone';
-    const op = context?.operation ?? 'unknown';
-    const reason = context?.reason ?? 'unknown';
-    return `Irrigo error during ${op} on ${zone}: ${reason}.`;
+    const zone = context?.zoneName;
+    const title = context?.errorTitle ?? 'Irrigo error';
+    const sub = context?.errorSub;
+    const head = zone ? `${zone}: ${title}.` : `${title}.`;
+    return sub ? `${head} ${sub}` : head;
 }
 
 function buildScheduleEndedMessage(context?: NotificationContext): string {

@@ -161,7 +161,7 @@ describe('createAlerter', () => {
             return { notifier: async (event, context) => { calls.push({ event, context }); }, calls };
         }
 
-        it('fires the notifier with operation=class and reason=sub on a brand-new insert', async () => {
+        it('fires the notifier with errorTitle=title and errorSub=sub on a brand-new insert', async () => {
             const { db } = createRecorderStub([]);
             const { notifier, calls: notifications } = recordingNotifier();
 
@@ -172,19 +172,20 @@ describe('createAlerter', () => {
                 event: 'error',
                 context: {
                     zoneName: 'North',
-                    operation: 'ha-call-failed',
-                    reason: 'North · ECONNREFUSED',
+                    errorTitle: 'HA close failed',
+                    errorSub: 'North · ECONNREFUSED',
                 },
             });
         });
 
-        it('falls back to title when sub is omitted', async () => {
+        it('omits errorSub from the context when the event has no sub', async () => {
             const { db } = createRecorderStub([]);
             const { notifier, calls: notifications } = recordingNotifier();
 
             await createAlerter(db, notifier)(event({ sub: undefined, title: 'HA open failed' }));
 
-            expect(notifications[0]?.context?.reason).toBe('HA open failed');
+            expect(notifications[0]?.context?.errorTitle).toBe('HA open failed');
+            expect(notifications[0]?.context).not.toHaveProperty('errorSub');
         });
 
         it('omits zoneName from the context when the event has none (global alert)', async () => {
@@ -194,7 +195,7 @@ describe('createAlerter', () => {
             await createAlerter(db, notifier)(event({ zoneName: undefined, zoneId: undefined }));
 
             expect(notifications[0]?.context).not.toHaveProperty('zoneName');
-            expect(notifications[0]?.context?.operation).toBe('ha-call-failed');
+            expect(notifications[0]?.context?.errorTitle).toBe('HA close failed');
         });
 
         it('does NOT fire the notifier when an existing unacked alert is updated (dedup hit)', async () => {

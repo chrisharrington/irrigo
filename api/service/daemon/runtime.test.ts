@@ -417,7 +417,7 @@ describe('closeAllInFlight', () => {
         });
 
         expect(closes).toEqual(['zone-B']);
-        expect(alertCalls.some(a => a.class === 'ha-call-failed' && a.title === 'HA close failed (shutdown)')).toBe(true);
+        expect(alertCalls.some(a => a.class === 'ha-call-failed' && a.title === 'HA close failed during shutdown')).toBe(true);
     });
 
     it('is a no-op when nothing is in flight', async () => {

@@ -147,7 +147,7 @@ async function runOpen(inputs: ArmCycleInputs): Promise<void> {
             class: 'ha-call-failed',
             tone: 'danger',
             title: 'HA open failed',
-            sub: `${zone.name} · ${reason}`,
+            sub: `Last attempt failed: ${reason}.`,
             zoneId: zone.id,
             zoneName: zone.name,
         });
@@ -225,7 +225,7 @@ async function runClose(inputs: RunCloseInputs): Promise<void> {
             class: 'ha-call-failed',
             tone: 'danger',
             title: 'HA close failed',
-            sub: `${zone.name} · ${reason}`,
+            sub: `Last attempt failed: ${reason}.`,
             zoneId: zone.id,
             zoneName: zone.name,
         });
@@ -276,8 +276,8 @@ export async function closeAllInFlight(inputs: {
             await alerter({
                 class: 'ha-call-failed',
                 tone: 'danger',
-                title: 'HA close failed (shutdown)',
-                sub: `${zone.name} · ${reason}`,
+                title: 'HA close failed during shutdown',
+                sub: `Last attempt failed: ${reason}.`,
                 zoneId: zone.id,
                 zoneName: zone.name,
             });

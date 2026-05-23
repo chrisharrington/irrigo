@@ -166,8 +166,8 @@ export function createAlerter(db: AlertsDb, notifier?: Notifier, pushDispatcher?
         if (notifier) {
             await notifier('error', {
                 ...(event.zoneName !== undefined ? { zoneName: event.zoneName } : {}),
-                operation: event.class,
-                reason: event.sub ?? event.title,
+                errorTitle: event.title,
+                ...(event.sub !== undefined ? { errorSub: event.sub } : {}),
             });
         }
 
