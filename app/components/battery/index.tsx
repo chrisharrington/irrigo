@@ -1,10 +1,9 @@
 import { useEffect, useRef } from 'react';
 import { Animated, View } from 'react-native';
 
-const tailwindConfig = require('../../tailwind.config.js') as {
-    theme: { extend: { colors: Record<string, string> } };
-};
-const colors = tailwindConfig.theme.extend.colors;
+import config from '../../tailwind.config';
+
+const colors = config.theme.extend.colors;
 
 const TRACK_BG = colors['ink-400'];
 const TRACK_BORDER = colors.border;

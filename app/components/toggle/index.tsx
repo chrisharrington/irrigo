@@ -2,10 +2,9 @@ import { useEffect, useRef } from 'react';
 import { Animated, Pressable, View } from 'react-native';
 import { tv, type VariantProps } from 'tailwind-variants';
 
-const tailwindConfig = require('../../tailwind.config.js') as {
-    theme: { extend: { colors: Record<string, string> } };
-};
-const colors = tailwindConfig.theme.extend.colors;
+import config from '../../tailwind.config';
+
+const colors = config.theme.extend.colors;
 
 const TRACK_OFF_COLOR = colors['ink-400'];
 const TRACK_ON_COLOR = colors.accent;

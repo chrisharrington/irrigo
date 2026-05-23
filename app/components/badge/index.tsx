@@ -1,11 +1,9 @@
 import { StyleSheet, Text, View, type ViewStyle, type TextStyle } from 'react-native';
 
 import { FontFamily } from '../../constants/fonts';
+import config from '../../tailwind.config';
 
-const tailwindConfig = require('../../tailwind.config.js') as {
-    theme: { extend: { colors: Record<string, string> } };
-};
-const colors = tailwindConfig.theme.extend.colors;
+const colors = config.theme.extend.colors;
 
 /**
  * Visual tone selecting the badge's color, border tint, background tint, and

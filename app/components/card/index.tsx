@@ -1,16 +1,10 @@
 import { StyleSheet, View, type StyleProp, type ViewStyle } from 'react-native';
 import type { ReactNode } from 'react';
 
-const tailwindConfig = require('../../tailwind.config.js') as {
-    theme: {
-        extend: {
-            colors: Record<string, string>;
-            boxShadow: Record<string, string>;
-        };
-    };
-};
-const colors = tailwindConfig.theme.extend.colors;
-const shadows = tailwindConfig.theme.extend.boxShadow;
+import config from '../../tailwind.config';
+
+const colors = config.theme.extend.colors;
+const shadows = config.theme.extend.boxShadow;
 
 /**
  * Visual variant selecting the card's background, padding, radius, and base
