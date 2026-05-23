@@ -1,7 +1,7 @@
 import { StyleSheet, View, type StyleProp, type ViewStyle } from 'react-native';
 import type { ReactNode } from 'react';
 
-import config from '../../tailwind.config';
+import config from '@/tailwind.config';
 
 const colors = config.theme.extend.colors;
 const shadows = config.theme.extend.boxShadow;

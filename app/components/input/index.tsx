@@ -2,7 +2,7 @@ import { useCallback, useState, type ReactNode } from 'react';
 import { TextInput, View, Text, type TextInputProps } from 'react-native';
 import { tv, type VariantProps } from 'tailwind-variants';
 
-import config from '../../tailwind.config';
+import config from '@/tailwind.config';
 
 const colors = config.theme.extend.colors;
 

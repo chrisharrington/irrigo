@@ -2,7 +2,7 @@ import { useEffect, useRef } from 'react';
 import { Animated, Pressable, View } from 'react-native';
 import { tv, type VariantProps } from 'tailwind-variants';
 
-import config from '../../tailwind.config';
+import config from '@/tailwind.config';
 
 const colors = config.theme.extend.colors;
 
