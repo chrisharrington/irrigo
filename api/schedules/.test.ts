@@ -99,12 +99,13 @@ describe('runScheduleForZone', () => {
         expect(mockFetch).not.toHaveBeenCalled();
     });
 
-    it('propagates errors from the weather API to the caller', async () => {
-        mockFetch.mockResolvedValueOnce({
-            ok: false,
-            status: 503,
-            statusText: 'Service Unavailable',
-        } as Response);
+    it('propagates errors from the weather API to the caller after retries exhaust', async () => {
+        // Three 503s walk the helper through all retry attempts; the final
+        // throw is what the planner must surface.
+        mockFetch
+            .mockResolvedValueOnce({ ok: false, status: 503, statusText: 'Service Unavailable' } as Response)
+            .mockResolvedValueOnce({ ok: false, status: 503, statusText: 'Service Unavailable' } as Response)
+            .mockResolvedValueOnce({ ok: false, status: 503, statusText: 'Service Unavailable' } as Response);
 
         const zone = createTestZone({ location: { lat: 51.0447, lon: -114.0719 } });
 
