@@ -74,6 +74,7 @@ Invoke the `/plane` skill before creating, searching, or updating tickets. Use `
 - **PR title**: short and descriptive. Prefix with `[API-XXX]` or `[APP-XXX]` when there's a ticket.
 - **PR body**: link the ticket if there is one. Brief summary of the change. No template required.
 - After a PR for a ticket merges, update the ticket's state to `Done` via `mcp__plane__update_work_item`.
+- **Addressing PR review comments**: when the user asks to address/resolve PR comments, after the fixes pass type-check and tests, stage the changed files, commit, push to the PR branch, and reply with the PR link. Don't ask for confirmation each round — the explicit "address PR comments" request is the authorization.
 
 ## Running a second stack from a git worktree
 
