@@ -75,6 +75,10 @@ describe('tailwind.config.js — Irrigo design tokens', () => {
             expect(colors['on-accent']).toBe('#052013');
         });
 
+        it('exposes the modal / sheet scrim at the design-spec alpha.', () => {
+            expect(colors.scrim).toBe('rgba(2, 4, 3, 0.66)');
+        });
+
         it('exposes tinted border / fill aliases (0.4 / 0.06 alpha) per semantic tone for tag-style chrome.', () => {
             expect(colors['accent-border']).toBe('rgba(111, 227, 155, 0.4)');
             expect(colors['accent-tint']).toBe('rgba(111, 227, 155, 0.06)');

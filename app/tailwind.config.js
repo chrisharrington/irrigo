@@ -79,6 +79,7 @@ module.exports = {
                 'danger-border': 'rgba(255, 107, 123, 0.4)',
                 'danger-tint': 'rgba(255, 107, 123, 0.06)',
                 'on-accent': '#052013',
+                scrim: 'rgba(2, 4, 3, 0.66)',
 
                 // Depletion ramp (saturated → past RAW).
                 'depletion-0': '#6FE39B',
