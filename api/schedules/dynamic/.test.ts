@@ -1,7 +1,6 @@
 import { describe, it, expect } from 'bun:test';
 import dayjs from 'dayjs';
-import { planZoneSchedule } from '.';
-import { createTestZone, GRASS_TYPES, SOIL_TYPES } from '../../mock/zone';
+import { createTestZone, GRASS_TYPES, SOIL_TYPES } from '@/mock/zone';
 import {
     createWeatherDays,
     createDryPeriod,
@@ -9,7 +8,8 @@ import {
     createIntermittentRainfall,
     createVariableET,
     createHeatWave,
-} from '../../mock/weather';
+} from '@/mock/weather';
+import { planZoneSchedule } from '.';
 
 describe('planZoneSchedule', () => {
     // Core Irrigation Scheduling Tests.

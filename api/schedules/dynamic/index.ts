@@ -1,5 +1,5 @@
 import dayjs from 'dayjs';
-import type { Zone, DailyWeather, IrrigationScheduleEntry, IrrigationCycle } from '../../models';
+import type { Zone, DailyWeather, IrrigationScheduleEntry, IrrigationCycle } from '@/models';
 import {
     isDayAllowed,
     isNightSkipped,

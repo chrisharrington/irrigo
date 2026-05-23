@@ -24,6 +24,7 @@ First-time setup:
 - Dates as ISO-8601 UTC; align DTOs with server contracts. This codebase uses `dayjs` for date handling.
 - Type-check after making changes — run the project's type-check script before declaring work complete.
 - Log liberally via `console.log` / `console.warn` / `console.error` for external calls, state transitions, errors, and significant decisions.
+- **Imports**: use the `@/` path alias for any import that would otherwise cross two or more parent boundaries (i.e. `'../../foo'` or deeper). Both `api/tsconfig.json` and `app/tsconfig.json` map `@/*` to the subproject root. Single-parent (`'../foo'`) and sibling (`'./foo'`, `'.'`) imports stay relative — single-step relatives are still readable. Order imports as: external packages → `@/`-rooted imports → sibling relatives.
 
 ## Shell commands
 
