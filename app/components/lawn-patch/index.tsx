@@ -22,7 +22,7 @@ export type LawnPatchProps = {
 
 const ACCENT = '#6FE39B';
 
-const OUTLINE_PATH: Readonly<Record<LawnPatchSlug, string>> = {
+export const OUTLINE_PATH: Readonly<Record<LawnPatchSlug, string>> = {
     a: 'M4 8 C 6 4, 14 4, 18 8 C 22 6, 28 10, 28 16 C 28 22, 22 28, 16 28 C 8 28, 3 22, 4 16 C 4 12, 3 10, 4 8 Z',
     b: 'M5 7 C 9 3, 22 4, 26 9 C 30 14, 28 22, 22 27 C 14 30, 6 26, 4 18 C 3 13, 4 10, 5 7 Z',
     c: 'M6 9 C 4 5, 14 3, 20 5 C 26 8, 30 14, 26 20 C 24 26, 16 30, 10 26 C 4 22, 4 14, 6 9 Z',
