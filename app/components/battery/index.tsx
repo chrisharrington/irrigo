@@ -1,7 +1,7 @@
 import { useEffect, useRef } from 'react';
 import { Animated, View } from 'react-native';
 
-import config from '../../tailwind.config';
+import config from '@/tailwind.config';
 
 const colors = config.theme.extend.colors;
 
