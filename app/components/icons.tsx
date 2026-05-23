@@ -81,6 +81,15 @@ export function Play({ size = DEFAULT_SIZE, color = DEFAULT_COLOR, accessibility
     );
 }
 
+export function Pause({ size = DEFAULT_SIZE, color = DEFAULT_COLOR, accessibilityLabel }: IconProps) {
+    return (
+        <Svg width={size} height={size} viewBox='0 0 16 16' fill={color} accessibilityLabel={accessibilityLabel}>
+            <Rect x={4} y={3} width={2.5} height={10} rx={0.5} />
+            <Rect x={9.5} y={3} width={2.5} height={10} rx={0.5} />
+        </Svg>
+    );
+}
+
 export function Zone({ size = DEFAULT_SIZE, color = DEFAULT_COLOR, strokeWidth = 1.4, accessibilityLabel }: IconProps) {
     return (
         <Svg width={size} height={size} viewBox='0 0 16 16' fill='none' stroke={color} strokeWidth={strokeWidth} strokeLinejoin='round' accessibilityLabel={accessibilityLabel}>

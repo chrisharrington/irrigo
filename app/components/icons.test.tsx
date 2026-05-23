@@ -12,6 +12,7 @@ import {
     type IconProps,
     Menu,
     More,
+    Pause,
     Play,
     Refresh,
     X,
@@ -26,6 +27,7 @@ const icons: ReadonlyArray<readonly [string, ComponentType<IconProps>]> = [
     ['Bell', Bell],
     ['More', More],
     ['Play', Play],
+    ['Pause', Pause],
     ['Zone', Zone],
     ['Cal', Cal],
     ['History', History],
@@ -72,6 +74,13 @@ describe('Irrigo icons', () => {
 
         const svg = screen.getByLabelText('More');
         expect(svg.props.fill).toBe('#FF6B7B');
+    });
+
+    it('applies the color prop to the fill of the Pause icon.', () => {
+        render(<Pause color='#FFBE6B' accessibilityLabel='Pause' />);
+
+        const svg = screen.getByLabelText('Pause');
+        expect(svg.props.fill).toBe('#FFBE6B');
     });
 
     it('honors a custom strokeWidth on a stroke-based icon.', () => {
