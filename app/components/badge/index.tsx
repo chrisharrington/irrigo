@@ -1,7 +1,7 @@
 import { StyleSheet, Text, View, type ViewStyle, type TextStyle } from 'react-native';
 
-import { FontFamily } from '../../constants/fonts';
-import config from '../../tailwind.config';
+import { FontFamily } from '@/constants/fonts';
+import config from '@/tailwind.config';
 
 const colors = config.theme.extend.colors;
 

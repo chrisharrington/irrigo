@@ -8,7 +8,7 @@ import {
 import { BlurView } from 'expo-blur';
 import type { ReactNode } from 'react';
 
-import config from '../../tailwind.config';
+import config from '@/tailwind.config';
 
 const colors = config.theme.extend.colors;
 const shadows = config.theme.extend.boxShadow;
