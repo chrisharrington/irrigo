@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import {
     Animated,
-    Easing,
     Modal as RNModal,
     Pressable,
     StyleSheet,
@@ -15,6 +14,7 @@ import { BrandGlyph } from '@/components/brand-glyph';
 import { Button } from '@/components/button';
 import { Cal, History, Home as HomeIcon, X, Zone, type IconProps } from '@/components/icons';
 import { FontFamily } from '@/constants/fonts';
+import { Duration, MotionEasing } from '@/constants/motion';
 import { useSchedules } from '@/hooks/schedules';
 import config from '@/tailwind.config';
 import type { ScheduleAllowedTimeWindow, ScheduleListItem } from '@/api/types/schedules';
@@ -23,8 +23,6 @@ const colors = config.theme.extend.colors;
 const shadows = config.theme.extend.boxShadow;
 
 const DRAWER_WIDTH = 280;
-const ANIM_DURATION_MS = 280;
-const EASING = Easing.bezier(0.2, 0.7, 0.2, 1);
 
 /**
  * The four nav destinations the drawer offers. Consumers map these to their
@@ -108,15 +106,15 @@ export function NavDrawer({ visible, onClose, activeId, onSelect }: NavDrawerPro
             setModalVisible(true);
             Animated.timing(translateX, {
                 toValue: 0,
-                duration: ANIM_DURATION_MS,
-                easing: EASING,
+                duration: Duration.default,
+                easing: MotionEasing.standard,
                 useNativeDriver: true,
             }).start();
         } else if (modalVisible) {
             Animated.timing(translateX, {
                 toValue: -DRAWER_WIDTH,
-                duration: ANIM_DURATION_MS,
-                easing: EASING,
+                duration: Duration.default,
+                easing: MotionEasing.standard,
                 useNativeDriver: true,
             }).start(({ finished }) => {
                 if (finished) setModalVisible(false);

@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react';
 import { Animated, View } from 'react-native';
 
+import { Duration } from '@/constants/motion';
 import config from '@/tailwind.config';
 
 const colors = config.theme.extend.colors;
@@ -14,8 +15,6 @@ const TONE_COLOR = {
     warn: colors.warn,
     danger: colors.danger,
 } as const;
-
-const TRANSITION_MS = 360;
 
 export type BatteryTone = keyof typeof TONE_COLOR;
 
@@ -93,7 +92,7 @@ export function Battery({
     useEffect(() => {
         Animated.timing(animated, {
             toValue: geometry.pct / 100,
-            duration: TRANSITION_MS,
+            duration: Duration.slow,
             useNativeDriver: false,
         }).start();
     }, [animated, geometry.pct]);
@@ -101,7 +100,7 @@ export function Battery({
     useEffect(() => {
         Animated.timing(toneAnimated, {
             toValue: toneIndex(geometry.tone),
-            duration: TRANSITION_MS,
+            duration: Duration.slow,
             useNativeDriver: false,
         }).start();
     }, [toneAnimated, geometry.tone]);
