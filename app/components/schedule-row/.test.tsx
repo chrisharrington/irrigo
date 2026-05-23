@@ -20,7 +20,8 @@ describe('ScheduleRow', () => {
         render(<ScheduleRow schedule={SAMPLE_SCHEDULE} onSwitch={() => {}} />);
 
         expect(screen.getByText('Weekend')).toBeOnTheScreen();
-        expect(screen.getByText('Sat · Sun · 20:00 → 04:00')).toBeOnTheScreen();
+        // `allowedDays: [6, 7]` (Sat, Sun) → Sun-first CSV order is `Sun · Sat`.
+        expect(screen.getByText('Sun · Sat · 20:00 → 04:00')).toBeOnTheScreen();
     });
 
     it('renders the Switch label and is queryable by its accessibility label.', () => {

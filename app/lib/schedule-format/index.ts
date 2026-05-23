@@ -1,31 +1,48 @@
 import type { ScheduleAllowedTimeWindow } from '@/api/types/schedules';
 
 /**
- * Mon-Sun day labels for the CSV summary. Order matches `isoWeekday`
- * (1 = Mon, 7 = Sun) shifted to a 0-based array index.
+ * Short day labels keyed by ISO weekday (1 = Mon, …, 7 = Sun). Used by
+ * `formatDaysCsv` so the lookup matches the API encoding directly.
  */
-const DAY_CSV_LABELS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'] as const;
+const DAY_LABEL_BY_WEEKDAY: Readonly<Record<number, string>> = {
+    1: 'Mon',
+    2: 'Tue',
+    3: 'Wed',
+    4: 'Thu',
+    5: 'Fri',
+    6: 'Sat',
+    7: 'Sun',
+};
+
+/**
+ * Sun-first ordering of ISO weekdays — used to sort the CSV and to map
+ * Sun-first display positions back to ISO weekdays.
+ */
+const SUN_FIRST_WEEKDAY_ORDER = [7, 1, 2, 3, 4, 5, 6] as const;
 
 /**
  * Converts the API's `allowedDays: number[] | null` (ISO weekday — 1 = Mon,
- * 7 = Sun) into a Mon-Sun-anchored boolean array consumable by `DayStrip`
- * and `DayDots`. `null` (no restriction) → every day.
+ * 7 = Sun) into a Sun-first boolean array consumable by `DayStrip` and
+ * `DayDots`. Index 0 = Sunday, index 6 = Saturday. `null` (no restriction)
+ * → every day.
  */
 export function daysArrayFromAllowed(allowedDays: ReadonlyArray<number> | null): boolean[] {
     if (allowedDays === null) return [true, true, true, true, true, true, true];
-    return Array.from({ length: 7 }, (_, index) => allowedDays.includes(index + 1));
+    return SUN_FIRST_WEEKDAY_ORDER.map(weekday => allowedDays.includes(weekday));
 }
 
 /**
- * Formats `allowedDays` as a middot-separated short-day CSV (e.g.
- * `Mon · Wed · Fri`). `null` (no restriction) renders as `Every day`.
+ * Formats `allowedDays` as a middot-separated short-day CSV in Sun-first
+ * week order (e.g. `Sun · Tue · Fri`). Duplicate or out-of-range entries
+ * are filtered out. `null` (no restriction) renders as `Every day`.
  */
 export function formatDaysCsv(allowedDays: ReadonlyArray<number> | null): string {
     if (allowedDays === null) return 'Every day';
-    const labels = allowedDays
-        .filter(day => day >= 1 && day <= 7)
-        .map(day => DAY_CSV_LABELS[day - 1] as string);
-    if (labels.length === 0) return 'No days';
+    const validSet = new Set(allowedDays.filter(day => day >= 1 && day <= 7));
+    if (validSet.size === 0) return 'No days';
+    const labels = SUN_FIRST_WEEKDAY_ORDER
+        .filter(weekday => validSet.has(weekday))
+        .map(weekday => DAY_LABEL_BY_WEEKDAY[weekday] as string);
     return labels.join(' · ');
 }
 

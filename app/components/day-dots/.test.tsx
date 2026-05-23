@@ -10,7 +10,8 @@ type FlatStyle = {
 };
 
 const ALL_ON: ReadonlyArray<boolean> = [true, true, true, true, true, true, true];
-const MWF_ONLY: ReadonlyArray<boolean> = [true, false, true, false, true, false, false];
+// Sun-first encoding: Mon, Wed, Fri = [Sun=F, Mon=T, Tue=F, Wed=T, Thu=F, Fri=T, Sat=F].
+const MWF_ONLY: ReadonlyArray<boolean> = [false, true, false, true, false, true, false];
 
 function findDots(root: ReturnType<typeof render>['root']) {
     return root.findAll(node => {
@@ -37,13 +38,13 @@ describe('DayDots', () => {
             return flat.backgroundColor;
         });
 
-        // Mon, Wed, Fri → accent; rest → ink-500.
-        expect(fills[0]).toBe('#6FE39B');
-        expect(fills[1]).toBe('#232E29');
-        expect(fills[2]).toBe('#6FE39B');
-        expect(fills[3]).toBe('#232E29');
-        expect(fills[4]).toBe('#6FE39B');
-        expect(fills[5]).toBe('#232E29');
+        // Sun-first: Sun=off, Mon=on, Tue=off, Wed=on, Thu=off, Fri=on, Sat=off.
+        expect(fills[0]).toBe('#232E29');
+        expect(fills[1]).toBe('#6FE39B');
+        expect(fills[2]).toBe('#232E29');
+        expect(fills[3]).toBe('#6FE39B');
+        expect(fills[4]).toBe('#232E29');
+        expect(fills[5]).toBe('#6FE39B');
         expect(fills[6]).toBe('#232E29');
     });
 

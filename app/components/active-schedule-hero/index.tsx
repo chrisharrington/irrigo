@@ -1,3 +1,4 @@
+import { useMemo } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 
 import { Button } from '@/components/button';
@@ -48,10 +49,10 @@ export function ActiveScheduleHero({
     onSwitchProfile,
     onToggleSkip,
 }: ActiveScheduleHeroProps) {
-    const daysArray = daysArrayFromAllowed(schedule.allowedDays);
-    const daysCsv = formatDaysCsv(schedule.allowedDays);
-    const window = formatTimeWindow(schedule.allowedTimeWindows);
-    const summary = `${daysCsv} · ${window}`;
+    const daysArray = useMemo(() => daysArrayFromAllowed(schedule.allowedDays), [schedule.allowedDays]);
+    const daysCsv = useMemo(() => formatDaysCsv(schedule.allowedDays), [schedule.allowedDays]);
+    const window = useMemo(() => formatTimeWindow(schedule.allowedTimeWindows), [schedule.allowedTimeWindows]);
+    const summary = useMemo(() => `${daysCsv} · ${window}`, [daysCsv, window]);
 
     const rootOverride = schedule.rootDepthMOverride;
     const depletion = schedule.allowableDepletionFractionOverride;

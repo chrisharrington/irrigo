@@ -6,16 +6,17 @@ import config from '@/tailwind.config';
 const colors = config.theme.extend.colors;
 
 /**
- * 7-letter day label sequence anchored to Monday (`days[0]`). Matches the
- * Mon-first convention the API's `allowedDays` field uses.
+ * 7-letter day label sequence anchored to Sunday (`days[0]`). The app uses
+ * a Sun-first display convention; `daysArrayFromAllowed` in `lib/schedule-
+ * format` is the canonical translator from the API's ISO-weekday encoding.
  */
-const DAY_LABELS = ['M', 'T', 'W', 'T', 'F', 'S', 'S'] as const;
+const DAY_LABELS = ['S', 'M', 'T', 'W', 'T', 'F', 'S'] as const;
 
 /**
  * Props for the full-width 7-day strip.
  */
 export type DayStripProps = {
-    /** Required. Booleans for Mon-Sun (index 0 = Mon). Length must be 7. */
+    /** Required. Booleans for Sun-Sat (index 0 = Sun). Length must be 7. */
     days: ReadonlyArray<boolean>;
 };
 
@@ -57,7 +58,7 @@ export function DayStrip({ days }: DayStripProps) {
 }
 
 function dayName(index: number): string {
-    const names = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+    const names = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
     return names[index] ?? 'Day';
 }
 

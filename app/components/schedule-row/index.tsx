@@ -1,3 +1,4 @@
+import { useCallback, useMemo } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { DayDots } from '@/components/day-dots';
@@ -27,12 +28,16 @@ export type ScheduleRowProps = {
  * `ScheduleView` from `Mobile.jsx`.
  */
 export function ScheduleRow({ schedule, onSwitch }: ScheduleRowProps) {
-    const daysArray = daysArrayFromAllowed(schedule.allowedDays);
-    const summary = `${formatDaysCsv(schedule.allowedDays)} · ${formatTimeWindow(schedule.allowedTimeWindows)}`;
+    const daysArray = useMemo(() => daysArrayFromAllowed(schedule.allowedDays), [schedule.allowedDays]);
+    const summary = useMemo(
+        () => `${formatDaysCsv(schedule.allowedDays)} · ${formatTimeWindow(schedule.allowedTimeWindows)}`,
+        [schedule.allowedDays, schedule.allowedTimeWindows],
+    );
+    const handlePress = useCallback(() => onSwitch(schedule), [onSwitch, schedule]);
 
     return (
         <Pressable
-            onPress={() => onSwitch(schedule)}
+            onPress={handlePress}
             accessibilityRole='button'
             accessibilityLabel={`Switch to ${schedule.name}`}
             style={styles.row}

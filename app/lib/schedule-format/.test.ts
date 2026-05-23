@@ -13,11 +13,11 @@ describe('daysArrayFromAllowed', () => {
         expect(daysArrayFromAllowed([])).toEqual([false, false, false, false, false, false, false]);
     });
 
-    it('maps ISO weekday (1=Mon, 7=Sun) to the Mon-anchored boolean array.', () => {
-        // Mon, Wed, Fri.
-        expect(daysArrayFromAllowed([1, 3, 5])).toEqual([true, false, true, false, true, false, false]);
-        // Sat, Sun (weekend).
-        expect(daysArrayFromAllowed([6, 7])).toEqual([false, false, false, false, false, true, true]);
+    it('maps ISO weekday (1=Mon, 7=Sun) to the Sun-first boolean array.', () => {
+        // Mon, Wed, Fri → Sun-first: [Sun=F, Mon=T, Tue=F, Wed=T, Thu=F, Fri=T, Sat=F].
+        expect(daysArrayFromAllowed([1, 3, 5])).toEqual([false, true, false, true, false, true, false]);
+        // Sat, Sun (weekend) → Sun-first: [Sun=T, Mon..Fri=F, Sat=T].
+        expect(daysArrayFromAllowed([6, 7])).toEqual([true, false, false, false, false, false, true]);
     });
 
     it('ignores out-of-range day numbers gracefully.', () => {
@@ -36,11 +36,16 @@ describe('formatDaysCsv', () => {
 
     it('joins three-letter day names with a middot.', () => {
         expect(formatDaysCsv([1, 3, 5])).toBe('Mon · Wed · Fri');
-        expect(formatDaysCsv([6, 7])).toBe('Sat · Sun');
+        expect(formatDaysCsv([6, 7])).toBe('Sun · Sat');
     });
 
-    it('preserves caller-supplied order rather than sorting.', () => {
-        expect(formatDaysCsv([5, 1, 3])).toBe('Fri · Mon · Wed');
+    it('emits Sun-first week order regardless of input ordering.', () => {
+        expect(formatDaysCsv([5, 1, 3])).toBe('Mon · Wed · Fri');
+        expect(formatDaysCsv([7, 1])).toBe('Sun · Mon');
+    });
+
+    it('de-duplicates repeated weekdays.', () => {
+        expect(formatDaysCsv([1, 1, 3, 3])).toBe('Mon · Wed');
     });
 
     it('skips out-of-range day numbers.', () => {
