@@ -1,5 +1,5 @@
 {
-    "name": "Irrigo",
+    "name": "Irrigo (${localWorkspaceFolderBasename})",
     "dockerComposeFile": ["../docker-compose.yml"],
     "service": "dev",
     "workspaceFolder": "/app",
