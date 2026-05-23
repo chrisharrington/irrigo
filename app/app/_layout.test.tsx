@@ -26,10 +26,43 @@ jest.mock('expo-router', () => {
         <View accessibilityLabel='Stack'>{children}</View>
     );
     Stack.Screen = () => null;
-    return { Stack };
+    return {
+        Stack,
+        useRouter: () => ({ push: jest.fn() }),
+    };
 });
 
 jest.mock('react-native-reanimated', () => ({}));
+
+jest.mock('react-native-safe-area-context', () => {
+    const { View } = require('react-native');
+    return {
+        SafeAreaProvider: ({ children }: { children?: React.ReactNode }) => (
+            <View>{children}</View>
+        ),
+        useSafeAreaInsets: () => ({ top: 0, bottom: 0, left: 0, right: 0 }),
+    };
+});
+
+// NotificationsBridge calls into expo-notifications and expo-device; the
+// jest-expo preset provides default mocks, but the layout test runs
+// before any test-level mocks are installed, so make the surface fully
+// inert here.
+jest.mock('expo-notifications', () => ({
+    getPermissionsAsync: jest.fn().mockResolvedValue({ status: 'undetermined', granted: false, canAskAgain: true, expires: 'never' }),
+    requestPermissionsAsync: jest.fn().mockResolvedValue({ status: 'denied', granted: false, canAskAgain: false, expires: 'never' }),
+    getExpoPushTokenAsync: jest.fn(),
+    setNotificationHandler: jest.fn(),
+    addNotificationReceivedListener: jest.fn(() => ({ remove: jest.fn() })),
+    addNotificationResponseReceivedListener: jest.fn(() => ({ remove: jest.fn() })),
+    PermissionStatus: { UNDETERMINED: 'undetermined', GRANTED: 'granted', DENIED: 'denied' },
+}));
+
+jest.mock('expo-device', () => ({
+    modelName: 'Test Device',
+    osName: 'TestOS',
+    osVersion: '1.0',
+}));
 
 import RootLayout, { irrigoDarkTheme } from './_layout';
 
