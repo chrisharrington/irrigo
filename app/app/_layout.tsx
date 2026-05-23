@@ -4,6 +4,7 @@ import { StatusBar } from 'expo-status-bar';
 import * as SplashScreen from 'expo-splash-screen';
 import 'react-native-reanimated';
 
+import { ApiProvider } from '@/api/provider';
 import { CanvasBackground } from '@/components/canvas-background';
 import { FontLoader } from '@/components/font-loader';
 import '../global.css';
@@ -35,16 +36,18 @@ export const irrigoDarkTheme: Theme = {
 
 export default function RootLayout() {
     return (
-        <FontLoader>
-            <ThemeProvider value={irrigoDarkTheme}>
-                <CanvasBackground>
-                    <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: 'transparent' } }}>
-                        <Stack.Screen name='(tabs)' />
-                        <Stack.Screen name='modal' options={{ presentation: 'modal', title: 'Modal' }} />
-                    </Stack>
-                </CanvasBackground>
-                <StatusBar style='light' />
-            </ThemeProvider>
-        </FontLoader>
+        <ApiProvider>
+            <FontLoader>
+                <ThemeProvider value={irrigoDarkTheme}>
+                    <CanvasBackground>
+                        <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: 'transparent' } }}>
+                            <Stack.Screen name='(tabs)' />
+                            <Stack.Screen name='modal' options={{ presentation: 'modal', title: 'Modal' }} />
+                        </Stack>
+                    </CanvasBackground>
+                    <StatusBar style='light' />
+                </ThemeProvider>
+            </FontLoader>
+        </ApiProvider>
     );
 }
