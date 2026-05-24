@@ -127,15 +127,22 @@ describe('runScheduleForZone', () => {
         const baselineCycle = baseline.entries[0]!.cycles[0]!;
         const baselineDay = baseline.entries[0]!.date.format('YYYY-MM-DD');
 
-        // Apply a busy window that straddles the cycle's natural start, pushing it past
-        // sunrise — the planner drops that day's entry entirely.
+        // Apply a busy window that straddles the cycle's natural start. Per API-66
+        // the planner now slides the cycle earlier (ending at busyStart) instead of
+        // shoving it forward past sunrise.
         const busyStart = baselineCycle.startTime.subtract(15, 'minute').toDate();
         const busyEnd = baselineCycle.startTime.add(20, 'minute').toDate();
 
         const { entries } = await runScheduleForZone(zone, { busyWindows: [{ start: busyStart, end: busyEnd }] });
 
-        // Day 0 entry is absent — the busy window displaced its cycle past sunrise.
-        expect(entries.find(e => e.date.format('YYYY-MM-DD') === baselineDay)).toBeUndefined();
+        const dayEntry = entries.find(e => e.date.format('YYYY-MM-DD') === baselineDay);
+        expect(dayEntry).toBeDefined();
+        for (const cycle of dayEntry!.cycles) {
+            const cycleEnd = cycle.startTime.add(cycle.durationMin, 'minute').toDate();
+            // No cycle overlaps the busy window.
+            const overlap = cycle.startTime.toDate() < busyEnd && cycleEnd > busyStart;
+            expect(overlap).toBe(false);
+        }
     });
 
     it('forwards schedule restrictions to the planner so disallowed days drop their cycles', async () => {
