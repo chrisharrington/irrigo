@@ -31,7 +31,6 @@ function buildEntry(overrides?: Partial<EntryRow>): EntryRow {
         depletionAfterMm: 0.3,
         source: 'scheduled',
         sunriseAt: new Date('2026-05-21T05:30:00.000Z'),
-        sunsetAt: new Date('2026-05-20T20:30:00.000Z'),
         createdAt: NOW,
         updatedAt: NOW,
         ...overrides,
@@ -209,28 +208,26 @@ describe('getTonightSummary', () => {
             expect(result.zoneOrder).toEqual(['North']);
         });
 
-        it('formats sunset and sunrise as HH:MM site-local and uses them for axis bounds', async () => {
+        it('formats sunrise as HH:MM site-local and uses it for axisEnd; sunset is always null', async () => {
             bootTonightWith([{
-                entry: buildEntry({
-                    sunriseAt: new Date('2026-05-21T05:30:00.000Z'),
-                    sunsetAt: new Date('2026-05-20T20:30:00.000Z'),
-                }),
+                entry: buildEntry({ sunriseAt: new Date('2026-05-21T05:30:00.000Z') }),
                 cycle: buildCycle({ startTime: new Date('2026-05-21T03:00:00.000Z'), durationMin: 30 }),
                 zone: buildZone(),
             }]);
 
             const result = await getTonightSummary(NOW);
 
-            expect(result.sunset).toBe('20:30');
+            expect(result.sunset).toBeNull();
             expect(result.sunrise).toBe('05:30');
-            expect(result.axisStart).toBe('20:30');
+            // axisStart falls back to first cycle start time; axisEnd = sunrise.
+            expect(result.axisStart).toBe('03:00');
             expect(result.axisEnd).toBe('05:30');
         });
 
-        it('falls back axisStart/axisEnd to HH:MM of startTime/endsAt when sunrise/sunset columns are null', async () => {
+        it('falls back axisStart/axisEnd to HH:MM of startTime/endsAt when sunriseAt column is null', async () => {
             const start = new Date('2026-05-21T03:00:00.000Z');
             bootTonightWith([{
-                entry: buildEntry({ sunriseAt: null, sunsetAt: null }),
+                entry: buildEntry({ sunriseAt: null }),
                 cycle: buildCycle({ startTime: start, durationMin: 30 }),
                 zone: buildZone(),
             }]);

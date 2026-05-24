@@ -344,7 +344,6 @@ function createDaemonReposStub(inputs?: DaemonStubInputs) {
                         depletionBeforeMm: entry.depletionBeforeMm,
                         depletionAfterMm: entry.depletionAfterMm,
                         sunriseAt: entry.sunriseAt?.toDate() ?? null,
-                        sunsetAt: entry.sunsetAt?.toDate() ?? null,
                     }],
                 });
                 if (entry.cycles.length === 0) continue;

@@ -105,7 +105,6 @@ function buildFutureCycleRow(overrides?: Partial<{
             depletionBeforeMm: 18.5,
             depletionAfterMm: 0,
             sunriseAt: null,
-            sunsetAt: null,
             source: 'scheduled',
             createdAt: NOW,
             updatedAt: NOW,
@@ -322,15 +321,13 @@ describe('createScheduleEntriesRepository.replaceForZone', () => {
         expect(result.cycles).toEqual([]);
     });
 
-    it('persists sunriseAt and sunsetAt as JS Dates on the schedule_entries insert', async () => {
+    it('persists sunriseAt as a JS Date on the schedule_entries insert', async () => {
         const { db, insertCalls } = stubWriterDb({ entries: ['entry-A'] });
         const repo = createScheduleEntriesRepository(db);
         const sunrise = dayjs('2026-05-04T11:30:00.000Z');
-        const sunset = dayjs('2026-05-03T20:45:00.000Z');
         const entry: IrrigationScheduleEntry = {
             ...buildEntry('2026-05-04', [{ startTime: '2026-05-04T05:00:00Z', durationMin: 20 }]),
             sunriseAt: sunrise,
-            sunsetAt: sunset,
         };
 
         await repo.replaceForZone('zone-001', [entry], dayjs('2026-05-04'), 'sched-default');
@@ -338,11 +335,9 @@ describe('createScheduleEntriesRepository.replaceForZone', () => {
         const entryInsert = insertCalls.find(c => c.table === scheduleEntries);
         expect(entryInsert?.rows[0]?.['sunriseAt']).toBeInstanceOf(Date);
         expect((entryInsert?.rows[0]?.['sunriseAt'] as Date).toISOString()).toBe(sunrise.toISOString());
-        expect(entryInsert?.rows[0]?.['sunsetAt']).toBeInstanceOf(Date);
-        expect((entryInsert?.rows[0]?.['sunsetAt'] as Date).toISOString()).toBe(sunset.toISOString());
     });
 
-    it('persists sunriseAt and sunsetAt as null when the planner entry omits them', async () => {
+    it('persists sunriseAt as null when the planner entry omits it', async () => {
         const { db, insertCalls } = stubWriterDb({ entries: ['entry-A'] });
         const repo = createScheduleEntriesRepository(db);
         const entry = buildEntry('2026-05-04', [{ startTime: '2026-05-04T05:00:00Z', durationMin: 20 }]);
@@ -351,7 +346,6 @@ describe('createScheduleEntriesRepository.replaceForZone', () => {
 
         const entryInsert = insertCalls.find(c => c.table === scheduleEntries);
         expect(entryInsert?.rows[0]?.['sunriseAt']).toBeNull();
-        expect(entryInsert?.rows[0]?.['sunsetAt']).toBeNull();
     });
 });
 
@@ -511,7 +505,6 @@ function buildNextRunRow(overrides?: Partial<NextRunJoinedRow>): NextRunJoinedRo
             depletionAfterMm: 5,
             source: 'scheduled',
             sunriseAt: null,
-            sunsetAt: null,
             createdAt: NOW,
             updatedAt: NOW,
         },

@@ -18,7 +18,6 @@ function buildEntry(overrides?: Partial<typeof scheduleEntries.$inferSelect>): t
         depletionAfterMm: 0.3,
         source: 'scheduled',
         sunriseAt: new Date('2026-05-21T05:30:00.000Z'),
-        sunsetAt: new Date('2026-05-20T20:30:00.000Z'),
         createdAt: NOW,
         updatedAt: NOW,
         ...overrides,
