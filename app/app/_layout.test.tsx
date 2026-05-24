@@ -3,6 +3,7 @@ import { render, screen } from '@testing-library/react-native';
 const mockUseFonts = jest.fn();
 const mockHideAsync = jest.fn(() => Promise.resolve());
 const mockStatusBar = jest.fn();
+const mockStackScreen = jest.fn();
 
 jest.mock('expo-font', () => ({
     useFonts: (...args: unknown[]) => mockUseFonts(...args),
@@ -25,7 +26,10 @@ jest.mock('expo-router', () => {
     const Stack = ({ children }: { children?: React.ReactNode }) => (
         <View accessibilityLabel='Stack'>{children}</View>
     );
-    Stack.Screen = () => null;
+    Stack.Screen = (props: { name: string }) => {
+        mockStackScreen(props);
+        return null;
+    };
     return {
         Stack,
         useRouter: () => ({ push: jest.fn() }),
@@ -71,6 +75,7 @@ describe('RootLayout', () => {
         mockUseFonts.mockReturnValue([true, null]);
         mockStatusBar.mockClear();
         mockHideAsync.mockClear();
+        mockStackScreen.mockClear();
     });
 
     it('renders the Irrigo canvas background under the navigation stack once fonts load.', () => {
@@ -89,5 +94,13 @@ describe('RootLayout', () => {
     it('exposes a dark-only theme whose background matches the canvas hex.', () => {
         expect(irrigoDarkTheme.dark).toBe(true);
         expect(irrigoDarkTheme.colors.background).toBe('#06090A');
+    });
+
+    it('registers the modal screen and no longer registers the legacy (tabs) anchor.', () => {
+        render(<RootLayout />);
+
+        const registeredNames = mockStackScreen.mock.calls.map(([props]) => props.name);
+        expect(registeredNames).toContain('modal');
+        expect(registeredNames).not.toContain('(tabs)');
     });
 });
