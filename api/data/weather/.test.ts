@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, mock, spyOn } from 'bun:test';
-import { fetchWithRetry, getWeatherData } from '.';
+import { __resetWeatherCacheForTests, fetchWithRetry, getWeatherData } from '.';
 
 // Production defaults wait 500 ms then 1500 ms between attempts; tests
 // short-circuit both via `minTimeout: 0` so the retry loop runs without
@@ -39,6 +39,7 @@ describe('Weather Data', () => {
 
     beforeEach(() => {
         mockFetch.mockClear();
+        __resetWeatherCacheForTests();
         errorSpy = spyOn(console, 'error').mockImplementation(() => {});
     });
 
@@ -310,6 +311,115 @@ describe('Weather Data', () => {
         const calledUrl = new URL((mockFetch.mock.calls[0] as any[])[0] as string);
         expect(calledUrl.hostname).toBe('api.open-meteo.com');
         expect(calledUrl.searchParams.get('apikey')).toBeNull();
+    });
+});
+
+describe('Weather caching', () => {
+    let errorSpy: ReturnType<typeof spyOn>;
+    let logSpy: ReturnType<typeof spyOn>;
+
+    const sampleResponse = {
+        latitude: 51.0,
+        longitude: -114.0,
+        generationtime_ms: 0.5,
+        utc_offset_seconds: 0,
+        timezone: 'GMT',
+        timezone_abbreviation: 'GMT',
+        elevation: 1045,
+        daily_units: {
+            time: 'iso8601',
+            sunrise: 'iso8601',
+            sunset: 'iso8601',
+            rain_sum: 'mm',
+            et0_fao_evapotranspiration: 'mm',
+        },
+        daily: {
+            time: ['2026-05-24', '2026-05-25'],
+            sunrise: ['2026-05-24T05:41', '2026-05-25T05:40'],
+            sunset: ['2026-05-24T21:24', '2026-05-25T21:25'],
+            rain_sum: [0, 0],
+            et0_fao_evapotranspiration: [4.0, 4.0],
+        },
+    };
+
+    const stubSuccess = () => mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => sampleResponse,
+    } as Response);
+
+    beforeEach(() => {
+        mockFetch.mockClear();
+        __resetWeatherCacheForTests();
+        errorSpy = spyOn(console, 'error').mockImplementation(() => {});
+        logSpy = spyOn(console, 'log').mockImplementation(() => {});
+    });
+
+    afterEach(() => {
+        errorSpy.mockRestore();
+        logSpy.mockRestore();
+    });
+
+    it('returns the cached value on a second call within the TTL — no upstream fetch', async () => {
+        stubSuccess();
+        const fixedNow = () => 1_700_000_000_000;
+        const params = { latitude: 51.0447, longitude: -114.0719, forecastDays: 7, timezone: 'America/Edmonton' };
+
+        const first = await getWeatherData(params, { now: fixedNow });
+        const second = await getWeatherData(params, { now: fixedNow });
+
+        expect(mockFetch).toHaveBeenCalledTimes(1);
+        expect(second).toBe(first); // reference-equal — same cached array
+    });
+
+    it('refetches after the TTL has expired', async () => {
+        stubSuccess();
+        stubSuccess();
+        let virtualNow = 1_700_000_000_000;
+        const now = () => virtualNow;
+        const params = { latitude: 51.0447, longitude: -114.0719 };
+
+        await getWeatherData(params, { now });
+        // Advance past the default 10 min TTL (with 1 ms slack).
+        virtualNow += 10 * 60_000 + 1;
+        await getWeatherData(params, { now });
+
+        expect(mockFetch).toHaveBeenCalledTimes(2);
+    });
+
+    it('keys the cache by (latitude, longitude, forecastDays, timezone) so each variant misses independently', async () => {
+        stubSuccess();
+        stubSuccess();
+        stubSuccess();
+        stubSuccess();
+        const fixedNow = () => 1_700_000_000_000;
+        const base = { latitude: 51.0, longitude: -114.0, forecastDays: 7, timezone: 'America/Edmonton' };
+
+        await getWeatherData(base, { now: fixedNow });
+        await getWeatherData({ ...base, latitude: 51.1 }, { now: fixedNow });
+        await getWeatherData({ ...base, forecastDays: 14 }, { now: fixedNow });
+        await getWeatherData({ ...base, timezone: 'UTC' }, { now: fixedNow });
+
+        expect(mockFetch).toHaveBeenCalledTimes(4);
+    });
+
+    it('does not populate the cache when the upstream call fails', async () => {
+        // Three persistent 503s exhaust the retry loop on the first attempt.
+        // Note: this test pays the ~2 s retry-backoff cost because
+        // `getWeatherData` doesn't expose `fetchWithRetry`'s timing knobs.
+        mockFetch
+            .mockResolvedValueOnce({ ok: false, status: 503, statusText: 'Service Unavailable' } as Response)
+            .mockResolvedValueOnce({ ok: false, status: 503, statusText: 'Service Unavailable' } as Response)
+            .mockResolvedValueOnce({ ok: false, status: 503, statusText: 'Service Unavailable' } as Response);
+        const params = { latitude: 51.0, longitude: -114.0 };
+        await expect(getWeatherData(params, { now: () => 0 })).rejects.toThrow(/503/);
+
+        // Subsequent successful call should fetch again — proving the prior
+        // failure did not pollute the cache.
+        stubSuccess();
+        await getWeatherData(params, { now: () => 0 });
+
+        // 3 failed + 1 successful = 4 fetch attempts total.
+        expect(mockFetch).toHaveBeenCalledTimes(4);
     });
 });
 
