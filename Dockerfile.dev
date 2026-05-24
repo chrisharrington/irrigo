@@ -120,6 +120,12 @@ COPY --chown=${DEV_UID}:${DEV_GID} app/package.json app/bun.lock /app/app/
 RUN bun --cwd=/app/api install --frozen-lockfile \
     && bun --cwd=/app/app install --frozen-lockfile
 
+# Re-run installs on each start so package.json / bun.lock changes from the
+# bind mount land in the anonymous /app/api/node_modules and /app/app/
+# node_modules volumes. Near no-op when the locks already match what's
+# installed; otherwise costs ~5-10s of startup time.
+ENTRYPOINT ["sh", "-c", "bun --cwd=/app/api install --frozen-lockfile && bun --cwd=/app/app install --frozen-lockfile && exec \"$0\" \"$@\""]
+
 # Print a ready line on startup so `docker compose logs dev` confirms the
 # container came up healthy. `exec` hands PID 1 to sleep so the container
 # still exits cleanly on stop signals.

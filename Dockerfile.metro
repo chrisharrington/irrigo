@@ -31,4 +31,8 @@ WORKDIR /app/app
 COPY --chown=${DEV_UID}:${DEV_GID} app/package.json app/bun.lock /app/app/
 RUN bun install --frozen-lockfile
 
+# Re-run install on each start so package.json / bun.lock changes from the
+# bind mount land in the anonymous /app/app/node_modules volume. Near no-op
+# when the lock already matches what's installed.
+ENTRYPOINT ["sh", "-c", "bun install --frozen-lockfile && exec \"$0\" \"$@\""]
 CMD ["bunx", "expo", "start", "--dev-client", "--port", "9097"]
