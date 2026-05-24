@@ -65,7 +65,7 @@ describe('NextRunHero', () => {
         expect(screen.getByText('10:23 pm')).toBeOnTheScreen();
     });
 
-    it('renders the subtitle without a date prefix when the run is today.', () => {
+    it(`renders the date label as 'Today, D MMM' when the run is today.`, () => {
         render(
             <NextRunHero
                 nextRun={SCHEDULED_NEXT_RUN}
@@ -74,10 +74,10 @@ describe('NextRunHero', () => {
             />,
         );
 
-        expect(screen.getByText('North, then South · 10 cycles · ends 5:48 am')).toBeOnTheScreen();
+        expect(screen.getByText('Today, 23 May')).toBeOnTheScreen();
     });
 
-    it('prepends "Tomorrow" to the subtitle when the run is the next local calendar day.', () => {
+    it(`renders the date label as 'Tomorrow, D MMM' when the run is the next local calendar day.`, () => {
         // NOW is one full local day before SCHEDULED_NEXT_RUN.startTime (2026-05-23 MDT).
         const nowDayBefore = new Date('2026-05-22T20:00:00.000Z');
         render(
@@ -88,10 +88,10 @@ describe('NextRunHero', () => {
             />,
         );
 
-        expect(screen.getByText('Tomorrow · North, then South · 10 cycles · ends 5:48 am')).toBeOnTheScreen();
+        expect(screen.getByText('Tomorrow, 23 May')).toBeOnTheScreen();
     });
 
-    it('prepends the short weekday for runs 2–6 local days out.', () => {
+    it(`renders the date label as 'Ddd, D MMM' for runs 2+ local days out.`, () => {
         // NOW is three local days before SCHEDULED_NEXT_RUN.startTime (2026-05-23 MDT = Saturday).
         const nowThreeDaysBefore = new Date('2026-05-20T20:00:00.000Z');
         render(
@@ -102,10 +102,10 @@ describe('NextRunHero', () => {
             />,
         );
 
-        expect(screen.getByText('Sat · North, then South · 10 cycles · ends 5:48 am')).toBeOnTheScreen();
+        expect(screen.getByText('Sat, 23 May')).toBeOnTheScreen();
     });
 
-    it('prepends the long "Ddd D MMM" form for runs 7+ local days out.', () => {
+    it(`renders the same 'Ddd, D MMM' format for far-future runs (7+ local days out).`, () => {
         // NOW is ten local days before SCHEDULED_NEXT_RUN.startTime (2026-05-23 MDT = Saturday 23 May).
         const nowTenDaysBefore = new Date('2026-05-13T20:00:00.000Z');
         render(
@@ -116,7 +116,7 @@ describe('NextRunHero', () => {
             />,
         );
 
-        expect(screen.getByText('Sat 23 May · North, then South · 10 cycles · ends 5:48 am')).toBeOnTheScreen();
+        expect(screen.getByText('Sat, 23 May')).toBeOnTheScreen();
     });
 
     it('renders the Scheduled badge for the scheduled state.', () => {
@@ -141,31 +141,6 @@ describe('NextRunHero', () => {
         );
 
         expect(screen.getByText('Firing')).toBeOnTheScreen();
-    });
-
-    it('omits the ends-at suffix from the subtitle when endsAt is null.', () => {
-        render(
-            <NextRunHero
-                nextRun={{ ...SCHEDULED_NEXT_RUN, endsAt: null }}
-                siteTimezone='America/Edmonton'
-                now={NOW_LOCAL_SAME_DAY}
-            />,
-        );
-
-        expect(screen.getByText('North, then South · 10 cycles')).toBeOnTheScreen();
-        expect(screen.queryByText(/ends/)).toBeNull();
-    });
-
-    it('switches to the singular `cycle` label when totalCycles is 1.', () => {
-        render(
-            <NextRunHero
-                nextRun={{ ...SCHEDULED_NEXT_RUN, totalCycles: 1, zoneOrder: ['North'] }}
-                siteTimezone='America/Edmonton'
-                now={NOW_LOCAL_SAME_DAY}
-            />,
-        );
-
-        expect(screen.getByText('North · 1 cycle · ends 5:48 am')).toBeOnTheScreen();
     });
 
     it('renders the embedded compact CycleStrip with the per-zone palette applied.', () => {
@@ -195,6 +170,7 @@ describe('NextRunHero', () => {
         );
 
         expect(screen.queryByLabelText('Irrigation cycle chart')).toBeNull();
-        expect(screen.getByText('No zones · 10 cycles · ends 5:48 am')).toBeOnTheScreen();
+        // The date label still renders — it doesn't depend on zones.
+        expect(screen.getByText('Today, 23 May')).toBeOnTheScreen();
     });
 });
