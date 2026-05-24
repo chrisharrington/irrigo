@@ -4,7 +4,7 @@ import { StyleSheet, Text, View } from 'react-native';
 import { Badge, type BadgeTone } from '@/components/badge';
 import { CycleStrip, type CycleStripNight } from '@/components/cycle-strip';
 import { FontFamily } from '@/constants/fonts';
-import { formatEndsAt, formatTimeOfDay } from '@/lib/relative-time';
+import { formatEndsAt, formatNextRunDate, formatTimeOfDay } from '@/lib/relative-time';
 import { getSiteTimezone } from '@/lib/site-timezone';
 import { paletteForZone } from '@/lib/zone-palette';
 import type { NextRunDto, NextRunState } from '@/api/types/next-run';
@@ -21,6 +21,9 @@ export type NextRunHeroProps = {
 
     /** Optional. IANA timezone override for time formatting. Defaults to `getSiteTimezone()`. */
     siteTimezone?: string;
+
+    /** Optional. Reference instant for the subtitle's date prefix. Defaults to `new Date()`. */
+    now?: Date;
 };
 
 /**
@@ -29,8 +32,9 @@ export type NextRunHeroProps = {
  * status badge, and an embedded compact `CycleStrip`. Renders a quiet
  * empty-state card when the system has no runs queued.
  */
-export function NextRunHero({ nextRun, siteTimezone }: NextRunHeroProps) {
+export function NextRunHero({ nextRun, siteTimezone, now }: NextRunHeroProps) {
     const resolvedTimezone = siteTimezone ?? getSiteTimezone();
+    const resolvedNow = now ?? new Date();
     const cycleStripNight = useMemo<CycleStripNight | null>(() => {
         if (nextRun.zones.length === 0) return null;
         return {
@@ -65,10 +69,13 @@ export function NextRunHero({ nextRun, siteTimezone }: NextRunHeroProps) {
     }
 
     const timeOfDay = formatTimeOfDay(nextRun.startTime, resolvedTimezone);
+    const dateLabel = formatNextRunDate(nextRun.startTime, resolvedTimezone, resolvedNow);
     const endsLabel = nextRun.endsAt !== null ? `ends ${formatEndsAt(nextRun.endsAt, resolvedTimezone)}` : null;
     const zoneOrder = nextRun.zoneOrder.length > 0 ? nextRun.zoneOrder.join(', then ') : 'No zones';
     const cyclesLabel = `${nextRun.totalCycles} ${nextRun.totalCycles === 1 ? 'cycle' : 'cycles'}`;
-    const subtitleParts = [zoneOrder, cyclesLabel];
+    const subtitleParts: string[] = [];
+    if (dateLabel !== '') subtitleParts.push(dateLabel);
+    subtitleParts.push(zoneOrder, cyclesLabel);
     if (endsLabel !== null) subtitleParts.push(endsLabel);
     const subtitle = subtitleParts.join(' · ');
 
