@@ -159,8 +159,8 @@ services:
             # metro image under the .:/app bind mount.
             - /app/app/node_modules
         ports:
-            - "${METRO_PORT}:9097"
-        command: bunx expo start --dev-client --port 9097
+            - "${METRO_PORT}:${METRO_PORT}"
+        command: bunx expo start --dev-client --port ${METRO_PORT}
         networks:
             - frontend
 
