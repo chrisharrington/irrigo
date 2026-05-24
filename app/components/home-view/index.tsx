@@ -54,8 +54,6 @@ export function HomeView() {
 
             <SystemDisabledWrapper disabled={!irrigationEnabled}>
                 <View style={styles.body}>
-                    <Text style={styles.eyebrow}>Next run · {siteTimezone.replace('_', ' ')}</Text>
-
                     {nextRun.isPending ? (
                         <PlaceholderCard label='Loading next run…' />
                     ) : nextRun.isError || nextRun.data == null ? (
@@ -123,14 +121,6 @@ const styles = StyleSheet.create({
     },
     body: {
         gap: 18,
-    },
-    eyebrow: {
-        fontFamily: FontFamily.sansMedium,
-        fontSize: 11,
-        lineHeight: 13,
-        letterSpacing: 1.54,
-        color: colors['fg-muted'],
-        textTransform: 'uppercase',
     },
     zonesHeading: {
         flexDirection: 'row',
