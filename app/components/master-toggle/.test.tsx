@@ -134,4 +134,52 @@ describe('MasterToggle', () => {
 
         await waitFor(() => expect(screen.getByLabelText('Main switch')).toBeOnTheScreen());
     });
+
+    it('flips the card surface immediately when the toggle is pressed, before the mutation resolves.', async () => {
+        // Initial GET returns disabled; the enable POST never resolves so
+        // the user-visible state can only have flipped optimistically.
+        mockFetch.mockImplementationOnce(async () => jsonResponse({ irrigationEnabled: false, since: SAMPLE_TIMESTAMP }));
+        mockFetch.mockImplementationOnce(() => new Promise(() => {}));
+
+        render(<MasterToggle />, { wrapper: buildApiWrapper().wrapper });
+
+        await waitFor(() => expect(screen.getByLabelText('Enable irrigation')).toBeOnTheScreen());
+
+        await act(async () => {
+            fireEvent.press(screen.getByLabelText('Enable irrigation'));
+        });
+
+        // Every surface flips on the optimistic cache write — palette
+        // doesn't read from this assertion, but the eyebrow, title,
+        // subtitle, and toggle label all derive from the same cached
+        // value, so this proves the optimistic write reached the UI.
+        await waitFor(() => expect(screen.getByText('System on')).toBeOnTheScreen());
+        expect(screen.getByText('Irrigation enabled')).toBeOnTheScreen();
+        expect(screen.getByText('Scheduling & manual runs allowed')).toBeOnTheScreen();
+        expect(screen.getByLabelText('Disable irrigation')).toBeOnTheScreen();
+    });
+
+    it('rolls the card back and surfaces the error message in the subtitle when the mutation fails.', async () => {
+        // Initial GET returns disabled. The enable POST fails. The
+        // post-settle re-fetch (still under mockFetch.mockResolvedValue)
+        // also returns disabled, so the rolled-back state survives.
+        mockFetch.mockResolvedValue(jsonResponse({ irrigationEnabled: false, since: SAMPLE_TIMESTAMP }));
+        mockFetch.mockResolvedValueOnce(jsonResponse({ irrigationEnabled: false, since: SAMPLE_TIMESTAMP }));
+        mockFetch.mockResolvedValueOnce(jsonResponse({ error: 'HA 502' }, 502));
+
+        render(<MasterToggle />, { wrapper: buildApiWrapper().wrapper });
+
+        await waitFor(() => expect(screen.getByLabelText('Enable irrigation')).toBeOnTheScreen());
+
+        await act(async () => {
+            fireEvent.press(screen.getByLabelText('Enable irrigation'));
+        });
+
+        // After the mutation rejects, the subtitle shows the error...
+        await waitFor(() => expect(screen.getByText(/Last attempt failed:/)).toBeOnTheScreen());
+        // ...and the rest of the card is back to its pre-tap (OFF) state.
+        expect(screen.getByText('System off')).toBeOnTheScreen();
+        expect(screen.getByText('Irrigation disabled')).toBeOnTheScreen();
+        expect(screen.getByLabelText('Enable irrigation')).toBeOnTheScreen();
+    });
 });

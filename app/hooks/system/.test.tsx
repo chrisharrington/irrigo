@@ -70,4 +70,68 @@ describe('useSetSystemEnabled', () => {
         expect(client.getQueryState(keys.zones.list())?.isInvalidated).toBe(true);
         expect(client.getQueryState(keys.schedules.list())?.isInvalidated).toBe(true);
     });
+
+    it('writes the optimistic system state into the cache synchronously on mutate.', async () => {
+        // Fetch never resolves so the mutation stays in-flight; the
+        // optimistic cache write should be observable immediately.
+        mockFetch.mockImplementation(() => new Promise(() => {}));
+
+        const { wrapper, client } = buildApiWrapper();
+        client.setQueryData(keys.system.state(), { irrigationEnabled: false, since: 'old' });
+
+        const { result } = renderHook(() => useSetSystemEnabled(), { wrapper });
+
+        act(() => {
+            result.current.mutate(true);
+        });
+
+        await waitFor(() => {
+            const cached = client.getQueryData<{ irrigationEnabled: boolean; since: string }>(
+                keys.system.state(),
+            );
+            expect(cached?.irrigationEnabled).toBe(true);
+            expect(cached?.since).not.toBe('old');
+        });
+    });
+
+    it('rolls the system cache back to the previous value when the mutation rejects.', async () => {
+        mockFetch.mockResolvedValueOnce(jsonResponse({ error: 'HA 502' }, 502));
+
+        const { wrapper, client } = buildApiWrapper();
+        client.setQueryData(keys.system.state(), { irrigationEnabled: false, since: 'old' });
+
+        const { result } = renderHook(() => useSetSystemEnabled(), { wrapper });
+
+        await act(async () => {
+            await result.current.mutateAsync(true).catch(() => undefined);
+        });
+
+        expect(result.current.isError).toBe(true);
+        // Cache restored to the snapshot taken before the optimistic write.
+        expect(client.getQueryData(keys.system.state())).toEqual({
+            irrigationEnabled: false,
+            since: 'old',
+        });
+    });
+
+    it('still invalidates system, next-run, zones, and schedules after a failed flip.', async () => {
+        mockFetch.mockResolvedValueOnce(jsonResponse({ error: 'HA 502' }, 502));
+
+        const { wrapper, client } = buildApiWrapper();
+        client.setQueryData(keys.system.state(), { irrigationEnabled: false, since: 'x' });
+        client.setQueryData(keys.nextRun.summary(), { state: 'idle' });
+        client.setQueryData(keys.zones.list(), []);
+        client.setQueryData(keys.schedules.list(), []);
+
+        const { result } = renderHook(() => useSetSystemEnabled(), { wrapper });
+
+        await act(async () => {
+            await result.current.mutateAsync(true).catch(() => undefined);
+        });
+
+        expect(client.getQueryState(keys.system.state())?.isInvalidated).toBe(true);
+        expect(client.getQueryState(keys.nextRun.summary())?.isInvalidated).toBe(true);
+        expect(client.getQueryState(keys.zones.list())?.isInvalidated).toBe(true);
+        expect(client.getQueryState(keys.schedules.list())?.isInvalidated).toBe(true);
+    });
 });
