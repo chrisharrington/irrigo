@@ -41,6 +41,59 @@ function planAllZonesSequentially(
     return results;
 }
 
+type TimedCycle = { startTime: Dayjs; durationMin: number };
+
+/**
+ * Asserts `cycle` sits strictly inside one of the soak gaps between
+ * consecutive cycles in `zoneCycles` — i.e. some i exists such that
+ * `cycle.start >= zoneCycles[i].end` and `cycle.end <= zoneCycles[i+1].start`.
+ * `zoneCycles` is sorted chronologically by start time.
+ *
+ * Returns the index `i` of the preceding zone cycle so callers can assert
+ * "different gaps for different cycles" (API-73).
+ */
+function assertCycleInsideSoakGap(cycle: TimedCycle, zoneCycles: ReadonlyArray<TimedCycle>): number {
+    const cycleStart = cycle.startTime;
+    const cycleEnd = cycle.startTime.add(cycle.durationMin, 'minute');
+    for (let i = 0; i < zoneCycles.length - 1; i++) {
+        const gapStart = zoneCycles[i]!.startTime.add(zoneCycles[i]!.durationMin, 'minute');
+        const gapEnd = zoneCycles[i + 1]!.startTime;
+        const fitsStart = !cycleStart.isBefore(gapStart);
+        const fitsEnd = !cycleEnd.isAfter(gapEnd);
+        if (fitsStart && fitsEnd) return i;
+    }
+    throw new Error(
+        `cycle [${cycleStart.toISOString()}, ${cycleEnd.toISOString()}] did not fit inside any soak gap of the supplied zone cycles.`,
+    );
+}
+
+/**
+ * Returns `max(end) - min(start)` in minutes across the supplied cycles.
+ * Used to compare A-solo block length vs combined multi-zone block length.
+ */
+function blockSpanMinutes(cycles: ReadonlyArray<TimedCycle>): number {
+    if (cycles.length === 0) return 0;
+    let minStart = cycles[0]!.startTime.valueOf();
+    let maxEnd = cycles[0]!.startTime.add(cycles[0]!.durationMin, 'minute').valueOf();
+    for (const c of cycles) {
+        const s = c.startTime.valueOf();
+        const e = c.startTime.add(c.durationMin, 'minute').valueOf();
+        if (s < minStart) minStart = s;
+        if (e > maxEnd) maxEnd = e;
+    }
+    return (maxEnd - minStart) / 60_000;
+}
+
+/**
+ * Collects the day-0 cycles for a single zone from a planning result, sorted
+ * chronologically by start time.
+ */
+function day0CyclesSorted(result: PlanZoneScheduleResult, dateStr: string): TimedCycle[] {
+    const day = result.entries.find(e => e.date.format('YYYY-MM-DD') === dateStr);
+    if (!day) return [];
+    return [...day.cycles].sort((a, b) => a.startTime.valueOf() - b.startTime.valueOf());
+}
+
 /**
  * Asserts no two cycles belonging to different zones overlap in time.
  * Same-zone cycle overlap is impossible by construction and skipped.
@@ -643,7 +696,7 @@ describe('planZoneSchedule — multi-zone matrix', () => {
             assertNoCrossZoneOverlap(results);
         });
 
-        it('25. Different per-zone soak times — long soaks are not violated by other zones\' cycles.', () => {
+        it(`25. Different per-zone soak times — long soaks are not violated by other zones' cycles.`, () => {
             // Three zones with shallow roots so all three fit overnight even
             // with the more-cycles-per-zone profile B carries:
             //   A: default soil (infiltration 25 → 15-min soak).
@@ -676,6 +729,81 @@ describe('planZoneSchedule — multi-zone matrix', () => {
                     expect(gapMin).toBeGreaterThanOrEqual(35);
                 }
             }
+        });
+    });
+
+    describe('Theme H — Multi-zone interleaving (API-73)', () => {
+        // Zone A's soil: 8 mm/hr infiltration → 35-min soak between A cycles.
+        // With COMPACT precipitation (30 mm/hr) and rootDepth 0.3 + depletion
+        // 22.5, A splits into 4 cycles × ~14 min each and leaves three 35-min
+        // soak gaps wide enough for a default-loam B cycle to slot inside.
+        const LOW_INF_SOIL = { name: 'LowInf', availableWaterHoldingCapacityMmPerM: 150, infiltrationRateMmPerHr: 8 };
+
+        it(`26. B's single cycle slots into one of A's soak gaps when there's room.`, () => {
+            const a = makeZone('a', { currentDepletionMm: 22.5, soil: LOW_INF_SOIL });
+            // B: default loam (15-min soak) + shallow root → single ~28-min cycle.
+            const b = makeZone('b', { currentDepletionMm: 11.25, rootDepthM: 0.15 });
+            const weather = gatedWeather(7);
+
+            const results = planAllZonesSequentially([a, b], weather);
+
+            const aDay0 = day0CyclesSorted(results.get('a')!, '2026-05-04');
+            const bDay0 = day0CyclesSorted(results.get('b')!, '2026-05-04');
+            expect(aDay0.length).toBeGreaterThanOrEqual(2); // need at least one soak gap
+            expect(bDay0).toHaveLength(1);
+
+            // The single B cycle lands strictly inside one of A's intra-zone soak gaps.
+            const gapIndex = assertCycleInsideSoakGap(bDay0[0]!, aDay0);
+            expect(gapIndex).toBeGreaterThanOrEqual(0);
+            assertNoCrossZoneOverlap(results);
+            assertProjectedDepletionSane(results, [a, b]);
+        });
+
+        it(`27. Each of B's two cycles slots into a different A soak gap.`, () => {
+            const a = makeZone('a', { currentDepletionMm: 22.5, soil: LOW_INF_SOIL });
+            // B: default loam, default root, depletion 22.5 → 2 cycles × ~28 min,
+            // each narrow enough (28 min < 35 min) to fit inside A's 35-min gaps.
+            const b = makeZone('b', { currentDepletionMm: 22.5 });
+            const weather = gatedWeather(7);
+
+            const results = planAllZonesSequentially([a, b], weather);
+
+            const aDay0 = day0CyclesSorted(results.get('a')!, '2026-05-04');
+            const bDay0 = day0CyclesSorted(results.get('b')!, '2026-05-04');
+            expect(aDay0.length).toBeGreaterThanOrEqual(3); // need ≥ 2 soak gaps
+            expect(bDay0).toHaveLength(2);
+
+            // Both of B's cycles fit inside some soak gap of A — different gaps.
+            const firstGap = assertCycleInsideSoakGap(bDay0[0]!, aDay0);
+            const secondGap = assertCycleInsideSoakGap(bDay0[1]!, aDay0);
+            expect(firstGap).not.toBe(secondGap);
+            assertNoCrossZoneOverlap(results);
+            assertProjectedDepletionSane(results, [a, b]);
+        });
+
+        it('28. Multi-zone block span equals A-solo span when B fits entirely inside A gaps.', () => {
+            // A alone vs A + B sequentially: when every B cycle slots into an
+            // existing A soak gap, B contributes zero added overhead — the
+            // combined block must end at the same earliest start and the same
+            // latest end as A on its own. This is the "compress the overnight
+            // schedule" invariant the ticket is asking us to lock in.
+            const a = makeZone('a', { currentDepletionMm: 22.5, soil: LOW_INF_SOIL });
+            const b = makeZone('b', { currentDepletionMm: 22.5 });
+            const weather = gatedWeather(7);
+
+            const aSolo = planAllZonesSequentially([a], weather);
+            const aSoloDay0 = day0CyclesSorted(aSolo.get('a')!, '2026-05-04');
+            const aSoloSpan = blockSpanMinutes(aSoloDay0);
+
+            const combined = planAllZonesSequentially([a, b], weather);
+            const combinedDay0: TimedCycle[] = [
+                ...day0CyclesSorted(combined.get('a')!, '2026-05-04'),
+                ...day0CyclesSorted(combined.get('b')!, '2026-05-04'),
+            ];
+            const combinedSpan = blockSpanMinutes(combinedDay0);
+
+            expect(combinedSpan).toBe(aSoloSpan);
+            assertNoCrossZoneOverlap(combined);
         });
     });
 });

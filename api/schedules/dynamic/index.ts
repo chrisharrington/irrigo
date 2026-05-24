@@ -320,6 +320,14 @@ function tryPlaceIrrigationForDay(inputs: PlaceIrrigationInputs): PlaceIrrigatio
  * forward-only deconflict cascaded delays and dropped most days for the
  * second zone, see API-66).
  *
+ * Interleaving invariant (API-73). On overlap the cycle snaps to
+ * `cycleEnd = busy.start`, so a follow-on zone's cycle ends flush against the
+ * earlier zone's next start — a 0-minute inter-zone gap. Intra-zone soak is
+ * preserved via `cursor`, which walks backward by `soakTimeMinutes` from each
+ * placed cycle's start. Together these two rules cause a follow-on zone's
+ * cycles to land inside the earlier zone's soak gaps whenever they
+ * dimensionally fit, compressing the multi-zone overnight block.
+ *
  * When a cycle still doesn't fit (sliding earlier would land before
  * `earliestStart` = midnight), the entire day is treated as un-irrigatable:
  * the function returns `null` so the caller defers and carries depletion
