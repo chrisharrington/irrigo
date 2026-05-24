@@ -1,4 +1,4 @@
-import { formatCountdown, formatEndsAt, formatLastRan, formatNextRunDate, formatRelativeTime, formatTimeOfDay } from '.';
+import { formatCountdown, formatCycleWindow, formatEndsAt, formatLastRan, formatNextRunDate, formatRelativeTime, formatTimeOfDay } from '.';
 
 const TZ = 'America/Edmonton';
 // 2026-05-23T15:00:00Z = 09:00 MDT on 2026-05-23 (Saturday).
@@ -71,6 +71,28 @@ describe('formatTimeOfDay', () => {
 describe('formatEndsAt', () => {
     it('formats the ends-at like formatTimeOfDay.', () => {
         expect(formatEndsAt('2026-05-23T11:48:00.000Z', TZ)).toBe('5:48 am');
+    });
+});
+
+describe('formatCycleWindow', () => {
+    it('renders a basic am window with the midnight hour as 12.', () => {
+        expect(formatCycleWindow('00:13', 34)).toBe('12:13 am to 12:47 am');
+    });
+
+    it('renders a basic pm window with 24h → 12h conversion.', () => {
+        expect(formatCycleWindow('14:30', 25)).toBe('2:30 pm to 2:55 pm');
+    });
+
+    it('flips am → pm across the noon boundary.', () => {
+        expect(formatCycleWindow('11:50', 20)).toBe('11:50 am to 12:10 pm');
+    });
+
+    it('wraps pm → am past midnight via modular minute arithmetic.', () => {
+        expect(formatCycleWindow('23:50', 30)).toBe('11:50 pm to 12:20 am');
+    });
+
+    it('drops the leading zero on single-digit hours.', () => {
+        expect(formatCycleWindow('06:05', 9)).toBe('6:05 am to 6:14 am');
     });
 });
 

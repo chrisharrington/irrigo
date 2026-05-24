@@ -68,6 +68,29 @@ export function formatEndsAt(iso: string, timezoneName: string): string {
 }
 
 /**
+ * Formats a single per-zone cycle window for the next-run hero's schedule
+ * list — `'h:mm am to h:mm am'`, lowercase, no leading zero on the hour.
+ * The input is already site-local `HH:MM` and a duration in minutes, so
+ * there's no timezone conversion: minutes-of-day arithmetic with a
+ * modular wrap at midnight (a cycle starting at `23:50` for 30 min ends
+ * at `00:20` the next morning, which renders as `'12:20 am'`).
+ */
+export function formatCycleWindow(startHhMm: string, durMin: number): string {
+    const [hourStr, minuteStr] = startHhMm.split(':');
+    const startMinuteOfDay = Number(hourStr) * 60 + Number(minuteStr);
+    const endMinuteOfDay = (startMinuteOfDay + durMin) % (24 * 60);
+    return `${formatLocalClock(startMinuteOfDay)} to ${formatLocalClock(endMinuteOfDay)}`;
+}
+
+function formatLocalClock(minuteOfDay: number): string {
+    const hour24 = Math.floor(minuteOfDay / 60) % 24;
+    const minute = minuteOfDay % 60;
+    const period = hour24 < 12 ? 'am' : 'pm';
+    const hour12 = hour24 % 12 === 0 ? 12 : hour24 % 12;
+    return `${hour12}:${minute.toString().padStart(2, '0')} ${period}`;
+}
+
+/**
  * Formats the calendar-day offset between `now` and `iso` into the date
  * prefix used by the Home next-run subtitle. Comparisons are anchored in
  * the supplied IANA timezone so a UTC-late instant that still lands on
