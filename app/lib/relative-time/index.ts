@@ -1,6 +1,76 @@
+import dayjs from 'dayjs';
+import utc from 'dayjs/plugin/utc';
+import timezone from 'dayjs/plugin/timezone';
+
+import { MS_PER_DAY, MS_PER_HOUR, MS_PER_MINUTE } from '@/constants/duration';
+
+dayjs.extend(utc);
+dayjs.extend(timezone);
+
 /**
- * Formats an ISO-8601 timestamp into a short relative-age label used by the
- * alert region and the activity feed. Buckets:
+ * Formats `lastFiredAt` (an ISO-8601 UTC instant) as the human-readable
+ * "Last ran ..." string used on each zone tile. Returns the empty string
+ * when the input is `null` so callers can render their own fallback.
+ *
+ * Resolution:
+ *   - within an hour      → `'just now'`
+ *   - same calendar day   → `'<n>h ago'`
+ *   - last calendar day   → `'last night'`
+ *   - older               → `'<n> nights ago'`
+ */
+export function formatLastRan(iso: string | null, now: Date): string {
+    if (iso === null) return '';
+    const last = dayjs(iso);
+    const present = dayjs(now);
+    const diffMs = present.valueOf() - last.valueOf();
+    if (diffMs < MS_PER_HOUR) return 'just now';
+    if (diffMs < MS_PER_DAY) {
+        const hours = Math.floor(diffMs / MS_PER_HOUR);
+        return `${hours}h ago`;
+    }
+    const days = Math.floor(diffMs / MS_PER_DAY);
+    if (days === 1) return 'last night';
+    return `${days} nights ago`;
+}
+
+/**
+ * Formats the time delta between `now` and `iso` as a compact countdown
+ * (`'8h 14m'` or `'42m'`). Returns `'—'` for null inputs and `'now'` for
+ * deltas under 60 seconds.
+ */
+export function formatCountdown(iso: string | null, now: Date): string {
+    if (iso === null) return '—';
+    const target = dayjs(iso);
+    const present = dayjs(now);
+    const diffMs = target.valueOf() - present.valueOf();
+    if (diffMs < MS_PER_MINUTE) return 'now';
+    const totalMinutes = Math.floor(diffMs / MS_PER_MINUTE);
+    const hours = Math.floor(totalMinutes / 60);
+    const minutes = totalMinutes % 60;
+    if (hours === 0) return `${minutes}m`;
+    return `${hours}h ${minutes}m`;
+}
+
+/**
+ * Formats `iso` as `'10:23 pm'` style in the supplied IANA timezone.
+ */
+export function formatTimeOfDay(iso: string, timezoneName: string): string {
+    return dayjs(iso).tz(timezoneName).format('h:mm a');
+}
+
+/**
+ * Formats `iso` for the hero's "ends ..." suffix (`'ends 5:48 am'`).
+ * Identical formatter to `formatTimeOfDay`; named separately for grep-
+ * ability at call sites.
+ */
+export function formatEndsAt(iso: string, timezoneName: string): string {
+    return dayjs(iso).tz(timezoneName).format('h:mm a');
+}
+
+/**
+ * Formats an ISO-8601 timestamp into the short, suffix-free relative-age
+ * label used in tight slots like `AlertRow`'s right-hand `when` column.
+ * Buckets:
  *
  * | Age                  | Output |
  * |----------------------|--------|
@@ -9,19 +79,22 @@
  * | < 24 h               | `Nh`   |
  * | ≥ 24 h               | `Nd`   |
  *
- * `reference` is the "now" anchor — production callers omit it; tests inject
- * a fixed `Date` so assertions are deterministic.
+ * Distinct from `formatLastRan` (which suffixes with `ago` / `night[s] ago`
+ * for the zone tile's "Last ran" line) and from `formatCountdown` (which
+ * targets a future instant). `reference` is the "now" anchor — production
+ * callers omit it; tests inject a fixed `Date` so assertions are
+ * deterministic.
  */
 export function formatRelativeTime(iso: string, reference: Date = new Date()): string {
     const ageMs = reference.getTime() - new Date(iso).getTime();
-    if (ageMs < 60_000) return 'now';
+    if (ageMs < MS_PER_MINUTE) return 'now';
 
-    const ageMinutes = Math.floor(ageMs / 60_000);
+    const ageMinutes = Math.floor(ageMs / MS_PER_MINUTE);
     if (ageMinutes < 60) return `${ageMinutes}m`;
 
-    const ageHours = Math.floor(ageMinutes / 60);
+    const ageHours = Math.floor(ageMs / MS_PER_HOUR);
     if (ageHours < 24) return `${ageHours}h`;
 
-    const ageDays = Math.floor(ageHours / 24);
+    const ageDays = Math.floor(ageMs / MS_PER_DAY);
     return `${ageDays}d`;
 }

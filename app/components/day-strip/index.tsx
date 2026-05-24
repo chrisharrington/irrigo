@@ -1,16 +1,10 @@
 import { StyleSheet, Text, View } from 'react-native';
 
 import { FontFamily } from '@/constants/fonts';
+import { SUN_FIRST_DAY_LETTERS, SUN_FIRST_DAY_NAMES } from '@/lib/schedule-format';
 import config from '@/tailwind.config';
 
 const colors = config.theme.extend.colors;
-
-/**
- * 7-letter day label sequence anchored to Sunday (`days[0]`). The app uses
- * a Sun-first display convention; `daysArrayFromAllowed` in `lib/schedule-
- * format` is the canonical translator from the API's ISO-weekday encoding.
- */
-const DAY_LABELS = ['S', 'M', 'T', 'W', 'T', 'F', 'S'] as const;
 
 /**
  * Props for the full-width 7-day strip.
@@ -29,7 +23,7 @@ export type DayStripProps = {
 export function DayStrip({ days }: DayStripProps) {
     return (
         <View style={styles.row}>
-            {DAY_LABELS.map((label, index) => {
+            {SUN_FIRST_DAY_LETTERS.map((label, index) => {
                 const on = days[index] === true;
                 return (
                     <View
@@ -58,8 +52,7 @@ export function DayStrip({ days }: DayStripProps) {
 }
 
 function dayName(index: number): string {
-    const names = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
-    return names[index] ?? 'Day';
+    return SUN_FIRST_DAY_NAMES[index] ?? 'Day';
 }
 
 const styles = StyleSheet.create({
