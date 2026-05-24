@@ -1740,6 +1740,97 @@ describe('planZoneSchedule', () => {
             const cycle = entries[0]!.cycles[0]!;
             expect(cycle.startTime.valueOf()).toBeGreaterThanOrEqual(NOW_09.valueOf());
         });
+
+        it('drops past-due cycles entirely when restrictions.endBySunrise is true (API-66)', () => {
+            // Re-plan at 14:00 UTC (well past sunrise); the planned cycle would land
+            // before sunrise. With endBySunrise=true the forward push is forbidden
+            // (no daytime irrigation), so the cycle is dropped and depletion carries
+            // forward to the next plan.
+            const zone = pastWindowZone();
+            const weather = weatherDay();
+
+            const { entries } = planZoneSchedule(
+                zone,
+                weather,
+                [PAST_WINDOW],
+                { allowedDays: null, allowedTimeWindows: null, endBySunrise: true },
+            );
+
+            expect(entries).toHaveLength(0);
+        });
+
+        it('carries depletion forward to day 1 when day 0 is dropped under endBySunrise', () => {
+            // Day 0 fires before re-plan (cycles dropped → no irrigation); depletion
+            // accumulates and day 1 fires. The planner's `projectedNextDepletionMm`
+            // reflects the carried-forward deficit.
+            const zone = pastWindowZone();
+            const weather = createWeatherDays(
+                [
+                    { evapotranspirationMmPerDay: 1.0, rainfallMm: 0 },
+                    { evapotranspirationMmPerDay: 1.0, rainfallMm: 0 },
+                ],
+                dayjs('2026-05-04'),
+            ).map((day, i) => ({
+                ...day,
+                sunrise: dayjs(`2026-05-0${4 + i}`).hour(6).minute(0).second(0).millisecond(0),
+            }));
+
+            const withSunriseGate = planZoneSchedule(
+                zone,
+                weather,
+                [PAST_WINDOW],
+                { allowedDays: null, allowedTimeWindows: null, endBySunrise: true },
+            );
+
+            // Day 0's cycles are all past-due → dropped. Day 1 still gets planned with
+            // accumulated depletion (visible via day-1 entry's depletionBeforeMm > the
+            // baseline single-day RAW).
+            expect(withSunriseGate.entries.length).toBeGreaterThan(0);
+            for (const entry of withSunriseGate.entries) {
+                expect(entry.date.format('YYYY-MM-DD')).not.toBe('2026-05-04');
+            }
+        });
+
+        it('keeps the existing forward-shift behaviour when endBySunrise is false (default)', () => {
+            // Regression guard: without endBySunrise the planner still pushes past-due
+            // cycles to fire at NOW.
+            const zone = pastWindowZone();
+            const weather = weatherDay();
+
+            const { entries } = planZoneSchedule(
+                zone,
+                weather,
+                [PAST_WINDOW],
+                { allowedDays: null, allowedTimeWindows: null, endBySunrise: false },
+            );
+
+            expect(entries).toHaveLength(1);
+            const cycle = entries[0]!.cycles[0]!;
+            expect(cycle.startTime.valueOf()).toBeGreaterThanOrEqual(NOW.valueOf());
+        });
+
+        it('keeps future cycles on day 0 when re-plan kicks off before sunrise under endBySunrise', () => {
+            // Re-plan at 03:00 UTC — sunrise 06:00. Day-0 cycle planned around 05:50
+            // (single-cycle zone): still in the future, so it survives the
+            // endBySunrise gate.
+            const NOW_03 = dayjs('2026-05-04T03:00:00.000Z');
+            const zone = pastWindowZone();
+            const weather = weatherDay();
+
+            const { entries } = planZoneSchedule(
+                zone,
+                weather,
+                [{ start: dayjs(new Date(0)), end: NOW_03 }],
+                { allowedDays: null, allowedTimeWindows: null, endBySunrise: true },
+            );
+
+            expect(entries).toHaveLength(1);
+            const cycle = entries[0]!.cycles[0]!;
+            const cycleEnd = cycle.startTime.add(cycle.durationMin, 'minute');
+            expect(cycle.startTime.valueOf()).toBeGreaterThan(NOW_03.valueOf());
+            // And the cycle still ends at-or-before sunrise (06:00).
+            expect(cycleEnd.valueOf()).toBeLessThanOrEqual(weather[0]!.sunrise!.valueOf() + 1000);
+        });
     });
 
     describe('skip-tonight marker', () => {

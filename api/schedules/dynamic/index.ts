@@ -279,11 +279,29 @@ function tryPlaceIrrigationForDay(inputs: PlaceIrrigationInputs): PlaceIrrigatio
         return null;
     }
 
-    // Past-window shift runs after backward placement: past-dated cycles get
-    // pushed forward to fire after `now`, even if that lands past sunrise.
-    const finalCycles = pastWindow
-        ? deconflictCycles(placedCycles, [pastWindow], soakTimeMinutes)
-        : placedCycles;
+    // Past-window handling differs by schedule shape (API-66):
+    //  - default: shift past-due cycles forward to fire at-or-after `now`,
+    //    even if that lands past sunrise. The daemon would rather fire a
+    //    late cycle than skip the day.
+    //  - `endBySunrise=true`: daytime irrigation is explicitly forbidden, so
+    //    push-forward is wrong. Drop the past-due cycles instead and let
+    //    depletion carry forward to the next allowed day.
+    const finalCycles = (() => {
+        if (pastWindow === undefined) return placedCycles;
+        if (restrictions.endBySunrise === true) {
+            const nowMs = pastWindow.end.valueOf();
+            return placedCycles.filter(c => {
+                const endMs = c.startTime.valueOf() + c.durationMin * 60_000;
+                return endMs > nowMs;
+            });
+        }
+        return deconflictCycles(placedCycles, [pastWindow], soakTimeMinutes);
+    })();
+
+    if (finalCycles.length === 0) {
+        console.warn(`planner: zone ${zone.id} (${zone.name}): no cycles remain after past-window handling on ${date.format('YYYY-MM-DD')} — skipping irrigation.`);
+        return null;
+    }
 
     const entry: IrrigationScheduleEntry = {
         date,
