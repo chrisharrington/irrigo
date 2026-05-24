@@ -19,10 +19,6 @@ SplashScreen.preventAutoHideAsync().catch(err => {
     console.warn('splash: preventAutoHideAsync failed; the splash may close before fonts load.', err);
 });
 
-export const unstable_settings = {
-    anchor: '(tabs)',
-};
-
 // Dark-only React Navigation theme. Irrigo has no light mode by design, so
 // we don't branch on `useColorScheme()` — the OS scheme is pinned to dark
 // via `userInterfaceStyle: "dark"` in app.json. Background overrides the
@@ -44,7 +40,6 @@ export default function RootLayout() {
                     <ThemeProvider value={irrigoDarkTheme}>
                         <CanvasBackground>
                             <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: 'transparent' } }}>
-                                <Stack.Screen name='(tabs)' />
                                 <Stack.Screen name='modal' options={{ presentation: 'modal', title: 'Modal' }} />
                             </Stack>
                             <NotificationsBridge />
