@@ -78,27 +78,48 @@ function buildJoinedRow(overrides?: Partial<{
 }
 
 type WhereCall = { conditions: unknown };
+type OrderByCall = ReadonlyArray<unknown>;
 
-function buildJoinChainStub<TRow>(whereCalls: WhereCall[], rows: TRow[]) {
+function buildJoinChainStub<TRow>(whereCalls: WhereCall[], orderByCalls: OrderByCall[], rows: TRow[]) {
     const chain = {
         innerJoin: () => chain,
         where: (conditions: unknown) => {
             whereCalls.push({ conditions });
-            return Promise.resolve(rows);
+            // The returned object is both thenable (so callers that `await`
+            // straight off `.where()` keep working) and exposes `.orderBy()`
+            // (so callers that chain orderBy resolve to the same rows). API-69
+            // adds the orderBy chain on the production `loadEnabled` path.
+            const whereResult = {
+                then: <TResult1, TResult2>(
+                    onfulfilled?: ((value: TRow[]) => TResult1 | PromiseLike<TResult1>) | null,
+                    onrejected?: ((reason: unknown) => TResult2 | PromiseLike<TResult2>) | null,
+                ) => Promise.resolve(rows).then(onfulfilled, onrejected),
+                orderBy: (...args: ReadonlyArray<unknown>) => {
+                    orderByCalls.push(args);
+                    return Promise.resolve(rows);
+                },
+            };
+            return whereResult;
         },
     };
     return chain;
 }
 
-function stubLoaderDb(rows: ZoneJoinedRow[]): { db: Database; whereCalls: WhereCall[]; getSelectColumns: () => unknown } {
+function stubLoaderDb(rows: ZoneJoinedRow[]): {
+    db: Database;
+    whereCalls: WhereCall[];
+    orderByCalls: OrderByCall[];
+    getSelectColumns: () => unknown;
+} {
     const whereCalls: WhereCall[] = [];
+    const orderByCalls: OrderByCall[] = [];
     let selectColumns: unknown;
     const runSelect = (columns: unknown) => {
         selectColumns = columns;
-        return { from: () => buildJoinChainStub(whereCalls, rows) };
+        return { from: () => buildJoinChainStub(whereCalls, orderByCalls, rows) };
     };
     const db = { select: runSelect } as unknown as Database;
-    return { db, whereCalls, getSelectColumns: () => selectColumns };
+    return { db, whereCalls, orderByCalls, getSelectColumns: () => selectColumns };
 }
 
 function stubCountDb(rows: ReadonlyArray<{ total: number; enabled: number }>): Database {
@@ -110,10 +131,11 @@ function stubCountDb(rows: ReadonlyArray<{ total: number; enabled: number }>): D
 
 function stubSummaryJoinDb(rows: SummaryJoinedRow[]): { db: Database; getSelectColumns: () => unknown; whereCalls: WhereCall[] } {
     const whereCalls: WhereCall[] = [];
+    const orderByCalls: OrderByCall[] = [];
     let selectColumns: unknown;
     const runSelect = (columns: unknown) => {
         selectColumns = columns;
-        return { from: () => buildJoinChainStub(whereCalls, rows) };
+        return { from: () => buildJoinChainStub(whereCalls, orderByCalls, rows) };
     };
     const db = { select: runSelect } as unknown as Database;
     return { db, whereCalls, getSelectColumns: () => selectColumns };
@@ -315,6 +337,16 @@ describe('createZonesRepository.loadEnabled', () => {
         const result = await repo.loadEnabled();
 
         expect(result).toEqual([]);
+    });
+
+    it('appends .orderBy(zones.id) so planner iteration is deterministic (API-69)', async () => {
+        const { db, orderByCalls } = stubLoaderDb([buildJoinedRow()]);
+        const repo = createZonesRepository(db);
+
+        await repo.loadEnabled();
+
+        expect(orderByCalls).toHaveLength(1);
+        expect(orderByCalls[0]).toContain(zones.id);
     });
 });
 

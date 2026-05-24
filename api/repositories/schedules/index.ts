@@ -91,10 +91,16 @@ export function createSchedulesRepository(db: Database): SchedulesRepository {
         },
 
         loadActiveBySite: async () => {
+            // Stable `ORDER BY` is currently latent — `loadActiveBySite` keys
+            // into a `Map<siteId, Schedule>` so iteration order doesn't bite
+            // the planner. Added for hygiene so a future caller that walks
+            // `.values()` doesn't inherit Postgres' heap-order quirk. See
+            // API-69.
             const rows = await db
                 .select({ schedule: schedules })
                 .from(schedules)
-                .where(eq(schedules.isActive, true));
+                .where(eq(schedules.isActive, true))
+                .orderBy(schedules.id);
 
             const map = new Map<string, Schedule>();
             for (const row of rows) map.set(row.schedule.siteId, row.schedule);

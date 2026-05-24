@@ -31,12 +31,13 @@ function buildSchedule(overrides?: Partial<Schedule>): Schedule {
 function createStub(rowsByPredicate: Schedule[]) {
     const selectCalls: SelectCall[] = [];
     const updateCalls: UpdateCall[] = [];
+    const orderByCalls: Array<ReadonlyArray<unknown>> = [];
     const rows: Schedule[] = [...rowsByPredicate];
 
     // Leaf handlers — the actual SELECT/UPDATE logic. Lifting them out keeps
     // the Drizzle-mimicking chain wiring (`select().from().where()` etc.) down
     // to a single line per operation in the `db` object.
-    const runSelectWhere = async (cond: unknown): Promise<Array<{ schedule: Schedule }>> => {
+    const runQuery = async (cond: unknown): Promise<Array<{ schedule: Schedule }>> => {
         selectCalls.push({ where: cond });
         const params = extractParamValues(cond);
         if (params.length === 0) {
@@ -49,6 +50,23 @@ function createStub(rowsByPredicate: Schedule[]) {
         }
         const slug = params[0]!;
         return rows.filter(r => r.slug === slug).map(s => ({ schedule: s }));
+    };
+
+    // Wraps `runQuery` so the returned value is both a thenable (existing
+    // callers `await` straight off `.where()`) and exposes `.orderBy()` —
+    // API-69 chains orderBy on the production `loadActiveBySite` path.
+    const runSelectWhere = (cond: unknown) => {
+        const result = runQuery(cond);
+        return {
+            then: <TResult1, TResult2>(
+                onfulfilled?: ((value: Array<{ schedule: Schedule }>) => TResult1 | PromiseLike<TResult1>) | null,
+                onrejected?: ((reason: unknown) => TResult2 | PromiseLike<TResult2>) | null,
+            ) => result.then(onfulfilled, onrejected),
+            orderBy: (...args: ReadonlyArray<unknown>) => {
+                orderByCalls.push(args);
+                return result;
+            },
+        };
     };
 
     const runUpdateWhere = async (values: Partial<Schedule>, cond: unknown): Promise<void> => {
@@ -72,7 +90,7 @@ function createStub(rowsByPredicate: Schedule[]) {
         transaction: async <T>(cb: (tx: unknown) => Promise<T>): Promise<T> => cb(db),
     } as unknown as Database;
 
-    return { db, selectCalls, updateCalls, getRows: () => [...rows] };
+    return { db, selectCalls, updateCalls, orderByCalls, getRows: () => [...rows] };
 }
 
 function extractParamValues(cond: unknown): string[] {
@@ -158,6 +176,16 @@ describe('createSchedulesRepository.loadActiveBySite', () => {
         const result = await repo.loadActiveBySite();
 
         expect(result.size).toBe(0);
+    });
+
+    it('appends .orderBy(schedules.id) for stable iteration order (API-69 hygiene)', async () => {
+        const { db, orderByCalls } = createStub([buildSchedule({ isActive: true })]);
+        const repo = createSchedulesRepository(db);
+
+        await repo.loadActiveBySite();
+
+        expect(orderByCalls).toHaveLength(1);
+        expect(orderByCalls[0]).toContain(schedules.id);
     });
 });
 
