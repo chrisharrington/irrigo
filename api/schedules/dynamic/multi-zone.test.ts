@@ -109,12 +109,9 @@ const START = dayjs('2026-05-04'); // Monday
 const COMPACT: Partial<Zone> = { precipitationRateMmPerHr: 30 };
 
 /**
- * Weather days with both `sunrise` (06:00) and `sunset` (20:00) populated so
- * `tryPlaceIrrigationForDay` uses the previous day's sunset as the
- * `earliestStart` floor on day 1 and later, giving zones a much wider
- * overnight placement window. Day 0 still has no `prevDaySunset` (the
- * weather array doesn't include a day -1), so day-0 placements fall back to
- * the midnight → sunrise truncate window.
+ * Weather days with both `sunrise` (06:00) and `sunset` (20:00) populated.
+ * The planner's overnight window is always [midnight, sunrise] (API-72);
+ * the `sunset` field is present in the data but no longer affects placement.
  */
 function gatedWeather(days: number, etPerDay = 2.0, rainfall?: ReadonlyArray<number>): DailyWeather[] {
     return Array.from({ length: days }, (_, i) => {
