@@ -1,4 +1,4 @@
-import { formatCountdown, formatEndsAt, formatLastRan, formatRelativeTime, formatTimeOfDay } from '.';
+import { formatCountdown, formatEndsAt, formatLastRan, formatNextRunDate, formatRelativeTime, formatTimeOfDay } from '.';
 
 const TZ = 'America/Edmonton';
 // 2026-05-23T15:00:00Z = 09:00 MDT on 2026-05-23 (Saturday).
@@ -71,6 +71,41 @@ describe('formatTimeOfDay', () => {
 describe('formatEndsAt', () => {
     it('formats the ends-at like formatTimeOfDay.', () => {
         expect(formatEndsAt('2026-05-23T11:48:00.000Z', TZ)).toBe('5:48 am');
+    });
+});
+
+describe('formatNextRunDate', () => {
+    // 2026-05-23T15:00:00Z = 09:00 MDT on 2026-05-23 (Saturday).
+    const NOW_LOCAL_SATURDAY = new Date('2026-05-23T15:00:00.000Z');
+
+    it(`returns '' when the run lands on the same local calendar day.`, () => {
+        // 2026-05-24T04:23Z = 22:23 MDT on 2026-05-23 — still Saturday local.
+        expect(formatNextRunDate('2026-05-24T04:23:00.000Z', TZ, NOW_LOCAL_SATURDAY)).toBe('');
+    });
+
+    it(`returns '' when the run is already in the past.`, () => {
+        expect(formatNextRunDate('2026-05-22T12:00:00.000Z', TZ, NOW_LOCAL_SATURDAY)).toBe('');
+    });
+
+    it(`returns 'Tomorrow' for the next local calendar day.`, () => {
+        // 2026-05-25T04:23Z = 22:23 MDT on 2026-05-24 (Sunday) — one day on from Saturday.
+        expect(formatNextRunDate('2026-05-25T04:23:00.000Z', TZ, NOW_LOCAL_SATURDAY)).toBe('Tomorrow');
+    });
+
+    it('returns the short weekday for runs 2–6 days out.', () => {
+        // 2026-05-27T04:23Z = 22:23 MDT on 2026-05-26 (Tuesday) — three days on.
+        expect(formatNextRunDate('2026-05-27T04:23:00.000Z', TZ, NOW_LOCAL_SATURDAY)).toBe('Tue');
+    });
+
+    it(`returns the long form 'Ddd D MMM' for runs 7+ days out.`, () => {
+        // 2026-06-03T04:23Z = 22:23 MDT on 2026-06-02 (Tuesday) — ten days on.
+        expect(formatNextRunDate('2026-06-03T04:23:00.000Z', TZ, NOW_LOCAL_SATURDAY)).toBe('Tue 2 Jun');
+    });
+
+    it('uses the site timezone for the calendar-day comparison, not UTC.', () => {
+        // 2026-05-24T05:30Z is "Sunday" in UTC but 23:30 MDT on Saturday locally —
+        // still the same calendar day as NOW_LOCAL_SATURDAY (09:00 MDT Sat).
+        expect(formatNextRunDate('2026-05-24T05:30:00.000Z', TZ, NOW_LOCAL_SATURDAY)).toBe('');
     });
 });
 

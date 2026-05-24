@@ -68,6 +68,31 @@ export function formatEndsAt(iso: string, timezoneName: string): string {
 }
 
 /**
+ * Formats the calendar-day offset between `now` and `iso` into the date
+ * prefix used by the Home next-run subtitle. Comparisons are anchored in
+ * the supplied IANA timezone so a UTC-late instant that still lands on
+ * "today" locally doesn't slip into the "Tomorrow" bucket.
+ *
+ * Buckets:
+ *
+ * | Offset (calendar days, site-local) | Output         |
+ * |------------------------------------|----------------|
+ * | `<= 0` (today or already past)     | `''`           |
+ * | `1`                                | `'Tomorrow'`   |
+ * | `2`–`6`                            | `'Wed'`        |
+ * | `>= 7`                             | `'Mon 28 May'` |
+ */
+export function formatNextRunDate(iso: string, timezoneName: string, now: Date): string {
+    const target = dayjs(iso).tz(timezoneName).startOf('day');
+    const present = dayjs(now).tz(timezoneName).startOf('day');
+    const diffDays = target.diff(present, 'day');
+    if (diffDays <= 0) return '';
+    if (diffDays === 1) return 'Tomorrow';
+    if (diffDays < 7) return dayjs(iso).tz(timezoneName).format('ddd');
+    return dayjs(iso).tz(timezoneName).format('ddd D MMM');
+}
+
+/**
  * Formats an ISO-8601 timestamp into the short, suffix-free relative-age
  * label used in tight slots like `AlertRow`'s right-hand `when` column.
  * Buckets:
