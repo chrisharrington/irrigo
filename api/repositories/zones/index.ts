@@ -66,13 +66,20 @@ export interface ZonesRepository {
 export function createZonesRepository(db: Database): ZonesRepository {
     return {
         loadEnabled: async () => {
+            // Stable `ORDER BY` is load-bearing for planner determinism. The
+            // daemon iterates this result and each zone's cycles reserve busy
+            // windows that constrain the next zone — without a fixed order,
+            // Postgres' heap-order results flip between calls (especially
+            // after any write) and produce different schedules from the same
+            // input state. See API-69.
             const rows = await db
                 .select({ zone: zones, grassType: grassTypes, soilType: soilTypes, site: sites })
                 .from(zones)
                 .innerJoin(grassTypes, eq(zones.grassTypeId, grassTypes.id))
                 .innerJoin(soilTypes, eq(zones.soilTypeId, soilTypes.id))
                 .innerJoin(sites, eq(zones.siteId, sites.id))
-                .where(eq(zones.isEnabled, true));
+                .where(eq(zones.isEnabled, true))
+                .orderBy(zones.id);
 
             const result = mapJoinedRowsToZones(rows);
             console.log(`zones: loaded ${result.length} enabled zone(s).`);
