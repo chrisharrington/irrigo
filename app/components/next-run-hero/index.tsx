@@ -5,7 +5,7 @@ import type { NextRunDto, NextRunState } from '@/api/types/next-run';
 import { Badge, type BadgeTone } from '@/components/badge';
 import { CycleStrip, type CycleStripNight } from '@/components/cycle-strip';
 import { FontFamily } from '@/constants/fonts';
-import { formatEndsAt, formatNextRunDate, formatTimeOfDay } from '@/lib/relative-time';
+import { formatNextRunDate, formatTimeOfDay } from '@/lib/relative-time';
 import { getSiteTimezone } from '@/lib/site-timezone';
 import { paletteForZone } from '@/lib/zone-palette';
 import config from '@/tailwind.config';
@@ -68,14 +68,6 @@ export function NextRunHero({ nextRun, siteTimezone, now }: NextRunHeroProps) {
 
     const timeOfDay = formatTimeOfDay(nextRun.startTime, resolvedTimezone);
     const dateLabel = formatNextRunDate(nextRun.startTime, resolvedTimezone, resolvedNow);
-    const endsLabel = nextRun.endsAt !== null ? `ends ${formatEndsAt(nextRun.endsAt, resolvedTimezone)}` : null;
-    const zoneOrder = nextRun.zoneOrder.length > 0 ? nextRun.zoneOrder.join(', then ') : 'No zones';
-    const cyclesLabel = `${nextRun.totalCycles} ${nextRun.totalCycles === 1 ? 'cycle' : 'cycles'}`;
-    const subtitleParts: string[] = [];
-    if (dateLabel !== '') subtitleParts.push(dateLabel);
-    subtitleParts.push(zoneOrder, cyclesLabel);
-    if (endsLabel !== null) subtitleParts.push(endsLabel);
-    const subtitle = subtitleParts.join(' · ');
 
     return (
         <View style={[styles.card, styles.cardActive]} accessibilityLabel={`Next run at ${timeOfDay}`}>
@@ -83,7 +75,7 @@ export function NextRunHero({ nextRun, siteTimezone, now }: NextRunHeroProps) {
                 <View style={styles.headerText}>
                     <Text style={[styles.eyebrow, { color: colors.accent }]}>Next run</Text>
                     <Text style={styles.time}>{timeOfDay}</Text>
-                    <Text style={styles.subtitle}>{subtitle}</Text>
+                    <Text style={styles.subtitle}>{dateLabel}</Text>
                 </View>
 
                 <Badge tone={badgeToneForState(nextRun.state)}>{badgeLabelForState(nextRun.state)}</Badge>

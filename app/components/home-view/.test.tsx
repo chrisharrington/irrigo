@@ -110,18 +110,21 @@ beforeEach(() => {
 });
 
 describe('HomeView', () => {
-    it('renders the eyebrow with the site timezone label.', async () => {
-        setupSuccessfulFetch();
-        render(<HomeView />, { wrapper: buildApiWrapper().wrapper });
-
-        await waitFor(() => expect(screen.getByText('Next run · America/Edmonton')).toBeOnTheScreen());
-    });
-
     it('renders the next-run hero with the scheduled time.', async () => {
         setupSuccessfulFetch();
         render(<HomeView />, { wrapper: buildApiWrapper().wrapper });
 
         await waitFor(() => expect(screen.getByText('10:23 pm')).toBeOnTheScreen());
+    });
+
+    it('does not render the outer "Next run · <timezone>" eyebrow above the hero card.', async () => {
+        setupSuccessfulFetch();
+        render(<HomeView />, { wrapper: buildApiWrapper().wrapper });
+
+        // Wait for the page to stabilise, then assert the timezone-bearing
+        // eyebrow is absent. The inner card's own "Next run" eyebrow stays.
+        await waitFor(() => expect(screen.getByText('10:23 pm')).toBeOnTheScreen());
+        expect(screen.queryByText(/Next run · America\/Edmonton/)).toBeNull();
     });
 
     it('renders a zone tile for every zone returned by /zones.', async () => {

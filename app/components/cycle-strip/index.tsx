@@ -1,5 +1,4 @@
 import { StyleSheet, Text, View, type StyleProp, type ViewStyle } from 'react-native';
-import Svg, { Line, Path } from 'react-native-svg';
 
 import { MINUTES_PER_DAY } from '@/constants/duration';
 import { FontFamily } from '@/constants/fonts';
@@ -194,7 +193,7 @@ export function CycleStrip({
                         />
                         <Text style={styles.legendName}>{zone.name}</Text>
                         <Text style={styles.legendMeta}>
-                            {`· ${zone.cycles.length} cycles · ${totalCycleMin(zone)} min`}
+                            {`· ${zone.cycles.length} cycles · ${Math.round(totalCycleMin(zone))} min`}
                         </Text>
                     </View>
                 ))}
@@ -222,7 +221,7 @@ export function CycleStrip({
                         <View
                             key={zone.name}
                             style={{ position: 'relative', height: laneHeight }}
-                            accessibilityLabel={`${zone.name}: ${zone.cycles.length} cycles, ${totalCycleMin(zone)} minutes`}
+                            accessibilityLabel={`${zone.name}: ${zone.cycles.length} cycles, ${Math.round(totalCycleMin(zone))} minutes`}
                         >
                             <View
                                 style={[
@@ -289,45 +288,14 @@ function SunLabel({ leftPct, kind, time }: { leftPct: number; kind: 'set' | 'ris
     // never falls off the end of the chart.
     const alignRight = leftPct > 50;
     const labelText = `${kind === 'set' ? 'sunset' : 'sunrise'} ${time}`;
+    const positionStyle: ViewStyle = alignRight
+        ? { right: `${100 - leftPct}%` }
+        : { left: `${leftPct}%` };
 
     return (
-        <View
-            style={[
-                styles.sunLabelWrap,
-                { left: `${leftPct}%` },
-                alignRight ? styles.sunLabelWrapRight : undefined,
-            ]}
-            accessibilityLabel={labelText}
-        >
-            <SunGlyph kind={kind} />
+        <View style={[styles.sunLabelWrap, positionStyle]} accessibilityLabel={labelText}>
             <Text style={styles.sunLabelText}>{labelText}</Text>
         </View>
-    );
-}
-
-function SunGlyph({ kind }: { kind: 'set' | 'rise' }) {
-    return (
-        <Svg width={13} height={9} viewBox='0 0 13 9' fill='none'>
-            <Path d='M1.5 8 a 5 5 0 0 1 10 0 Z' fill={colors['moon-500']} opacity={0.85} />
-            <Line x1={0} y1={8.5} x2={13} y2={8.5} stroke={colors['moon-500']} strokeWidth={0.8} opacity={0.6} />
-            {kind === 'set' ? (
-                <Path
-                    d='M6.5 2.5 v 3 M5 4 l 1.5 1.5 l 1.5 -1.5'
-                    stroke={colors['moon-500']}
-                    strokeWidth={1}
-                    strokeLinecap='round'
-                    fill='none'
-                />
-            ) : (
-                <Path
-                    d='M6.5 5.5 v -3 M5 4 l 1.5 -1.5 l 1.5 1.5'
-                    stroke={colors['moon-500']}
-                    strokeWidth={1}
-                    strokeLinecap='round'
-                    fill='none'
-                />
-            )}
-        </Svg>
     );
 }
 
@@ -420,12 +388,6 @@ const styles = StyleSheet.create({
     sunLabelWrap: {
         position: 'absolute',
         top: 0,
-        flexDirection: 'row',
-        alignItems: 'center',
-        gap: 5,
-    },
-    sunLabelWrapRight: {
-        transform: [{ translateX: -1 }],
     },
     sunLabelText: {
         fontFamily: FontFamily.monoMedium,

@@ -69,27 +69,27 @@ export function formatEndsAt(iso: string, timezoneName: string): string {
 
 /**
  * Formats the calendar-day offset between `now` and `iso` into the date
- * prefix used by the Home next-run subtitle. Comparisons are anchored in
- * the supplied IANA timezone so a UTC-late instant that still lands on
+ * label rendered beneath the Home next-run time. Comparisons are anchored
+ * in the supplied IANA timezone so a UTC-late instant that still lands on
  * "today" locally doesn't slip into the "Tomorrow" bucket.
  *
  * Buckets:
  *
- * | Offset (calendar days, site-local) | Output         |
- * |------------------------------------|----------------|
- * | `<= 0` (today or already past)     | `''`           |
- * | `1`                                | `'Tomorrow'`   |
- * | `2`–`6`                            | `'Wed'`        |
- * | `>= 7`                             | `'Mon 28 May'` |
+ * | Offset (calendar days, site-local) | Output             |
+ * |------------------------------------|--------------------|
+ * | `<= 0` (today or already past)     | `'Today, 23 May'`  |
+ * | `1`                                | `'Tomorrow, 24 May'` |
+ * | `>= 2`                             | `'Tue, 26 May'`    |
  */
 export function formatNextRunDate(iso: string, timezoneName: string, now: Date): string {
-    const target = dayjs(iso).tz(timezoneName).startOf('day');
-    const present = dayjs(now).tz(timezoneName).startOf('day');
-    const diffDays = target.diff(present, 'day');
-    if (diffDays <= 0) return '';
-    if (diffDays === 1) return 'Tomorrow';
-    if (diffDays < 7) return dayjs(iso).tz(timezoneName).format('ddd');
-    return dayjs(iso).tz(timezoneName).format('ddd D MMM');
+    const target = dayjs(iso).tz(timezoneName);
+    const targetDay = target.startOf('day');
+    const presentDay = dayjs(now).tz(timezoneName).startOf('day');
+    const diffDays = targetDay.diff(presentDay, 'day');
+    const datePart = target.format('D MMM');
+    if (diffDays <= 0) return `Today, ${datePart}`;
+    if (diffDays === 1) return `Tomorrow, ${datePart}`;
+    return `${target.format('ddd')}, ${datePart}`;
 }
 
 /**
