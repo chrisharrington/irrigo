@@ -61,14 +61,12 @@ export interface ScheduleEntriesRepository {
 
     /**
      * Replaces today's-and-future schedule_entries for a zone with the
-     * planner's fresh output. Also writes `current_depletion_mm` on the zone
-     * (per-zone atomic with the schedule write).
+     * planner's fresh output. Pure write — does not touch `current_depletion_mm`.
      */
     replaceForZone(
         zoneId: string,
         entries: ReadonlyArray<IrrigationScheduleEntry>,
         today: dayjs.Dayjs,
-        projectedNextDepletionMm: number,
         scheduleId: string,
     ): Promise<ReplaceForZoneResult>;
 
@@ -137,7 +135,7 @@ export function createScheduleEntriesRepository(db: Database): ScheduleEntriesRe
             return pairs;
         },
 
-        replaceForZone: async (zoneId, entries, today, projectedNextDepletionMm, scheduleId) => {
+        replaceForZone: async (zoneId, entries, today, scheduleId) => {
             const todayIso = today.format('YYYY-MM-DD');
             console.log(`schedule-entries: replacing schedule for zone ${zoneId} from ${todayIso} (${entries.length} entry/entries).`);
 
@@ -196,12 +194,6 @@ export function createScheduleEntriesRepository(db: Database): ScheduleEntriesRe
                     });
                 }
             }
-
-            await db
-                .update(zones)
-                .set({ currentDepletionMm: projectedNextDepletionMm })
-                .where(eq(zones.id, zoneId));
-            console.log(`schedule-entries: persisted current_depletion_mm=${projectedNextDepletionMm} for zone ${zoneId}.`);
 
             return { cycles: persisted };
         },

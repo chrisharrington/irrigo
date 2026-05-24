@@ -112,7 +112,7 @@ function recordingScheduleEntriesRepo(): { repo: ScheduleEntriesRepository; upda
     return { repo, updates };
 }
 
-function defaultRepos(scheduleEntries: ScheduleEntriesRepository): DaemonServiceRepos {
+function defaultRepos(scheduleEntries: ScheduleEntriesRepository, onAdvanceDepletion?: (zoneId: string, mm: number) => void): DaemonServiceRepos {
     return {
         zones: {
             loadEnabled: async () => [],
@@ -120,6 +120,7 @@ function defaultRepos(scheduleEntries: ScheduleEntriesRepository): DaemonService
             count: async () => ({ total: 0, enabled: 0 }),
             loadJoinedRowsForSummary: async () => [],
             loadLatestScheduleEntries: async () => [],
+            advanceDepletion: async (zoneId, mm) => { onAdvanceDepletion?.(zoneId, mm); },
         },
         sites: { loadTimezone: async () => 'UTC' },
         schedules: {
@@ -241,6 +242,32 @@ describe('armCycle', () => {
         await advanceTo(new Date('2026-05-04T13:00:01.000Z'));
 
         expect(calls.some(c => c.event === 'schedule-begun')).toBe(true);
+    });
+
+    it('calls advanceDepletion(zone.id, 0) on the zones repo after the relay closes', async () => {
+        const { clock, advanceTo } = createFakeClock(NOW);
+        const registry = new TimerRegistry();
+        const { notifier } = recordingNotifier();
+        const { alerter } = recordingAlerter();
+        const { repo } = recordingScheduleEntriesRepo();
+        const depletionAdvances: Array<{ zoneId: string; mm: number }> = [];
+        setDaemonRepos({ repos: defaultRepos(repo, (zoneId, mm) => depletionAdvances.push({ zoneId, mm })) });
+
+        armCycle({
+            clock,
+            registry,
+            zone: buildZone({ id: 'zone-depletion' }),
+            cycle: buildCycle({ id: 'cycle-dep', durationMin: 5 }),
+            openZone: async () => {},
+            closeZone: async () => {},
+            notifier,
+            alerter,
+        });
+
+        await advanceTo(new Date('2026-05-04T13:05:01.000Z'));
+
+        expect(depletionAdvances).toHaveLength(1);
+        expect(depletionAdvances[0]).toEqual({ zoneId: 'zone-depletion', mm: 0 });
     });
 
     it('records HA open-failure alert and skips firedAt write on openZone error', async () => {

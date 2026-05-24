@@ -222,7 +222,7 @@ type DaemonStubInputs = {
 
 function createDaemonReposStub(inputs?: DaemonStubInputs) {
     const cycleUpdates: CycleUpdate[] = [];
-    const zoneUpdates: Array<{ zoneId: string; currentDepletionMm: number }> = [];
+    const depletionAdvances: Array<{ zoneId: string; depletionMm: number }> = [];
     const inserts: InsertCall[] = [];
     const deletes: Array<{ table: unknown }> = [];
     const weatherStateUpserts: Array<Record<string, unknown>> = [];
@@ -267,6 +267,12 @@ function createDaemonReposStub(inputs?: DaemonStubInputs) {
         count: async () => counts,
         loadJoinedRowsForSummary: async () => [],
         loadLatestScheduleEntries: async () => [],
+        advanceDepletion: async (zoneId, depletionMm) => {
+            depletionAdvances.push({ zoneId, depletionMm });
+            for (const row of enabledZoneRows) {
+                if (row.zone.id === zoneId) row.zone.currentDepletionMm = depletionMm;
+            }
+        },
     };
 
     let weatherStateRow: Date | null = inputs?.lastSuccessfulFetchAt ?? null;
@@ -323,7 +329,7 @@ function createDaemonReposStub(inputs?: DaemonStubInputs) {
             if (inputs?.inFlightCyclesError) throw inputs.inFlightCyclesError;
             return inputs?.inFlightCycles ?? [];
         },
-        replaceForZone: async (zoneId, entries, _today, projectedNextDepletionMm, scheduleId) => {
+        replaceForZone: async (zoneId, entries, _today, scheduleId) => {
             deletes.push({ table: scheduleEntries });
             const cycles: PersistedCycle[] = [];
             for (const entry of entries) {
@@ -358,11 +364,6 @@ function createDaemonReposStub(inputs?: DaemonStubInputs) {
                     });
                 }
             }
-            zoneUpdates.push({ zoneId, currentDepletionMm: projectedNextDepletionMm });
-            // Reflect the write back into the stubbed enabledZones so the next load returns it.
-            for (const row of enabledZoneRows) {
-                if (row.zone.id === zoneId) row.zone.currentDepletionMm = projectedNextDepletionMm;
-            }
             return { cycles };
         },
         markCycleFired: async (cycleId, firedAt) => {
@@ -385,7 +386,7 @@ function createDaemonReposStub(inputs?: DaemonStubInputs) {
         repos: { zones: zonesRepo, sites: sitesRepo, schedules: schedulesRepo, scheduleEntries: scheduleEntriesRepo, weatherState: weatherStateRepo },
         alertsDb,
         cycleUpdates,
-        zoneUpdates,
+        depletionAdvances,
         inserts,
         deletes,
         weatherStateUpserts,
@@ -816,32 +817,63 @@ describe('start', () => {
         expect(closes).toEqual([futureRow.zone.id]);
     });
 
-    it('persists projected depletion so the next rePlan reads the updated value, not the seed', async () => {
+    it('nightly tick advances currentDepletionMm; public rePlan() is idempotent (no depletion write)', async () => {
+        // API-71: operator replans must not mutate zone depletion; only the
+        // nightly scheduled tick (isScheduledTick=true) should call advanceDepletion.
+        // NOW = 2026-05-04T12:00:00Z; with rePlanHourLocal=20 + UTC the tick fires
+        // 8h later at 2026-05-04T20:00:00Z.
+        const enabledRow = buildJoinedRow({ zone: { id: 'zone-001', currentDepletionMm: 0 } });
+        const stub = createDaemonReposStub({ enabledZones: [enabledRow] });
+        bootDaemonService({ repos: stub.repos, alertsDb: stub.alertsDb });
+        const { clock, advanceTo } = createFakeClock(NOW);
+
+        await start({
+            clock,
+            rePlanHourLocal: 20,
+            siteTimezone: 'UTC',
+            runPlan: async () => ({ entries: [], projectedNextDepletionMm: 7.5 }),
+            openZone: async () => {},
+            closeZone: async () => {},
+        });
+
+        // Advance past the nightly re-plan tick (20:00 UTC, 8h from NOW=12:00).
+        await advanceTo(new Date('2026-05-04T20:00:01.000Z'));
+
+        expect(stub.depletionAdvances).toEqual([
+            { zoneId: 'zone-001', depletionMm: 7.5 },
+        ]);
+    });
+
+    it('two consecutive operator rePlan() calls produce no depletionAdvances (API-71 regression)', async () => {
         const enabledRow = buildJoinedRow({ zone: { id: 'zone-001', currentDepletionMm: 0 } });
         const stub = createDaemonReposStub({ enabledZones: [enabledRow] });
         bootDaemonService({ repos: stub.repos, alertsDb: stub.alertsDb });
         const { clock } = createFakeClock(NOW);
-        const seenDepletionsByCall: number[] = [];
+        const insertsAfterFirst: number[] = [];
 
         const control = await start({
             clock,
             rePlanHourLocal: 4,
-            runPlan: async zone => {
-                seenDepletionsByCall.push(zone.currentDepletionMm);
-                return { entries: [], projectedNextDepletionMm: 7.5 };
-            },
+            runPlan: async () => ({
+                entries: [buildEntry('2026-05-05', [{ startTime: '2026-05-05T05:00:00Z', durationMin: 20 }])],
+                projectedNextDepletionMm: 7.5,
+            }),
             openZone: async () => {},
             closeZone: async () => {},
         });
 
         await control.rePlan();
-        await control.rePlan();
+        insertsAfterFirst.push(stub.inserts.filter(c => c.table === scheduleEntries).length);
+        const insertsSnapshot = stub.inserts.filter(c => c.table === scheduleEntries).map(i => i.rows[0]);
 
-        expect(stub.zoneUpdates).toEqual([
-            { zoneId: 'zone-001', currentDepletionMm: 7.5 },
-            { zoneId: 'zone-001', currentDepletionMm: 7.5 },
-        ]);
-        expect(seenDepletionsByCall).toEqual([0, 7.5]);
+        await control.rePlan();
+        const insertsAfterSecond = stub.inserts.filter(c => c.table === scheduleEntries);
+
+        // No depletion should have been written by either operator replan.
+        expect(stub.depletionAdvances).toHaveLength(0);
+        // Both replans should produce the same schedule entries (idempotent).
+        expect(insertsAfterSecond).toHaveLength(insertsAfterFirst[0]! * 2);
+        expect(insertsAfterSecond[0]?.rows[0]).toEqual(insertsSnapshot[0]);
     });
 
     it('does not emit schedule-begun or schedule-ended for boot-armed cycles', async () => {

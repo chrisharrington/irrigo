@@ -86,6 +86,7 @@ function defaultRepos(scheduleEntries: ScheduleEntriesRepository): DaemonService
             count: async () => ({ total: 0, enabled: 0 }),
             loadJoinedRowsForSummary: async () => [],
             loadLatestScheduleEntries: async () => [],
+            advanceDepletion: async () => {},
         },
         sites: { loadTimezone: async () => 'UTC' },
         schedules: {

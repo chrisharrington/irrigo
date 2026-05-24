@@ -55,6 +55,14 @@ export interface ZonesRepository {
 
     /** Loads the most-recent `schedule_entries` row per zone (one row per zone that has fired). */
     loadLatestScheduleEntries(): Promise<LatestZoneFire[]>;
+
+    /**
+     * Writes `current_depletion_mm` for the zone. Called by the daemon on two
+     * paths: (1) the nightly scheduled re-plan, which persists
+     * `projectedNextDepletionMm` as the next morning's starting depletion; and
+     * (2) `runClose`, which resets depletion to 0 after irrigation actually fires.
+     */
+    advanceDepletion(zoneId: string, depletionMm: number): Promise<void>;
 }
 
 /**
@@ -131,6 +139,11 @@ export function createZonesRepository(db: Database): ZonesRepository {
                 })
                 .from(scheduleEntries)
                 .orderBy(scheduleEntries.zoneId, desc(scheduleEntries.date));
+        },
+
+        advanceDepletion: async (zoneId, depletionMm) => {
+            await db.update(zones).set({ currentDepletionMm: depletionMm }).where(eq(zones.id, zoneId));
+            console.log(`zones: advanced current_depletion_mm=${depletionMm} for zone ${zoneId}.`);
         },
     };
 }
