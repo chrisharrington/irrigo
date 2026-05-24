@@ -144,11 +144,93 @@ describe('CycleStrip', () => {
         expect(screen.getByText('· 1 cycles · 18 min')).toBeOnTheScreen();
     });
 
+    it('rounds the per-zone total runtime to whole minutes in the legend.', () => {
+        // Without rounding, JS sums of `durMin` like 12.3 + 17.6 + 0.4 produce
+        // floating-point noise like 30.300000000000004 — `Math.round` kills it
+        // before interpolation so the legend reads cleanly as "· 3 cycles · 30 min".
+        const NIGHT_WITH_FLOAT_DUR: CycleStripNight = {
+            sunset: '20:45',
+            sunrise: '05:30',
+            zones: [
+                {
+                    name: 'Mixed',
+                    color: '#6FE39B',
+                    glow: 'rgba(111, 227, 155, 0.4)',
+                    cycles: [
+                        { start: '23:00', durMin: 12.3 },
+                        { start: '00:30', durMin: 17.6 },
+                        { start: '02:00', durMin: 0.4 },
+                    ],
+                },
+            ],
+        };
+
+        render(<CycleStrip night={NIGHT_WITH_FLOAT_DUR} />);
+
+        expect(screen.getByText('· 3 cycles · 30 min')).toBeOnTheScreen();
+        expect(screen.getByLabelText('Mixed: 3 cycles, 30 minutes')).toBeOnTheScreen();
+    });
+
     it('announces each lane via accessibility label with cycle count and runtime.', () => {
         render(<CycleStrip night={SAMPLE_NIGHT} />);
 
         expect(screen.getByLabelText('North: 2 cycles, 27 minutes')).toBeOnTheScreen();
         expect(screen.getByLabelText('South: 1 cycles, 18 minutes')).toBeOnTheScreen();
+    });
+
+    it('renders each sun label with just its text — no glyph child beside it.', () => {
+        const { root } = render(<CycleStrip night={SAMPLE_NIGHT} />);
+
+        // The label wrap previously held a `<SunGlyph />` (Svg dome + arrow)
+        // next to the Text. After the cleanup, only the Text child remains.
+        for (const labelText of ['sunset 20:45', 'sunrise 05:30']) {
+            const wraps = root.findAll(node =>
+                typeof node.type === 'string'
+                && node.props.accessibilityLabel === labelText,
+            );
+            expect(wraps).toHaveLength(1);
+            const hostChildren = (wraps[0]?.children ?? []).filter(child => typeof child !== 'string');
+            expect(hostChildren).toHaveLength(1);
+        }
+    });
+
+    it('anchors the sunrise label by its right edge so it never overflows the chart.', () => {
+        const { root } = render(<CycleStrip night={SAMPLE_NIGHT} />);
+
+        // Default axisEnd is '06:00' and sunrise is '05:30' — both land in the
+        // right half of the chart, so the SunLabel wrap should be positioned
+        // with `right`, not `left`.
+        const sunriseWraps = root.findAll(node =>
+            typeof node.type === 'string'
+            && node.props.accessibilityLabel === 'sunrise 05:30',
+        );
+        expect(sunriseWraps).toHaveLength(1);
+        const styles = sunriseWraps[0]?.props.style as ReadonlyArray<Record<string, unknown>>;
+        const hasRight = styles.some(s => typeof s === 'object' && s !== null && 'right' in s);
+        const hasLeft = styles.some(s => typeof s === 'object' && s !== null && 'left' in s);
+        expect(hasRight).toBe(true);
+        expect(hasLeft).toBe(false);
+    });
+
+    it('anchors a sun label by its left edge when it lands in the left half of the chart.', () => {
+        // Sunset at 22:30 sits just inside the default axis start of 22:00 —
+        // well within the left half — so positioning falls back to `left`.
+        const NIGHT_LEFT_HALF_SUNSET: CycleStripNight = {
+            ...SAMPLE_NIGHT,
+            sunset: '22:30',
+        };
+        const { root } = render(<CycleStrip night={NIGHT_LEFT_HALF_SUNSET} />);
+
+        const sunsetWraps = root.findAll(node =>
+            typeof node.type === 'string'
+            && node.props.accessibilityLabel === 'sunset 22:30',
+        );
+        expect(sunsetWraps).toHaveLength(1);
+        const styles = sunsetWraps[0]?.props.style as ReadonlyArray<Record<string, unknown>>;
+        const hasLeft = styles.some(s => typeof s === 'object' && s !== null && 'left' in s);
+        const hasRight = styles.some(s => typeof s === 'object' && s !== null && 'right' in s);
+        expect(hasLeft).toBe(true);
+        expect(hasRight).toBe(false);
     });
 
     it('renders sunset and sunrise labels with their HH:MM times.', () => {
