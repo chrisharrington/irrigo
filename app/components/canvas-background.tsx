@@ -15,10 +15,15 @@ export type CanvasBackgroundProps = PropsWithChildren<{
 }>;
 
 const BACKGROUND_COLOR = colors.bg;
-// Soft canvas-backdrop tints shared with the modal scrim (grass-glow-3) and
-// info-tinted surfaces (water-glow). See `tailwind.config.ts`.
-const GREEN_GLOW = colors['grass-glow-3'];
-const BLUE_GLOW = colors['water-glow'];
+// Base hex + explicit alpha for each glow. `react-native-svg` does not
+// honor the alpha channel inside an rgba(...) `stopColor` string on every
+// platform, so the canvas tints render saturated when alpha is baked into
+// the color. Splitting the color from `stopOpacity` is the renderer-safe
+// form. Alphas match `grass-glow-3` / `water-glow` in `tailwind.config.ts`.
+export const GREEN_GLOW_COLOR = colors['grass-500'];
+export const GREEN_GLOW_OPACITY = 0.07;
+export const BLUE_GLOW_COLOR = colors['water-500'];
+export const BLUE_GLOW_OPACITY = 0.04;
 
 const GREEN_GRADIENT_ID = 'irrigoCanvasGreenGlow';
 const BLUE_GRADIENT_ID = 'irrigoCanvasBlueGlow';
@@ -36,12 +41,12 @@ export function CanvasBackground({ accessibilityLabel = 'Irrigo canvas', childre
             <Svg style={StyleSheet.absoluteFill} width='100%' height='100%' pointerEvents='none'>
                 <Defs>
                     <RadialGradient id={GREEN_GRADIENT_ID} cx='20%' cy='-5%' r='50%' fx='20%' fy='-5%'>
-                        <Stop offset='0%' stopColor={GREEN_GLOW} />
-                        <Stop offset='100%' stopColor={GREEN_GLOW} stopOpacity={0} />
+                        <Stop offset='0%' stopColor={GREEN_GLOW_COLOR} stopOpacity={GREEN_GLOW_OPACITY} />
+                        <Stop offset='100%' stopColor={GREEN_GLOW_COLOR} stopOpacity={0} />
                     </RadialGradient>
                     <RadialGradient id={BLUE_GRADIENT_ID} cx='90%' cy='50%' r='50%' fx='90%' fy='50%'>
-                        <Stop offset='0%' stopColor={BLUE_GLOW} />
-                        <Stop offset='100%' stopColor={BLUE_GLOW} stopOpacity={0} />
+                        <Stop offset='0%' stopColor={BLUE_GLOW_COLOR} stopOpacity={BLUE_GLOW_OPACITY} />
+                        <Stop offset='100%' stopColor={BLUE_GLOW_COLOR} stopOpacity={0} />
                     </RadialGradient>
                 </Defs>
                 <Rect width='100%' height='100%' fill={`url(#${GREEN_GRADIENT_ID})`} />
