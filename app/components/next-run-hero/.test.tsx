@@ -168,7 +168,7 @@ describe('NextRunHero', () => {
         expect(screen.getByText('North · 1 cycle · ends 5:48 am')).toBeOnTheScreen();
     });
 
-    it('renders the embedded compact CycleStrip with the per-zone palette applied.', () => {
+    it('renders one schedule line per zone, in run order, with am/pm windows.', () => {
         render(
             <NextRunHero
                 nextRun={SCHEDULED_NEXT_RUN}
@@ -177,15 +177,42 @@ describe('NextRunHero', () => {
             />,
         );
 
-        // The CycleStrip exposes a stable accessibility label that the
-        // hero embeds verbatim — its presence proves the strip mounted.
-        expect(screen.getByLabelText('Irrigation cycle chart')).toBeOnTheScreen();
-        // Both zones appear in the strip's legend.
-        expect(screen.getByLabelText('North: 1 cycles, 15 minutes')).toBeOnTheScreen();
-        expect(screen.getByLabelText('South: 1 cycles, 12 minutes')).toBeOnTheScreen();
+        // North fires at 22:23 for 15 min → 10:23 pm to 10:38 pm.
+        expect(screen.getByText('North zone: 10:23 pm to 10:38 pm')).toBeOnTheScreen();
+        // South fires at 23:00 for 12 min → 11:00 pm to 11:12 pm.
+        expect(screen.getByText('South zone: 11:00 pm to 11:12 pm')).toBeOnTheScreen();
     });
 
-    it('does not render the cycle strip when zones is empty (active state, no plan yet).', () => {
+    it('joins multiple cycles on the same zone with `, `.', () => {
+        render(
+            <NextRunHero
+                nextRun={{
+                    ...SCHEDULED_NEXT_RUN,
+                    zones: [
+                        {
+                            name: 'North',
+                            slug: 'north',
+                            patch: 'a',
+                            cycles: [
+                                { start: '22:23', durMin: 15 },
+                                { start: '23:40', durMin: 18 },
+                            ],
+                        },
+                    ],
+                    zoneOrder: ['North'],
+                    totalCycles: 2,
+                }}
+                siteTimezone='America/Edmonton'
+                now={NOW_LOCAL_SAME_DAY}
+            />,
+        );
+
+        expect(
+            screen.getByText('North zone: 10:23 pm to 10:38 pm, 11:40 pm to 11:58 pm'),
+        ).toBeOnTheScreen();
+    });
+
+    it('omits the schedule list when zones is empty (active state, no plan yet).', () => {
         render(
             <NextRunHero
                 nextRun={{ ...SCHEDULED_NEXT_RUN, zones: [], zoneOrder: [] }}
@@ -194,7 +221,7 @@ describe('NextRunHero', () => {
             />,
         );
 
-        expect(screen.queryByLabelText('Irrigation cycle chart')).toBeNull();
+        expect(screen.queryByText(/zone:/)).toBeNull();
         expect(screen.getByText('No zones · 10 cycles · ends 5:48 am')).toBeOnTheScreen();
     });
 });

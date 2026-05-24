@@ -1,13 +1,10 @@
-import { useMemo } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 
 import type { NextRunDto, NextRunState } from '@/api/types/next-run';
 import { Badge, type BadgeTone } from '@/components/badge';
-import { CycleStrip, type CycleStripNight } from '@/components/cycle-strip';
 import { FontFamily } from '@/constants/fonts';
-import { formatEndsAt, formatNextRunDate, formatTimeOfDay } from '@/lib/relative-time';
+import { formatCycleWindow, formatEndsAt, formatNextRunDate, formatTimeOfDay } from '@/lib/relative-time';
 import { getSiteTimezone } from '@/lib/site-timezone';
-import { paletteForZone } from '@/lib/zone-palette';
 import config from '@/tailwind.config';
 
 const colors = config.theme.extend.colors;
@@ -29,30 +26,13 @@ export type NextRunHeroProps = {
 /**
  * Home-screen hero card showing the next irrigation run. Big mono time in
  * the accent colour, subtitle of zone order + cycle count + ends time,
- * status badge, and an embedded compact `CycleStrip`. Renders a quiet
- * empty-state card when the system has no runs queued.
+ * status badge, and a per-zone schedule list (one line per zone in run
+ * order). Renders a quiet empty-state card when the system has no runs
+ * queued.
  */
 export function NextRunHero({ nextRun, siteTimezone, now }: NextRunHeroProps) {
     const resolvedTimezone = siteTimezone ?? getSiteTimezone();
     const resolvedNow = now ?? new Date();
-    const cycleStripNight = useMemo<CycleStripNight | null>(() => {
-        if (nextRun.zones.length === 0) return null;
-        return {
-            ...(nextRun.axisStart !== null ? { axisStart: nextRun.axisStart } : {}),
-            ...(nextRun.axisEnd !== null ? { axisEnd: nextRun.axisEnd } : {}),
-            sunset: nextRun.sunset ?? '20:00',
-            sunrise: nextRun.sunrise ?? '06:00',
-            zones: nextRun.zones.map((zone, index) => {
-                const palette = paletteForZone(index);
-                return {
-                    name: zone.name,
-                    color: palette.color,
-                    glow: palette.glow,
-                    cycles: zone.cycles,
-                };
-            }),
-        };
-    }, [nextRun.axisStart, nextRun.axisEnd, nextRun.sunset, nextRun.sunrise, nextRun.zones]);
 
     const isIdle = nextRun.state === 'idle';
 
@@ -89,9 +69,13 @@ export function NextRunHero({ nextRun, siteTimezone, now }: NextRunHeroProps) {
                 <Badge tone={badgeToneForState(nextRun.state)}>{badgeLabelForState(nextRun.state)}</Badge>
             </View>
 
-            {cycleStripNight !== null && (
-                <View style={styles.cycleStripWrap}>
-                    <CycleStrip night={cycleStripNight} variant='compact' />
+            {nextRun.zones.length > 0 && (
+                <View style={styles.scheduleListWrap}>
+                    {nextRun.zones.map(zone => (
+                        <Text key={zone.slug} style={styles.scheduleLine}>
+                            {zone.name} zone: {zone.cycles.map(c => formatCycleWindow(c.start, c.durMin)).join(', ')}
+                        </Text>
+                    ))}
                 </View>
             )}
         </View>
@@ -187,7 +171,14 @@ const styles = StyleSheet.create({
         lineHeight: 17,
         color: colors['fg-muted'],
     },
-    cycleStripWrap: {
+    scheduleListWrap: {
         marginTop: 4,
+        gap: 4,
+    },
+    scheduleLine: {
+        fontFamily: FontFamily.monoMedium,
+        fontSize: 12,
+        lineHeight: 18,
+        color: colors['fg-soft'],
     },
 });
