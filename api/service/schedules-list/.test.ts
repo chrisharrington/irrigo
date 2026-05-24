@@ -52,7 +52,6 @@ function buildEntry(overrides?: Partial<EntryRow>): EntryRow {
         depletionAfterMm: 0.3,
         source: 'scheduled',
         sunriseAt: null,
-        sunsetAt: null,
         createdAt: NOW,
         updatedAt: NOW,
         ...overrides,

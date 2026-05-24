@@ -160,7 +160,6 @@ export function createScheduleEntriesRepository(db: Database): ScheduleEntriesRe
                             depletionBeforeMm: entry.depletionBeforeMm,
                             depletionAfterMm: entry.depletionAfterMm,
                             sunriseAt: entry.sunriseAt?.toDate() ?? null,
-                            sunsetAt: entry.sunsetAt?.toDate() ?? null,
                         },
                     ])
                     .returning({ id: scheduleEntries.id });
