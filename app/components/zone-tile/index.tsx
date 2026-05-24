@@ -74,9 +74,9 @@ export function ZoneTile({ zone, onPress, now }: ZoneTileProps) {
 
 const styles = StyleSheet.create({
     card: {
-        backgroundColor: colors.surface,
+        backgroundColor: colors.elevated,
         borderWidth: 1,
-        borderColor: colors.border,
+        borderColor: colors['accent-border'],
         borderRadius: 4,
         padding: 14,
         gap: 10,

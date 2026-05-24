@@ -1,7 +1,11 @@
 import { fireEvent, render, screen } from '@testing-library/react-native';
+import { StyleSheet, type ViewStyle } from 'react-native';
 
 import { ActiveScheduleChip } from '.';
 import type { ScheduleListItem } from '@/api/types/schedules';
+import config from '@/tailwind.config';
+
+const colors = config.theme.extend.colors;
 
 const ACTIVE_SCHEDULE: ScheduleListItem = {
     id: 'sched-active',
@@ -68,5 +72,15 @@ describe('ActiveScheduleChip', () => {
         fireEvent.press(screen.getByLabelText('Open Schedules — active profile Maintenance'));
 
         expect(onPress).toHaveBeenCalledTimes(1);
+    });
+
+    it('uses the elevated background and accent-border per the APP-47 home-card standard.', () => {
+        render(<ActiveScheduleChip schedule={ACTIVE_SCHEDULE} onPress={() => {}} />);
+
+        const card = screen.getByLabelText('Open Schedules — active profile Maintenance');
+        const style = StyleSheet.flatten(card.props.style) as ViewStyle;
+
+        expect(style.backgroundColor).toBe(colors.elevated);
+        expect(style.borderColor).toBe(colors['accent-border']);
     });
 });

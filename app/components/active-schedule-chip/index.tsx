@@ -79,9 +79,9 @@ export function ActiveScheduleChip({ schedule, onPress, isRunning = false }: Act
 
 const styles = StyleSheet.create({
     card: {
-        backgroundColor: colors.surface,
+        backgroundColor: colors.elevated,
         borderWidth: 1,
-        borderColor: colors.border,
+        borderColor: colors['accent-border'],
         borderLeftWidth: 3,
         borderLeftColor: colors.accent,
         padding: 14,
