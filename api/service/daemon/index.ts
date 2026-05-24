@@ -166,15 +166,19 @@ export async function start(options?: DaemonOptions): Promise<DaemonControl> {
         const delay = Math.max(0, next.getTime() - clock.now().getTime());
         console.log(`daemon: next re-plan scheduled at ${next.toISOString()} (${delay}ms from now).`);
         const handle = clock.setTimeout(() => {
-            rePlan().catch(err => {
+            _rePlan(true).catch(err => {
                 console.error('daemon: unhandled error in scheduled re-plan.', err);
             });
         }, delay);
         registry.setRePlanHandle(handle);
     };
 
-    const rePlan = async (): Promise<void> => {
-        console.log('daemon: re-plan starting.');
+    // Private implementation. `isScheduledTick` distinguishes the nightly
+    // daemon-scheduled re-plan (which should persist projectedNextDepletionMm
+    // so tomorrow's plan starts honest) from operator-triggered replans (which
+    // must be idempotent and must not mutate zone state). See API-71.
+    const _rePlan = async (isScheduledTick: boolean): Promise<void> => {
+        console.log(`daemon: re-plan starting (scheduled=${isScheduledTick}).`);
         registry.cancelOpenTimers(clock);
 
         const system = await getSystemState();
@@ -222,8 +226,14 @@ export async function start(options?: DaemonOptions): Promise<DaemonControl> {
                     forecastDays: 14,
                 });
                 const { cycles } = await scheduleEntriesRepo.replaceForZone(
-                    zone.id, entries, today, projectedNextDepletionMm, activeSchedule.id,
+                    zone.id, entries, today, activeSchedule.id,
                 );
+                // Only the nightly scheduled tick advances currentDepletionMm.
+                // Operator replans (isScheduledTick=false) are intentionally
+                // idempotent — they plan against current state without mutating it.
+                if (isScheduledTick) {
+                    await zonesRepo.advanceDepletion(zone.id, projectedNextDepletionMm);
+                }
                 for (const cycle of cycles) {
                     const cycleEnd = new Date(cycle.startTime.getTime() + cycle.durationMin * 60_000);
                     const overlaps = busyWindows.some(w => cycle.startTime < w.end && cycleEnd > w.start);
@@ -265,6 +275,8 @@ export async function start(options?: DaemonOptions): Promise<DaemonControl> {
         scheduleNextRePlan();
         console.log('daemon: re-plan complete.');
     };
+
+    const rePlan = (): Promise<void> => _rePlan(false);
 
     const shutdown = async (): Promise<void> => {
         console.log('daemon: shutdown starting.');
