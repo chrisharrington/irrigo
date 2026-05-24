@@ -12,12 +12,11 @@ import { useSchedules } from '@/hooks/schedules';
 import { useSystem } from '@/hooks/system';
 import { useTonight } from '@/hooks/tonight';
 import { useZones } from '@/hooks/zones';
+import { getSiteTimezone } from '@/lib/site-timezone';
 import type { ZoneSummary } from '@/api/types/zones';
 import config from '@/tailwind.config';
 
 const colors = config.theme.extend.colors;
-
-const DEFAULT_SITE_TIMEZONE = 'America/Edmonton';
 
 /**
  * Smart container for the Home screen. Composes the master kill switch
@@ -36,6 +35,7 @@ export function HomeView() {
 
     const irrigationEnabled = system.data?.irrigationEnabled ?? true;
     const activeSchedule = schedules.data?.find(item => item.isActive) ?? null;
+    const siteTimezone = getSiteTimezone();
 
     const handleZonePress = (zone: ZoneSummary): void => {
         router.push(`/zone/${zone.slug}` as never);
@@ -54,14 +54,14 @@ export function HomeView() {
 
             <SystemDisabledWrapper disabled={!irrigationEnabled}>
                 <View style={styles.body}>
-                    <Text style={styles.eyebrow}>Tonight · {DEFAULT_SITE_TIMEZONE.replace('_', ' ')}</Text>
+                    <Text style={styles.eyebrow}>Tonight · {siteTimezone.replace('_', ' ')}</Text>
 
                     {tonight.isPending ? (
                         <PlaceholderCard label='Loading tonight…' />
                     ) : tonight.isError || tonight.data === undefined ? (
                         <PlaceholderCard label='Failed to load tonight.' tone='error' />
                     ) : (
-                        <NextRunHero tonight={tonight.data} siteTimezone={DEFAULT_SITE_TIMEZONE} />
+                        <NextRunHero tonight={tonight.data} siteTimezone={siteTimezone} />
                     )}
 
                     <View style={styles.zonesHeading}>

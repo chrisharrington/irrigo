@@ -5,13 +5,12 @@ import { Badge, type BadgeTone } from '@/components/badge';
 import { CycleStrip, type CycleStripNight } from '@/components/cycle-strip';
 import { FontFamily } from '@/constants/fonts';
 import { formatEndsAt, formatTimeOfDay } from '@/lib/relative-time';
+import { getSiteTimezone } from '@/lib/site-timezone';
 import { paletteForZone } from '@/lib/zone-palette';
 import type { TonightDto, TonightState } from '@/api/types/tonight';
 import config from '@/tailwind.config';
 
 const colors = config.theme.extend.colors;
-
-const DEFAULT_SITE_TIMEZONE = 'America/Edmonton';
 
 /**
  * Props for the Home next-run hero.
@@ -20,7 +19,7 @@ export type NextRunHeroProps = {
     /** Required. The current tonight summary returned by `GET /tonight`. */
     tonight: TonightDto;
 
-    /** Optional. IANA timezone for time formatting. Defaults to `'America/Edmonton'`. */
+    /** Optional. IANA timezone override for time formatting. Defaults to `getSiteTimezone()`. */
     siteTimezone?: string;
 };
 
@@ -30,7 +29,8 @@ export type NextRunHeroProps = {
  * status badge, and an embedded compact `CycleStrip`. Renders a quiet
  * empty-state card when the system has no runs queued tonight.
  */
-export function NextRunHero({ tonight, siteTimezone = DEFAULT_SITE_TIMEZONE }: NextRunHeroProps) {
+export function NextRunHero({ tonight, siteTimezone }: NextRunHeroProps) {
+    const resolvedTimezone = siteTimezone ?? getSiteTimezone();
     const cycleStripNight = useMemo<CycleStripNight | null>(() => {
         if (tonight.zones.length === 0) return null;
         return {
@@ -64,8 +64,8 @@ export function NextRunHero({ tonight, siteTimezone = DEFAULT_SITE_TIMEZONE }: N
         );
     }
 
-    const timeOfDay = formatTimeOfDay(tonight.startTime, siteTimezone);
-    const endsLabel = tonight.endsAt !== null ? `ends ${formatEndsAt(tonight.endsAt, siteTimezone)}` : null;
+    const timeOfDay = formatTimeOfDay(tonight.startTime, resolvedTimezone);
+    const endsLabel = tonight.endsAt !== null ? `ends ${formatEndsAt(tonight.endsAt, resolvedTimezone)}` : null;
     const zoneOrder = tonight.zoneOrder.length > 0 ? tonight.zoneOrder.join(', then ') : 'No zones';
     const cyclesLabel = `${tonight.totalCycles} ${tonight.totalCycles === 1 ? 'cycle' : 'cycles'}`;
     const subtitleParts = [zoneOrder, cyclesLabel];

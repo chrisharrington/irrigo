@@ -2,18 +2,11 @@ import { useCallback, useMemo } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { FontFamily } from '@/constants/fonts';
-import { daysArrayFromAllowed } from '@/lib/schedule-format';
+import { SUN_FIRST_DAY_LETTERS, daysArrayFromAllowed } from '@/lib/schedule-format';
 import type { ScheduleListItem } from '@/api/types/schedules';
 import config from '@/tailwind.config';
 
 const colors = config.theme.extend.colors;
-
-/**
- * Sun-first day initial sequence used by the chip's mini-strip. The
- * canonical Sun-first encoding lives in `lib/schedule-format` — only the
- * letter list is duplicated here for display.
- */
-const DAY_LETTERS = ['S', 'M', 'T', 'W', 'T', 'F', 'S'] as const;
 
 /**
  * Props for the active-schedule chip.
@@ -55,7 +48,7 @@ export function ActiveScheduleChip({ schedule, onPress }: ActiveScheduleChipProp
                 <View style={styles.bodyLeft}>
                     <Text style={styles.name}>{schedule.name}</Text>
                     <View style={styles.daysRow} accessibilityLabel='Schedule days'>
-                        {DAY_LETTERS.map((letter, index) => {
+                        {SUN_FIRST_DAY_LETTERS.map((letter, index) => {
                             const on = days[index] === true;
                             return (
                                 <Text

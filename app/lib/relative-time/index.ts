@@ -2,12 +2,10 @@ import dayjs from 'dayjs';
 import utc from 'dayjs/plugin/utc';
 import timezone from 'dayjs/plugin/timezone';
 
+import { MS_PER_DAY, MS_PER_HOUR, MS_PER_MINUTE } from '@/constants/duration';
+
 dayjs.extend(utc);
 dayjs.extend(timezone);
-
-const MS_PER_MINUTE = 60_000;
-const MS_PER_HOUR = 60 * MS_PER_MINUTE;
-const MS_PER_DAY = 24 * MS_PER_HOUR;
 
 /**
  * Formats `lastFiredAt` (an ISO-8601 UTC instant) as the human-readable
