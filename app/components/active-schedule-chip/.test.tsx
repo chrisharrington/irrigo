@@ -1,0 +1,55 @@
+import { fireEvent, render, screen } from '@testing-library/react-native';
+
+import { ActiveScheduleChip } from '.';
+import type { ScheduleListItem } from '@/api/types/schedules';
+
+const ACTIVE_SCHEDULE: ScheduleListItem = {
+    id: 'sched-active',
+    slug: 'maintenance',
+    name: 'Maintenance',
+    isActive: true,
+    allowedDays: [3, 5, 7], // Wed, Fri, Sun.
+    allowedTimeWindows: [{ start: '22:00', end: '06:00' }],
+    rootDepthMOverride: 0.18,
+    allowableDepletionFractionOverride: 0.5,
+    endBySunrise: true,
+    nextRun: { inLabel: '8h 14m', whenLabel: 'tonight at 10:23pm', zonesLabel: 'North + East' },
+    skippedTonight: false,
+};
+
+const NO_NEXT_RUN_SCHEDULE: ScheduleListItem = {
+    ...ACTIVE_SCHEDULE,
+    nextRun: null,
+};
+
+describe('ActiveScheduleChip', () => {
+    it('renders the eyebrow, running indicator, schedule name, and countdown.', () => {
+        render(<ActiveScheduleChip schedule={ACTIVE_SCHEDULE} onPress={() => {}} />);
+
+        expect(screen.getByText('On profile')).toBeOnTheScreen();
+        expect(screen.getByText('RUNNING')).toBeOnTheScreen();
+        expect(screen.getByText('Maintenance')).toBeOnTheScreen();
+        expect(screen.getByText('8h 14m')).toBeOnTheScreen();
+    });
+
+    it('renders an em-dash countdown when nextRun is null.', () => {
+        render(<ActiveScheduleChip schedule={NO_NEXT_RUN_SCHEDULE} onPress={() => {}} />);
+
+        expect(screen.getByText('—')).toBeOnTheScreen();
+    });
+
+    it('exposes the mini day strip via accessibility label.', () => {
+        render(<ActiveScheduleChip schedule={ACTIVE_SCHEDULE} onPress={() => {}} />);
+
+        expect(screen.getByLabelText('Schedule days')).toBeOnTheScreen();
+    });
+
+    it('fires `onPress` when the chip is tapped.', () => {
+        const onPress = jest.fn();
+        render(<ActiveScheduleChip schedule={ACTIVE_SCHEDULE} onPress={onPress} />);
+
+        fireEvent.press(screen.getByLabelText('Open Schedules — active profile Maintenance'));
+
+        expect(onPress).toHaveBeenCalledTimes(1);
+    });
+});

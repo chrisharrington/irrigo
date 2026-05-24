@@ -1,12 +1,12 @@
 import { StyleSheet, Text, View, type StyleProp, type ViewStyle } from 'react-native';
 import Svg, { Line, Path } from 'react-native-svg';
 
+import { MINUTES_PER_DAY } from '@/constants/duration';
 import { FontFamily } from '@/constants/fonts';
 import config from '@/tailwind.config';
 
 const colors = config.theme.extend.colors;
 
-const MINUTES_PER_DAY = 1440;
 const DEFAULT_AXIS_START = '22:00';
 const DEFAULT_AXIS_END = '06:00';
 

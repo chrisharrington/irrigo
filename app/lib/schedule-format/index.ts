@@ -21,6 +21,21 @@ const DAY_LABEL_BY_WEEKDAY: Readonly<Record<number, string>> = {
 const SUN_FIRST_WEEKDAY_ORDER = [7, 1, 2, 3, 4, 5, 6] as const;
 
 /**
+ * Sun-first single-letter day labels. `DayStrip` and `ActiveScheduleChip`
+ * both render the mini-strip in this order; co-located here so both
+ * components import the canonical sequence.
+ */
+export const SUN_FIRST_DAY_LETTERS: ReadonlyArray<string> = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
+
+/**
+ * Sun-first full day names — used for accessibility labels alongside
+ * `SUN_FIRST_DAY_LETTERS`.
+ */
+export const SUN_FIRST_DAY_NAMES: ReadonlyArray<string> = [
+    'Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday',
+];
+
+/**
  * Converts the API's `allowedDays: number[] | null` (ISO weekday — 1 = Mon,
  * 7 = Sun) into a Sun-first boolean array consumable by `DayStrip` and
  * `DayDots`. Index 0 = Sunday, index 6 = Saturday. `null` (no restriction)
