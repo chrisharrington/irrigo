@@ -49,13 +49,13 @@ describe('useSetSystemEnabled', () => {
         expect((mockFetch.mock.calls[0] as [string, RequestInit])[0]).toBe('http://test.local:9753/system/disable');
     });
 
-    it('invalidates system, tonight, zones, and schedules after a successful flip.', async () => {
+    it('invalidates system, next-run, zones, and schedules after a successful flip.', async () => {
         mockFetch.mockResolvedValueOnce(jsonResponse({ irrigationEnabled: true, since: '2026-05-22T00:00:00.000Z' }));
 
         const { wrapper, client } = buildApiWrapper();
         // Seed the cache so we can observe invalidation.
         client.setQueryData(keys.system.state(), { irrigationEnabled: false, since: 'x' });
-        client.setQueryData(keys.tonight.summary(), { state: 'idle' });
+        client.setQueryData(keys.nextRun.summary(), { state: 'idle' });
         client.setQueryData(keys.zones.list(), []);
         client.setQueryData(keys.schedules.list(), []);
 
@@ -66,7 +66,7 @@ describe('useSetSystemEnabled', () => {
         });
 
         expect(client.getQueryState(keys.system.state())?.isInvalidated).toBe(true);
-        expect(client.getQueryState(keys.tonight.summary())?.isInvalidated).toBe(true);
+        expect(client.getQueryState(keys.nextRun.summary())?.isInvalidated).toBe(true);
         expect(client.getQueryState(keys.zones.list())?.isInvalidated).toBe(true);
         expect(client.getQueryState(keys.schedules.list())?.isInvalidated).toBe(true);
     });

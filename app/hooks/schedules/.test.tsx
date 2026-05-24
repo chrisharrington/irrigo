@@ -26,13 +26,13 @@ function scheduleResponse(status: string, skippedNightDate: string | null = null
 
 function seedSchedulesCaches(client: ReturnType<typeof buildApiWrapper>['client']) {
     client.setQueryData(keys.schedules.list(), []);
-    client.setQueryData(keys.tonight.summary(), { state: 'idle' });
+    client.setQueryData(keys.nextRun.summary(), { state: 'idle' });
     client.setQueryData(keys.zones.list(), []);
 }
 
 function expectScheduleInvalidations(client: ReturnType<typeof buildApiWrapper>['client']) {
     expect(client.getQueryState(keys.schedules.list())?.isInvalidated).toBe(true);
-    expect(client.getQueryState(keys.tonight.summary())?.isInvalidated).toBe(true);
+    expect(client.getQueryState(keys.nextRun.summary())?.isInvalidated).toBe(true);
     expect(client.getQueryState(keys.zones.list())?.isInvalidated).toBe(true);
 }
 
@@ -48,7 +48,7 @@ describe('useSchedules', () => {
 });
 
 describe('useEnableSchedule', () => {
-    it('POSTs to /schedule/enable/:slug and invalidates schedules, tonight, zones.', async () => {
+    it('POSTs to /schedule/enable/:slug and invalidates schedules, next-run, zones.', async () => {
         mockFetch.mockResolvedValueOnce(scheduleResponse('enabled'));
 
         const { wrapper, client } = buildApiWrapper();
@@ -65,7 +65,7 @@ describe('useEnableSchedule', () => {
 });
 
 describe('useDisableSchedule', () => {
-    it('POSTs to /schedule/disable/:slug and invalidates schedules, tonight, zones.', async () => {
+    it('POSTs to /schedule/disable/:slug and invalidates schedules, next-run, zones.', async () => {
         mockFetch.mockResolvedValueOnce(scheduleResponse('disabled'));
 
         const { wrapper, client } = buildApiWrapper();
@@ -82,7 +82,7 @@ describe('useDisableSchedule', () => {
 });
 
 describe('useSkipScheduleTonight', () => {
-    it('POSTs to /schedule/skip-tonight and invalidates schedules, tonight, zones.', async () => {
+    it('POSTs to /schedule/skip-tonight and invalidates schedules, next-run, zones.', async () => {
         mockFetch.mockResolvedValueOnce(scheduleResponse('skipped', '2026-05-22'));
 
         const { wrapper, client } = buildApiWrapper();
@@ -99,7 +99,7 @@ describe('useSkipScheduleTonight', () => {
 });
 
 describe('useResumeScheduleTonight', () => {
-    it('POSTs to /schedule/resume-tonight and invalidates schedules, tonight, zones.', async () => {
+    it('POSTs to /schedule/resume-tonight and invalidates schedules, next-run, zones.', async () => {
         mockFetch.mockResolvedValueOnce(scheduleResponse('resumed', null));
 
         const { wrapper, client } = buildApiWrapper();

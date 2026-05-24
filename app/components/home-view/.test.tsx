@@ -10,7 +10,7 @@ jest.mock('react-native-safe-area-context', () => ({
 
 import { buildApiWrapper, jsonResponse } from '@/api/test-utils';
 import type { ScheduleListItem } from '@/api/types/schedules';
-import type { TonightDto } from '@/api/types/tonight';
+import type { NextRunDto } from '@/api/types/next-run';
 import type { ZoneSummary } from '@/api/types/zones';
 
 import { HomeView } from '.';
@@ -21,7 +21,7 @@ const mockFetch = jest.fn();
 const NOW = new Date('2026-05-24T15:00:00.000Z');
 const SAMPLE_SYSTEM = { irrigationEnabled: true, since: '2026-05-23T00:00:00.000Z' };
 
-const TONIGHT_SCHEDULED: TonightDto = {
+const NEXT_RUN_SCHEDULED: NextRunDto = {
     state: 'scheduled',
     startTime: '2026-05-24T04:23:00.000Z',
     endsAt: '2026-05-24T11:48:00.000Z',
@@ -95,7 +95,7 @@ function setupSuccessfulFetch() {
     mockFetch.mockImplementation(async (input: RequestInfo) => {
         const url = typeof input === 'string' ? input : input.url;
         if (url.endsWith('/system')) return jsonResponse(SAMPLE_SYSTEM);
-        if (url.endsWith('/tonight')) return jsonResponse(TONIGHT_SCHEDULED);
+        if (url.endsWith('/tonight')) return jsonResponse(NEXT_RUN_SCHEDULED);
         if (url.endsWith('/zones')) return jsonResponse({ zones: SAMPLE_ZONES });
         if (url.endsWith('/schedules')) return jsonResponse([ACTIVE_SCHEDULE]);
         return jsonResponse({ error: 'unhandled url' }, 500);
@@ -114,7 +114,7 @@ describe('HomeView', () => {
         setupSuccessfulFetch();
         render(<HomeView />, { wrapper: buildApiWrapper().wrapper });
 
-        await waitFor(() => expect(screen.getByText('Tonight · America/Edmonton')).toBeOnTheScreen());
+        await waitFor(() => expect(screen.getByText('Next run · America/Edmonton')).toBeOnTheScreen());
     });
 
     it('renders the next-run hero with the scheduled time.', async () => {
@@ -175,11 +175,29 @@ describe('HomeView', () => {
         mockFetch.mockImplementation(() => new Promise(() => {})); // never resolves
         render(<HomeView />, { wrapper: buildApiWrapper().wrapper });
 
-        expect(screen.getByText('Loading tonight…')).toBeOnTheScreen();
+        expect(screen.getByText('Loading next run…')).toBeOnTheScreen();
         expect(screen.getByText('Loading zones…')).toBeOnTheScreen();
     });
 
-    it('renders error placeholders when /tonight and /zones fail.', async () => {
+    it('renders error placeholders when /tonight (next-run) returns null body (not just on error).', async () => {
+        // apiFetch returns `null` when the response is 2xx but the body is
+        // missing or unparseable. The next-run hero would crash on a null
+        // payload, so the guard must catch both undefined and null.
+        mockFetch.mockImplementation(async (input: RequestInfo) => {
+            const url = typeof input === 'string' ? input : input.url;
+            if (url.endsWith('/system')) return jsonResponse(SAMPLE_SYSTEM);
+            if (url.endsWith('/tonight')) return jsonResponse(null);
+            if (url.endsWith('/zones')) return jsonResponse({ zones: SAMPLE_ZONES });
+            if (url.endsWith('/schedules')) return jsonResponse([ACTIVE_SCHEDULE]);
+            return jsonResponse({ error: 'unhandled' }, 500);
+        });
+
+        render(<HomeView />, { wrapper: buildApiWrapper().wrapper });
+
+        await waitFor(() => expect(screen.getByText('Failed to load next run.')).toBeOnTheScreen());
+    });
+
+    it('renders error placeholders when /tonight (next-run) and /zones fail.', async () => {
         mockFetch.mockImplementation(async (input: RequestInfo) => {
             const url = typeof input === 'string' ? input : input.url;
             if (url.endsWith('/system')) return jsonResponse(SAMPLE_SYSTEM);
@@ -188,7 +206,7 @@ describe('HomeView', () => {
 
         render(<HomeView />, { wrapper: buildApiWrapper().wrapper });
 
-        await waitFor(() => expect(screen.getByText('Failed to load tonight.')).toBeOnTheScreen());
+        await waitFor(() => expect(screen.getByText('Failed to load next run.')).toBeOnTheScreen());
         expect(screen.getByText('Failed to load zones.')).toBeOnTheScreen();
     });
 
@@ -196,7 +214,7 @@ describe('HomeView', () => {
         mockFetch.mockImplementation(async (input: RequestInfo) => {
             const url = typeof input === 'string' ? input : input.url;
             if (url.endsWith('/system')) return jsonResponse(SAMPLE_SYSTEM);
-            if (url.endsWith('/tonight')) return jsonResponse(TONIGHT_SCHEDULED);
+            if (url.endsWith('/tonight')) return jsonResponse(NEXT_RUN_SCHEDULED);
             if (url.endsWith('/zones')) return jsonResponse({ zones: SAMPLE_ZONES });
             if (url.endsWith('/schedules')) return jsonResponse([{ ...ACTIVE_SCHEDULE, isActive: false }]);
             return jsonResponse({ error: 'unhandled' }, 500);
@@ -212,7 +230,7 @@ describe('HomeView', () => {
         mockFetch.mockImplementation(async (input: RequestInfo) => {
             const url = typeof input === 'string' ? input : input.url;
             if (url.endsWith('/system')) return jsonResponse({ ...SAMPLE_SYSTEM, irrigationEnabled: false });
-            if (url.endsWith('/tonight')) return jsonResponse(TONIGHT_SCHEDULED);
+            if (url.endsWith('/tonight')) return jsonResponse(NEXT_RUN_SCHEDULED);
             if (url.endsWith('/zones')) return jsonResponse({ zones: SAMPLE_ZONES });
             if (url.endsWith('/schedules')) return jsonResponse([ACTIVE_SCHEDULE]);
             return jsonResponse({ error: 'unhandled' }, 500);

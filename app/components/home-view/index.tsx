@@ -8,9 +8,9 @@ import { NextRunHero } from '@/components/next-run-hero';
 import { SystemDisabledWrapper } from '@/components/system-disabled-wrapper';
 import { ZoneTile } from '@/components/zone-tile';
 import { FontFamily } from '@/constants/fonts';
+import { useNextRun } from '@/hooks/next-run';
 import { useSchedules } from '@/hooks/schedules';
 import { useSystem } from '@/hooks/system';
-import { useTonight } from '@/hooks/tonight';
 import { useZones } from '@/hooks/zones';
 import { getSiteTimezone } from '@/lib/site-timezone';
 import type { ZoneSummary } from '@/api/types/zones';
@@ -29,7 +29,7 @@ export function HomeView() {
     const router = useRouter();
     const insets = useSafeAreaInsets();
     const system = useSystem();
-    const tonight = useTonight();
+    const nextRun = useNextRun();
     const zones = useZones();
     const schedules = useSchedules();
 
@@ -54,14 +54,14 @@ export function HomeView() {
 
             <SystemDisabledWrapper disabled={!irrigationEnabled}>
                 <View style={styles.body}>
-                    <Text style={styles.eyebrow}>Tonight · {siteTimezone.replace('_', ' ')}</Text>
+                    <Text style={styles.eyebrow}>Next run · {siteTimezone.replace('_', ' ')}</Text>
 
-                    {tonight.isPending ? (
-                        <PlaceholderCard label='Loading tonight…' />
-                    ) : tonight.isError || tonight.data === undefined ? (
-                        <PlaceholderCard label='Failed to load tonight.' tone='error' />
+                    {nextRun.isPending ? (
+                        <PlaceholderCard label='Loading next run…' />
+                    ) : nextRun.isError || nextRun.data == null ? (
+                        <PlaceholderCard label='Failed to load next run.' tone='error' />
                     ) : (
-                        <NextRunHero tonight={tonight.data} siteTimezone={siteTimezone} />
+                        <NextRunHero nextRun={nextRun.data} siteTimezone={siteTimezone} />
                     )}
 
                     <View style={styles.zonesHeading}>
@@ -75,7 +75,7 @@ export function HomeView() {
 
                     {zones.isPending ? (
                         <PlaceholderCard label='Loading zones…' />
-                    ) : zones.isError || zones.data === undefined ? (
+                    ) : zones.isError || zones.data == null ? (
                         <PlaceholderCard label='Failed to load zones.' tone='error' />
                     ) : (
                         <View style={styles.zoneList}>
