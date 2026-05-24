@@ -397,6 +397,46 @@ describe('createZonesRepository.loadJoinedRowsForSummary', () => {
     });
 });
 
+function stubUpdateDb(): { db: Database; updateCalls: Array<{ table: unknown; values: Record<string, unknown>; conditions: unknown }> } {
+    const updateCalls: Array<{ table: unknown; values: Record<string, unknown>; conditions: unknown }> = [];
+    const db = {
+        update: (table: unknown) => ({
+            set: (values: Record<string, unknown>) => ({
+                where: (conditions: unknown) => {
+                    updateCalls.push({ table, values, conditions });
+                    return Promise.resolve();
+                },
+            }),
+        }),
+    } as unknown as Database;
+    return { db, updateCalls };
+}
+
+describe('createZonesRepository.advanceDepletion', () => {
+    it('issues a single UPDATE on zones with the supplied depletionMm value', async () => {
+        const { db, updateCalls } = stubUpdateDb();
+        const repo = createZonesRepository(db);
+
+        await repo.advanceDepletion('zone-001', 7.5);
+
+        expect(updateCalls).toHaveLength(1);
+        expect(updateCalls[0]?.table).toBe(zones);
+        expect(updateCalls[0]?.values).toEqual({ currentDepletionMm: 7.5 });
+    });
+
+    it('issues a separate UPDATE for each call (two zones produce two updates)', async () => {
+        const { db, updateCalls } = stubUpdateDb();
+        const repo = createZonesRepository(db);
+
+        await repo.advanceDepletion('zone-A', 3.2);
+        await repo.advanceDepletion('zone-B', 0);
+
+        expect(updateCalls).toHaveLength(2);
+        expect(updateCalls[0]?.values).toEqual({ currentDepletionMm: 3.2 });
+        expect(updateCalls[1]?.values).toEqual({ currentDepletionMm: 0 });
+    });
+});
+
 describe('createZonesRepository.loadLatestScheduleEntries', () => {
     it('returns the rows produced by the distinct-on query', async () => {
         const entries: LatestZoneFire[] = [

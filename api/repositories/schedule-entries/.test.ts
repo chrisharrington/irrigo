@@ -193,7 +193,7 @@ describe('createScheduleEntriesRepository.replaceForZone', () => {
         const repo = createScheduleEntriesRepository(db);
         const entry = buildEntry('2026-05-04', [{ startTime: '2026-05-04T05:00:00Z', durationMin: 20 }]);
 
-        await repo.replaceForZone('zone-001', [entry], dayjs('2026-05-04'), 0, 'sched-default');
+        await repo.replaceForZone('zone-001', [entry], dayjs('2026-05-04'), 'sched-default');
 
         expect(deleteCalls).toHaveLength(1);
         expect(deleteCalls[0]?.table).toBe(scheduleEntries);
@@ -208,7 +208,7 @@ describe('createScheduleEntriesRepository.replaceForZone', () => {
             buildEntry('2026-05-06', [{ startTime: '2026-05-06T05:00:00Z', durationMin: 25 }]),
         ];
 
-        await repo.replaceForZone('zone-001', entries, dayjs('2026-05-04'), 0, 'sched-overseed');
+        await repo.replaceForZone('zone-001', entries, dayjs('2026-05-04'), 'sched-overseed');
 
         const entryInserts = insertCalls.filter(c => c.table === scheduleEntries);
         expect(entryInserts).toHaveLength(2);
@@ -225,7 +225,7 @@ describe('createScheduleEntriesRepository.replaceForZone', () => {
             buildEntry('2026-05-06', [{ startTime: '2026-05-06T05:00:00Z', durationMin: 25 }]),
         ];
 
-        await repo.replaceForZone('zone-001', entries, dayjs('2026-05-04'), 0, 'sched-default');
+        await repo.replaceForZone('zone-001', entries, dayjs('2026-05-04'), 'sched-default');
 
         const entryInserts = insertCalls.filter(c => c.table === scheduleEntries);
         expect(entryInserts).toHaveLength(2);
@@ -247,7 +247,7 @@ describe('createScheduleEntriesRepository.replaceForZone', () => {
             { startTime: '2026-05-04T05:30:00Z', durationMin: 15 },
         ]);
 
-        await repo.replaceForZone('zone-001', [entry], dayjs('2026-05-04'), 0, 'sched-default');
+        await repo.replaceForZone('zone-001', [entry], dayjs('2026-05-04'), 'sched-default');
 
         const cycleInserts = insertCalls.filter(c => c.table === irrigationCycles);
         expect(cycleInserts).toHaveLength(1);
@@ -270,7 +270,7 @@ describe('createScheduleEntriesRepository.replaceForZone', () => {
             { startTime: '2026-05-04T05:30:00Z', durationMin: 15 },
         ]);
 
-        const result = await repo.replaceForZone('zone-001', [entry], dayjs('2026-05-04'), 0, 'sched-default');
+        const result = await repo.replaceForZone('zone-001', [entry], dayjs('2026-05-04'), 'sched-default');
 
         expect(result.cycles).toHaveLength(2);
         expect(result.cycles[0]?.id).toBe('cycle-A1');
@@ -292,7 +292,7 @@ describe('createScheduleEntriesRepository.replaceForZone', () => {
             buildEntry('2026-05-05', [{ startTime: '2026-05-05T05:00:00Z', durationMin: 15 }]),
         ];
 
-        const result = await repo.replaceForZone('zone-001', entries, dayjs('2026-05-04'), 0, 'sched-default');
+        const result = await repo.replaceForZone('zone-001', entries, dayjs('2026-05-04'), 'sched-default');
 
         expect(result.cycles).toHaveLength(2);
         expect(result.cycles[0]?.entryDate).toBe('2026-05-04');
@@ -303,7 +303,7 @@ describe('createScheduleEntriesRepository.replaceForZone', () => {
         const { db, deleteCalls, insertCalls } = stubWriterDb();
         const repo = createScheduleEntriesRepository(db);
 
-        const result = await repo.replaceForZone('zone-001', [], dayjs('2026-05-04'), 0, 'sched-default');
+        const result = await repo.replaceForZone('zone-001', [], dayjs('2026-05-04'), 'sched-default');
 
         expect(deleteCalls).toHaveLength(1);
         expect(insertCalls).toHaveLength(0);
@@ -315,33 +315,11 @@ describe('createScheduleEntriesRepository.replaceForZone', () => {
         const repo = createScheduleEntriesRepository(db);
         const entry = buildEntry('2026-05-04', []);
 
-        const result = await repo.replaceForZone('zone-001', [entry], dayjs('2026-05-04'), 0, 'sched-default');
+        const result = await repo.replaceForZone('zone-001', [entry], dayjs('2026-05-04'), 'sched-default');
 
         expect(insertCalls.filter(c => c.table === scheduleEntries)).toHaveLength(1);
         expect(insertCalls.filter(c => c.table === irrigationCycles)).toHaveLength(0);
         expect(result.cycles).toEqual([]);
-    });
-
-    it('writes the projected next-day depletion to zones.current_depletion_mm', async () => {
-        const { db, updateCalls } = stubWriterDb();
-        const repo = createScheduleEntriesRepository(db);
-        const entry = buildEntry('2026-05-04', [{ startTime: '2026-05-04T05:00:00Z', durationMin: 20 }]);
-
-        await repo.replaceForZone('zone-001', [entry], dayjs('2026-05-04'), 7.5, 'sched-default');
-
-        expect(updateCalls).toHaveLength(1);
-        expect(updateCalls[0]?.table).toBe(zones);
-        expect(updateCalls[0]?.values).toEqual({ currentDepletionMm: 7.5 });
-    });
-
-    it('writes the depletion update even when the entries array is empty', async () => {
-        const { db, updateCalls } = stubWriterDb();
-        const repo = createScheduleEntriesRepository(db);
-
-        await repo.replaceForZone('zone-002', [], dayjs('2026-05-04'), 12.3, 'sched-default');
-
-        expect(updateCalls).toHaveLength(1);
-        expect(updateCalls[0]?.values).toEqual({ currentDepletionMm: 12.3 });
     });
 
     it('persists sunriseAt and sunsetAt as JS Dates on the schedule_entries insert', async () => {
@@ -355,7 +333,7 @@ describe('createScheduleEntriesRepository.replaceForZone', () => {
             sunsetAt: sunset,
         };
 
-        await repo.replaceForZone('zone-001', [entry], dayjs('2026-05-04'), 0, 'sched-default');
+        await repo.replaceForZone('zone-001', [entry], dayjs('2026-05-04'), 'sched-default');
 
         const entryInsert = insertCalls.find(c => c.table === scheduleEntries);
         expect(entryInsert?.rows[0]?.['sunriseAt']).toBeInstanceOf(Date);
@@ -369,7 +347,7 @@ describe('createScheduleEntriesRepository.replaceForZone', () => {
         const repo = createScheduleEntriesRepository(db);
         const entry = buildEntry('2026-05-04', [{ startTime: '2026-05-04T05:00:00Z', durationMin: 20 }]);
 
-        await repo.replaceForZone('zone-001', [entry], dayjs('2026-05-04'), 0, 'sched-default');
+        await repo.replaceForZone('zone-001', [entry], dayjs('2026-05-04'), 'sched-default');
 
         const entryInsert = insertCalls.find(c => c.table === scheduleEntries);
         expect(entryInsert?.rows[0]?.['sunriseAt']).toBeNull();
