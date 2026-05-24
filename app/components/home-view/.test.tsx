@@ -150,6 +150,29 @@ describe('HomeView', () => {
         expect(screen.getByText('8h 14m')).toBeOnTheScreen();
     });
 
+    it('hides the chip RUNNING badge when next-run state is scheduled (not firing).', async () => {
+        setupSuccessfulFetch();
+        render(<HomeView />, { wrapper: buildApiWrapper().wrapper });
+
+        await waitFor(() => expect(screen.getByText('Maintenance')).toBeOnTheScreen());
+        expect(screen.queryByText('RUNNING')).toBeNull();
+    });
+
+    it('shows the chip RUNNING badge when next-run state is firing.', async () => {
+        mockFetch.mockImplementation(async (input: RequestInfo) => {
+            const url = typeof input === 'string' ? input : input.url;
+            if (url.endsWith('/system')) return jsonResponse(SAMPLE_SYSTEM);
+            if (url.endsWith('/tonight')) return jsonResponse({ ...NEXT_RUN_SCHEDULED, state: 'firing' });
+            if (url.endsWith('/zones')) return jsonResponse({ zones: SAMPLE_ZONES });
+            if (url.endsWith('/schedules')) return jsonResponse([ACTIVE_SCHEDULE]);
+            return jsonResponse({ error: 'unhandled' }, 500);
+        });
+
+        render(<HomeView />, { wrapper: buildApiWrapper().wrapper });
+
+        await waitFor(() => expect(screen.getByText('RUNNING')).toBeOnTheScreen());
+    });
+
     it('routes to /zone/<slug> when a zone tile is pressed.', async () => {
         setupSuccessfulFetch();
         render(<HomeView />, { wrapper: buildApiWrapper().wrapper });

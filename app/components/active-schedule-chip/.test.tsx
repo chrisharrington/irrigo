@@ -23,13 +23,30 @@ const NO_NEXT_RUN_SCHEDULE: ScheduleListItem = {
 };
 
 describe('ActiveScheduleChip', () => {
-    it('renders the eyebrow, running indicator, schedule name, and countdown.', () => {
+    it('renders the eyebrow, schedule name, and countdown.', () => {
         render(<ActiveScheduleChip schedule={ACTIVE_SCHEDULE} onPress={() => {}} />);
 
         expect(screen.getByText('On profile')).toBeOnTheScreen();
-        expect(screen.getByText('RUNNING')).toBeOnTheScreen();
         expect(screen.getByText('Maintenance')).toBeOnTheScreen();
         expect(screen.getByText('8h 14m')).toBeOnTheScreen();
+    });
+
+    it('hides the RUNNING badge by default (active schedule not firing).', () => {
+        render(<ActiveScheduleChip schedule={ACTIVE_SCHEDULE} onPress={() => {}} />);
+
+        expect(screen.queryByText('RUNNING')).toBeNull();
+    });
+
+    it('hides the RUNNING badge when isRunning is false.', () => {
+        render(<ActiveScheduleChip schedule={ACTIVE_SCHEDULE} onPress={() => {}} isRunning={false} />);
+
+        expect(screen.queryByText('RUNNING')).toBeNull();
+    });
+
+    it('renders the RUNNING badge when isRunning is true.', () => {
+        render(<ActiveScheduleChip schedule={ACTIVE_SCHEDULE} onPress={() => {}} isRunning />);
+
+        expect(screen.getByText('RUNNING')).toBeOnTheScreen();
     });
 
     it('renders an em-dash countdown when nextRun is null.', () => {
