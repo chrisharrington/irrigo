@@ -1791,6 +1791,46 @@ describe('planZoneSchedule', () => {
             }
         });
 
+        it('preserves the accumulated depletion on day 1 when day 0 was dropped under 20:00 endBySunrise (API-68)', () => {
+            // Locks in the API-66 carry-forward guarantee under the new API-68
+            // re-plan hour. At 20:00 local, day-0's overnight cycles (planned
+            // backward from day-0 sunrise) are all past-due. They must be
+            // dropped *and* depletion must NOT silently reset — otherwise day 1
+            // would start at a clean ~0 mm and not cross RAW at all on this
+            // horizon.
+            const zone = pastWindowZone();
+            const twentyHundredUtc = dayjs('2026-05-04T20:00:00.000Z');
+            const weather = createWeatherDays(
+                [
+                    { evapotranspirationMmPerDay: 1.0, rainfallMm: 0 },
+                    { evapotranspirationMmPerDay: 1.0, rainfallMm: 0 },
+                ],
+                dayjs('2026-05-04'),
+            ).map((day, i) => ({
+                ...day,
+                sunrise: dayjs(`2026-05-0${4 + i}`).hour(6).minute(0).second(0).millisecond(0),
+            }));
+
+            const result = planZoneSchedule(
+                zone,
+                weather,
+                [{ start: dayjs(new Date(0)), end: twentyHundredUtc }],
+                { allowedDays: null, allowedTimeWindows: null, endBySunrise: true },
+            );
+
+            // Day 0 has no entry; day 1 fires because day-0 depletion carried.
+            const day0 = result.entries.find(e => e.date.format('YYYY-MM-DD') === '2026-05-04');
+            const day1 = result.entries.find(e => e.date.format('YYYY-MM-DD') === '2026-05-05');
+            expect(day0).toBeUndefined();
+            expect(day1).toBeDefined();
+
+            // Carry-forward proof: starting depletion was 22; day-0 net ET adds
+            // ~0.85 mm (no irrigation); day-1 net ET adds another ~0.85 mm → day-1
+            // `depletionBeforeMm` should be ~23. If day 0 had silently reset on
+            // drop, day 1's value would be only ~0.85 — well below RAW (22.5).
+            expect(day1!.depletionBeforeMm).toBeGreaterThan(20);
+        });
+
         it('keeps the existing forward-shift behaviour when endBySunrise is false (default)', () => {
             // Regression guard: without endBySunrise the planner still pushes past-due
             // cycles to fire at NOW.

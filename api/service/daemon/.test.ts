@@ -502,6 +502,20 @@ describe('start', () => {
         expect(getPendingDelays()).toContain(twentyTwoHoursMs);
     });
 
+    it('defaults `rePlanHourLocal` to 20 — schedules the first re-plan at the next 20:00 local (API-68)', async () => {
+        // NOW = 2026-05-04T12:00:00.000Z. With UTC site timezone and the new
+        // default hour of 20, the next re-plan should fire 8h later at
+        // 2026-05-04T20:00:00.000Z.
+        const stub = createDaemonReposStub();
+        bootDaemonService({ repos: stub.repos, alertsDb: stub.alertsDb });
+        const { clock, getPendingDelays } = createFakeClock(NOW);
+
+        await start({ clock, siteTimezone: 'UTC' });
+
+        const eightHoursMs = 8 * 60 * 60 * 1000;
+        expect(getPendingDelays()).toContain(eightHoursMs);
+    });
+
     it('returned rePlan() runs the planner for every enabled zone and inserts the planner output', async () => {
         const enabledRow = buildJoinedRow({ zone: { id: 'zone-loaded', name: 'Loaded Zone' } });
         const stub = createDaemonReposStub({ enabledZones: [enabledRow] });
