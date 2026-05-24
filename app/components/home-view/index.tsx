@@ -84,7 +84,11 @@ export function HomeView() {
                     )}
 
                     {activeSchedule !== null && (
-                        <ActiveScheduleChip schedule={activeSchedule} onPress={handleSchedulePress} />
+                        <ActiveScheduleChip
+                            schedule={activeSchedule}
+                            onPress={handleSchedulePress}
+                            isRunning={nextRun.data?.state === 'firing'}
+                        />
                     )}
                 </View>
             </SystemDisabledWrapper>

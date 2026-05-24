@@ -17,6 +17,9 @@ export type ActiveScheduleChipProps = {
 
     /** Required. Fires when the chip is pressed (caller routes to the Schedules screen). */
     onPress: () => void;
+
+    /** Whether the active schedule is currently firing. When false/omitted, the RUNNING dot + label are hidden. */
+    isRunning?: boolean;
 };
 
 /**
@@ -24,7 +27,7 @@ export type ActiveScheduleChipProps = {
  * active schedule's identity, running indicator, day mini-strip, and
  * next-run countdown. Tap routes to the Schedules screen.
  */
-export function ActiveScheduleChip({ schedule, onPress }: ActiveScheduleChipProps) {
+export function ActiveScheduleChip({ schedule, onPress, isRunning = false }: ActiveScheduleChipProps) {
     const days = useMemo(() => daysArrayFromAllowed(schedule.allowedDays), [schedule.allowedDays]);
     const countdown = schedule.nextRun?.inLabel ?? '—';
     const handlePress = useCallback(() => onPress(), [onPress]);
@@ -38,10 +41,12 @@ export function ActiveScheduleChip({ schedule, onPress }: ActiveScheduleChipProp
         >
             <View style={styles.headerRow}>
                 <Text style={styles.eyebrow}>On profile</Text>
-                <View style={styles.runningSlot}>
-                    <View style={styles.runningDot} />
-                    <Text style={styles.runningLabel}>RUNNING</Text>
-                </View>
+                {isRunning && (
+                    <View style={styles.runningSlot}>
+                        <View style={styles.runningDot} />
+                        <Text style={styles.runningLabel}>RUNNING</Text>
+                    </View>
+                )}
             </View>
 
             <View style={styles.bodyRow}>
