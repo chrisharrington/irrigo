@@ -3,10 +3,12 @@ import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import * as SplashScreen from 'expo-splash-screen';
 import 'react-native-reanimated';
+import { SafeAreaProvider } from 'react-native-safe-area-context';
 
 import { ApiProvider } from '@/api/provider';
 import { CanvasBackground } from '@/components/canvas-background';
 import { FontLoader } from '@/components/font-loader';
+import { NotificationsBridge } from '@/components/notifications-bridge';
 import '../global.css';
 
 // Hold the native splash from auto-hiding so FontLoader can keep it visible
@@ -38,15 +40,18 @@ export default function RootLayout() {
     return (
         <ApiProvider>
             <FontLoader>
-                <ThemeProvider value={irrigoDarkTheme}>
-                    <CanvasBackground>
-                        <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: 'transparent' } }}>
-                            <Stack.Screen name='(tabs)' />
-                            <Stack.Screen name='modal' options={{ presentation: 'modal', title: 'Modal' }} />
-                        </Stack>
-                    </CanvasBackground>
-                    <StatusBar style='light' />
-                </ThemeProvider>
+                <SafeAreaProvider>
+                    <ThemeProvider value={irrigoDarkTheme}>
+                        <CanvasBackground>
+                            <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: 'transparent' } }}>
+                                <Stack.Screen name='(tabs)' />
+                                <Stack.Screen name='modal' options={{ presentation: 'modal', title: 'Modal' }} />
+                            </Stack>
+                            <NotificationsBridge />
+                        </CanvasBackground>
+                        <StatusBar style='light' />
+                    </ThemeProvider>
+                </SafeAreaProvider>
             </FontLoader>
         </ApiProvider>
     );
