@@ -58,7 +58,7 @@ export function HomeView() {
 
                     {nextRun.isPending ? (
                         <PlaceholderCard label='Loading next run…' />
-                    ) : nextRun.isError || nextRun.data === undefined ? (
+                    ) : nextRun.isError || nextRun.data == null ? (
                         <PlaceholderCard label='Failed to load next run.' tone='error' />
                     ) : (
                         <NextRunHero nextRun={nextRun.data} siteTimezone={siteTimezone} />
@@ -75,7 +75,7 @@ export function HomeView() {
 
                     {zones.isPending ? (
                         <PlaceholderCard label='Loading zones…' />
-                    ) : zones.isError || zones.data === undefined ? (
+                    ) : zones.isError || zones.data == null ? (
                         <PlaceholderCard label='Failed to load zones.' tone='error' />
                     ) : (
                         <View style={styles.zoneList}>

@@ -179,6 +179,24 @@ describe('HomeView', () => {
         expect(screen.getByText('Loading zones…')).toBeOnTheScreen();
     });
 
+    it('renders error placeholders when /tonight (next-run) returns null body (not just on error).', async () => {
+        // apiFetch returns `null` when the response is 2xx but the body is
+        // missing or unparseable. The next-run hero would crash on a null
+        // payload, so the guard must catch both undefined and null.
+        mockFetch.mockImplementation(async (input: RequestInfo) => {
+            const url = typeof input === 'string' ? input : input.url;
+            if (url.endsWith('/system')) return jsonResponse(SAMPLE_SYSTEM);
+            if (url.endsWith('/tonight')) return jsonResponse(null);
+            if (url.endsWith('/zones')) return jsonResponse({ zones: SAMPLE_ZONES });
+            if (url.endsWith('/schedules')) return jsonResponse([ACTIVE_SCHEDULE]);
+            return jsonResponse({ error: 'unhandled' }, 500);
+        });
+
+        render(<HomeView />, { wrapper: buildApiWrapper().wrapper });
+
+        await waitFor(() => expect(screen.getByText('Failed to load next run.')).toBeOnTheScreen());
+    });
+
     it('renders error placeholders when /tonight (next-run) and /zones fail.', async () => {
         mockFetch.mockImplementation(async (input: RequestInfo) => {
             const url = typeof input === 'string' ? input : input.url;

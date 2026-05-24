@@ -1,13 +1,13 @@
 import { useMemo } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 
+import type { NextRunDto, NextRunState } from '@/api/types/next-run';
 import { Badge, type BadgeTone } from '@/components/badge';
 import { CycleStrip, type CycleStripNight } from '@/components/cycle-strip';
 import { FontFamily } from '@/constants/fonts';
 import { formatEndsAt, formatNextRunDate, formatTimeOfDay } from '@/lib/relative-time';
 import { getSiteTimezone } from '@/lib/site-timezone';
 import { paletteForZone } from '@/lib/zone-palette';
-import type { NextRunDto, NextRunState } from '@/api/types/next-run';
 import config from '@/tailwind.config';
 
 const colors = config.theme.extend.colors;
@@ -61,9 +61,7 @@ export function NextRunHero({ nextRun, siteTimezone, now }: NextRunHeroProps) {
             <View style={[styles.card, styles.cardEmpty]} accessibilityLabel='No runs queued'>
                 <Text style={[styles.eyebrow, { color: colors['fg-muted'] }]}>Next run</Text>
                 <Text style={styles.emptyTitle}>No runs queued.</Text>
-                <Text style={styles.emptySub}>
-                    {subtitleForIdle(nextRun.state)}
-                </Text>
+                <Text style={styles.emptySub}>{subtitleForIdle(nextRun.state)}</Text>
             </View>
         );
     }
@@ -88,9 +86,7 @@ export function NextRunHero({ nextRun, siteTimezone, now }: NextRunHeroProps) {
                     <Text style={styles.subtitle}>{subtitle}</Text>
                 </View>
 
-                <Badge tone={badgeToneForState(nextRun.state)}>
-                    {badgeLabelForState(nextRun.state)}
-                </Badge>
+                <Badge tone={badgeToneForState(nextRun.state)}>{badgeLabelForState(nextRun.state)}</Badge>
             </View>
 
             {cycleStripNight !== null && (
@@ -110,11 +106,16 @@ function badgeToneForState(state: NextRunState): BadgeTone {
 
 function badgeLabelForState(state: NextRunState): string {
     switch (state) {
-        case 'scheduled': return 'Scheduled';
-        case 'firing': return 'Firing';
-        case 'skipped-rain': return 'Skipped rain';
-        case 'skipped-manual': return 'Skipped';
-        case 'idle': return 'Idle';
+        case 'scheduled':
+            return 'Scheduled';
+        case 'firing':
+            return 'Firing';
+        case 'skipped-rain':
+            return 'Skipped rain';
+        case 'skipped-manual':
+            return 'Skipped';
+        case 'idle':
+            return 'Idle';
     }
 }
 
