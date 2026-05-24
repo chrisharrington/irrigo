@@ -37,6 +37,21 @@ describe('useAlerts', () => {
         await waitFor(() => expect(result.current.isSuccess).toBe(true));
         expect(result.current.data).toEqual([]);
     });
+
+    it('polls /alerts on a 30-second interval so newly-raised failures surface mid-session.', async () => {
+        mockFetch.mockResolvedValue(jsonResponse({ alerts: [] }));
+
+        const { wrapper, client } = buildApiWrapper();
+        renderHook(() => useAlerts(), { wrapper });
+
+        await waitFor(() => {
+            const query = client.getQueryCache().find({ queryKey: keys.alerts.list() });
+            expect(query).toBeDefined();
+        });
+
+        const query = client.getQueryCache().find({ queryKey: keys.alerts.list() });
+        expect((query?.options as { refetchInterval?: number }).refetchInterval).toBe(30_000);
+    });
 });
 
 describe('useAckAlert', () => {

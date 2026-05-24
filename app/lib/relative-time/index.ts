@@ -66,3 +66,35 @@ export function formatTimeOfDay(iso: string, timezoneName: string): string {
 export function formatEndsAt(iso: string, timezoneName: string): string {
     return dayjs(iso).tz(timezoneName).format('h:mm a');
 }
+
+/**
+ * Formats an ISO-8601 timestamp into the short, suffix-free relative-age
+ * label used in tight slots like `AlertRow`'s right-hand `when` column.
+ * Buckets:
+ *
+ * | Age                  | Output |
+ * |----------------------|--------|
+ * | < 60 s (or future)   | `now`  |
+ * | < 60 min             | `Nm`   |
+ * | < 24 h               | `Nh`   |
+ * | ≥ 24 h               | `Nd`   |
+ *
+ * Distinct from `formatLastRan` (which suffixes with `ago` / `night[s] ago`
+ * for the zone tile's "Last ran" line) and from `formatCountdown` (which
+ * targets a future instant). `reference` is the "now" anchor — production
+ * callers omit it; tests inject a fixed `Date` so assertions are
+ * deterministic.
+ */
+export function formatRelativeTime(iso: string, reference: Date = new Date()): string {
+    const ageMs = reference.getTime() - new Date(iso).getTime();
+    if (ageMs < MS_PER_MINUTE) return 'now';
+
+    const ageMinutes = Math.floor(ageMs / MS_PER_MINUTE);
+    if (ageMinutes < 60) return `${ageMinutes}m`;
+
+    const ageHours = Math.floor(ageMs / MS_PER_HOUR);
+    if (ageHours < 24) return `${ageHours}h`;
+
+    const ageDays = Math.floor(ageMs / MS_PER_DAY);
+    return `${ageDays}d`;
+}
