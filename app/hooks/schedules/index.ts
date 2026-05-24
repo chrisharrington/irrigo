@@ -25,7 +25,7 @@ export function useSchedules(): UseQueryResult<ScheduleListItem[], ApiError> {
 function buildScheduleInvalidator(queryClient: ReturnType<typeof useQueryClient>) {
     return () => {
         queryClient.invalidateQueries({ queryKey: keys.schedules.all() });
-        queryClient.invalidateQueries({ queryKey: keys.tonight.all() });
+        queryClient.invalidateQueries({ queryKey: keys.nextRun.all() });
         queryClient.invalidateQueries({ queryKey: keys.zones.all() });
     };
 }
@@ -33,7 +33,7 @@ function buildScheduleInvalidator(queryClient: ReturnType<typeof useQueryClient>
 /**
  * Activates the named schedule. The api atomically deactivates any
  * currently-active schedule on the same site and triggers a re-plan, so
- * this invalidates schedules, tonight, and zones.
+ * this invalidates schedules, the next-run plan, and zones.
  */
 export function useEnableSchedule(): UseMutationResult<ScheduleMutationResponse, ApiError, string> {
     const queryClient = useQueryClient();

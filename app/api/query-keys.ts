@@ -16,9 +16,9 @@ export const keys = {
         all: () => ['zones'] as const,
         list: () => ['zones', 'list'] as const,
     },
-    tonight: {
-        all: () => ['tonight'] as const,
-        summary: () => ['tonight', 'summary'] as const,
+    nextRun: {
+        all: () => ['next-run'] as const,
+        summary: () => ['next-run', 'summary'] as const,
     },
     schedules: {
         all: () => ['schedules'] as const,

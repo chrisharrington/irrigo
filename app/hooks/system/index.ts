@@ -18,8 +18,8 @@ export function useSystem(): UseQueryResult<SystemStateDto, ApiError> {
 /**
  * Flips the master irrigation kill switch. Every flip triggers an
  * immediate re-plan on the api, so this invalidates everything that
- * depends on the schedule: system state, tonight's plan, the zone list,
- * and the schedules list.
+ * depends on the schedule: system state, the next-run plan, the zone
+ * list, and the schedules list.
  */
 export function useSetSystemEnabled(): UseMutationResult<SystemStateDto, ApiError, boolean> {
     const queryClient = useQueryClient();
@@ -27,7 +27,7 @@ export function useSetSystemEnabled(): UseMutationResult<SystemStateDto, ApiErro
         mutationFn: (enabled: boolean) => (enabled ? enableSystem() : disableSystem()),
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: keys.system.all() });
-            queryClient.invalidateQueries({ queryKey: keys.tonight.all() });
+            queryClient.invalidateQueries({ queryKey: keys.nextRun.all() });
             queryClient.invalidateQueries({ queryKey: keys.zones.all() });
             queryClient.invalidateQueries({ queryKey: keys.schedules.all() });
         },

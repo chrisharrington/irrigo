@@ -7,7 +7,7 @@ import { FontFamily } from '@/constants/fonts';
 import { formatEndsAt, formatTimeOfDay } from '@/lib/relative-time';
 import { getSiteTimezone } from '@/lib/site-timezone';
 import { paletteForZone } from '@/lib/zone-palette';
-import type { TonightDto, TonightState } from '@/api/types/tonight';
+import type { NextRunDto, NextRunState } from '@/api/types/next-run';
 import config from '@/tailwind.config';
 
 const colors = config.theme.extend.colors;
@@ -16,8 +16,8 @@ const colors = config.theme.extend.colors;
  * Props for the Home next-run hero.
  */
 export type NextRunHeroProps = {
-    /** Required. The current tonight summary returned by `GET /tonight`. */
-    tonight: TonightDto;
+    /** Required. The current next-run summary returned by `GET /tonight`. */
+    nextRun: NextRunDto;
 
     /** Optional. IANA timezone override for time formatting. Defaults to `getSiteTimezone()`. */
     siteTimezone?: string;
@@ -27,18 +27,18 @@ export type NextRunHeroProps = {
  * Home-screen hero card showing the next irrigation run. Big mono time in
  * the accent colour, subtitle of zone order + cycle count + ends time,
  * status badge, and an embedded compact `CycleStrip`. Renders a quiet
- * empty-state card when the system has no runs queued tonight.
+ * empty-state card when the system has no runs queued.
  */
-export function NextRunHero({ tonight, siteTimezone }: NextRunHeroProps) {
+export function NextRunHero({ nextRun, siteTimezone }: NextRunHeroProps) {
     const resolvedTimezone = siteTimezone ?? getSiteTimezone();
     const cycleStripNight = useMemo<CycleStripNight | null>(() => {
-        if (tonight.zones.length === 0) return null;
+        if (nextRun.zones.length === 0) return null;
         return {
-            ...(tonight.axisStart !== null ? { axisStart: tonight.axisStart } : {}),
-            ...(tonight.axisEnd !== null ? { axisEnd: tonight.axisEnd } : {}),
-            sunset: tonight.sunset ?? '20:00',
-            sunrise: tonight.sunrise ?? '06:00',
-            zones: tonight.zones.map((zone, index) => {
+            ...(nextRun.axisStart !== null ? { axisStart: nextRun.axisStart } : {}),
+            ...(nextRun.axisEnd !== null ? { axisEnd: nextRun.axisEnd } : {}),
+            sunset: nextRun.sunset ?? '20:00',
+            sunrise: nextRun.sunrise ?? '06:00',
+            zones: nextRun.zones.map((zone, index) => {
                 const palette = paletteForZone(index);
                 return {
                     name: zone.name,
@@ -48,26 +48,26 @@ export function NextRunHero({ tonight, siteTimezone }: NextRunHeroProps) {
                 };
             }),
         };
-    }, [tonight.axisStart, tonight.axisEnd, tonight.sunset, tonight.sunrise, tonight.zones]);
+    }, [nextRun.axisStart, nextRun.axisEnd, nextRun.sunset, nextRun.sunrise, nextRun.zones]);
 
-    const isIdle = tonight.state === 'idle';
+    const isIdle = nextRun.state === 'idle';
 
-    if (isIdle || tonight.startTime === null) {
+    if (isIdle || nextRun.startTime === null) {
         return (
-            <View style={[styles.card, styles.cardEmpty]} accessibilityLabel='No runs queued tonight'>
-                <Text style={[styles.eyebrow, { color: colors['fg-muted'] }]}>Tonight</Text>
+            <View style={[styles.card, styles.cardEmpty]} accessibilityLabel='No runs queued'>
+                <Text style={[styles.eyebrow, { color: colors['fg-muted'] }]}>Next run</Text>
                 <Text style={styles.emptyTitle}>No runs queued.</Text>
                 <Text style={styles.emptySub}>
-                    {subtitleForIdle(tonight.state)}
+                    {subtitleForIdle(nextRun.state)}
                 </Text>
             </View>
         );
     }
 
-    const timeOfDay = formatTimeOfDay(tonight.startTime, resolvedTimezone);
-    const endsLabel = tonight.endsAt !== null ? `ends ${formatEndsAt(tonight.endsAt, resolvedTimezone)}` : null;
-    const zoneOrder = tonight.zoneOrder.length > 0 ? tonight.zoneOrder.join(', then ') : 'No zones';
-    const cyclesLabel = `${tonight.totalCycles} ${tonight.totalCycles === 1 ? 'cycle' : 'cycles'}`;
+    const timeOfDay = formatTimeOfDay(nextRun.startTime, resolvedTimezone);
+    const endsLabel = nextRun.endsAt !== null ? `ends ${formatEndsAt(nextRun.endsAt, resolvedTimezone)}` : null;
+    const zoneOrder = nextRun.zoneOrder.length > 0 ? nextRun.zoneOrder.join(', then ') : 'No zones';
+    const cyclesLabel = `${nextRun.totalCycles} ${nextRun.totalCycles === 1 ? 'cycle' : 'cycles'}`;
     const subtitleParts = [zoneOrder, cyclesLabel];
     if (endsLabel !== null) subtitleParts.push(endsLabel);
     const subtitle = subtitleParts.join(' · ');
@@ -81,8 +81,8 @@ export function NextRunHero({ tonight, siteTimezone }: NextRunHeroProps) {
                     <Text style={styles.subtitle}>{subtitle}</Text>
                 </View>
 
-                <Badge tone={badgeToneForState(tonight.state)}>
-                    {badgeLabelForState(tonight.state)}
+                <Badge tone={badgeToneForState(nextRun.state)}>
+                    {badgeLabelForState(nextRun.state)}
                 </Badge>
             </View>
 
@@ -95,13 +95,13 @@ export function NextRunHero({ tonight, siteTimezone }: NextRunHeroProps) {
     );
 }
 
-function badgeToneForState(state: TonightState): BadgeTone {
+function badgeToneForState(state: NextRunState): BadgeTone {
     if (state === 'scheduled' || state === 'firing') return 'active';
     if (state === 'skipped-rain' || state === 'skipped-manual') return 'warn';
     return 'neutral';
 }
 
-function badgeLabelForState(state: TonightState): string {
+function badgeLabelForState(state: NextRunState): string {
     switch (state) {
         case 'scheduled': return 'Scheduled';
         case 'firing': return 'Firing';
@@ -111,7 +111,7 @@ function badgeLabelForState(state: TonightState): string {
     }
 }
 
-function subtitleForIdle(state: TonightState): string {
+function subtitleForIdle(state: NextRunState): string {
     if (state === 'skipped-rain') return 'Skipped tonight — rain forecast.';
     if (state === 'skipped-manual') return 'Skipped tonight by operator.';
     return 'All zones are within tolerance.';

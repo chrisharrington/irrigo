@@ -7,14 +7,14 @@ import type { ZoneCloseResponse, ZoneOpenResponse, ZoneRunResponse } from '@/api
 function buildZoneInvalidator(queryClient: ReturnType<typeof useQueryClient>) {
     return () => {
         queryClient.invalidateQueries({ queryKey: keys.zones.all() });
-        queryClient.invalidateQueries({ queryKey: keys.tonight.all() });
+        queryClient.invalidateQueries({ queryKey: keys.nextRun.all() });
     };
 }
 
 /**
  * Opens a zone's relay via Home Assistant. Backs the manual-fire flow on
- * Zone detail. Invalidates zones (state changed) and tonight (in-flight
- * status changed).
+ * Zone detail. Invalidates zones (state changed) and the next-run plan
+ * (in-flight status changed).
  */
 export function useOpenZone(): UseMutationResult<ZoneOpenResponse, ApiError, string> {
     const queryClient = useQueryClient();

@@ -16,7 +16,7 @@ export function useReplan(): UseMutationResult<ReplanResponse, ApiError, void> {
         mutationFn: () => replan(),
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: keys.system.all() });
-            queryClient.invalidateQueries({ queryKey: keys.tonight.all() });
+            queryClient.invalidateQueries({ queryKey: keys.nextRun.all() });
             queryClient.invalidateQueries({ queryKey: keys.zones.all() });
             queryClient.invalidateQueries({ queryKey: keys.schedules.all() });
         },

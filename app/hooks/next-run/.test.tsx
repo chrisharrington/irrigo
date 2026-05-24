@@ -1,6 +1,6 @@
 import { renderHook, waitFor } from '@testing-library/react-native';
 import { buildApiWrapper, jsonResponse } from '@/api/test-utils';
-import { useTonight } from '.';
+import { useNextRun } from '.';
 
 const mockFetch = jest.fn();
 
@@ -10,7 +10,7 @@ beforeEach(() => {
     process.env.EXPO_PUBLIC_API_BASE_URL = 'http://test.local:9753';
 });
 
-describe('useTonight', () => {
+describe('useNextRun', () => {
     it('fetches /tonight and exposes the summary state.', async () => {
         mockFetch.mockResolvedValueOnce(jsonResponse({
             state: 'idle',
@@ -25,7 +25,7 @@ describe('useTonight', () => {
             zones: [],
         }));
 
-        const { result } = renderHook(() => useTonight(), { wrapper: buildApiWrapper().wrapper });
+        const { result } = renderHook(() => useNextRun(), { wrapper: buildApiWrapper().wrapper });
 
         await waitFor(() => expect(result.current.isSuccess).toBe(true));
         expect(result.current.data?.state).toBe('idle');

@@ -13,16 +13,16 @@ beforeEach(() => {
 
 function seedZoneCaches(client: ReturnType<typeof buildApiWrapper>['client']) {
     client.setQueryData(keys.zones.list(), []);
-    client.setQueryData(keys.tonight.summary(), { state: 'idle' });
+    client.setQueryData(keys.nextRun.summary(), { state: 'idle' });
 }
 
 function expectZoneInvalidations(client: ReturnType<typeof buildApiWrapper>['client']) {
     expect(client.getQueryState(keys.zones.list())?.isInvalidated).toBe(true);
-    expect(client.getQueryState(keys.tonight.summary())?.isInvalidated).toBe(true);
+    expect(client.getQueryState(keys.nextRun.summary())?.isInvalidated).toBe(true);
 }
 
 describe('useOpenZone', () => {
-    it('POSTs /zones/:id/open and invalidates zones + tonight.', async () => {
+    it('POSTs /zones/:id/open and invalidates zones + next-run.', async () => {
         mockFetch.mockResolvedValueOnce(jsonResponse({ status: 'open', since: '2026-05-22T00:00:00.000Z' }));
 
         const { wrapper, client } = buildApiWrapper();
@@ -39,7 +39,7 @@ describe('useOpenZone', () => {
 });
 
 describe('useCloseZone', () => {
-    it('POSTs /zones/:id/close and invalidates zones + tonight.', async () => {
+    it('POSTs /zones/:id/close and invalidates zones + next-run.', async () => {
         mockFetch.mockResolvedValueOnce(jsonResponse({ status: 'closed' }));
 
         const { wrapper, client } = buildApiWrapper();
@@ -56,7 +56,7 @@ describe('useCloseZone', () => {
 });
 
 describe('useRunZone', () => {
-    it('POSTs /zones/:id/run with the durationMin body and invalidates zones + tonight.', async () => {
+    it('POSTs /zones/:id/run with the durationMin body and invalidates zones + next-run.', async () => {
         mockFetch.mockResolvedValueOnce(jsonResponse({ status: 'open', since: '2026-05-22T00:00:00.000Z', willCloseAt: '2026-05-22T00:15:00.000Z' }));
 
         const { wrapper, client } = buildApiWrapper();
