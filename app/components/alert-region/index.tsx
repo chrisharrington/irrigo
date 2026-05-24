@@ -3,6 +3,7 @@ import { View } from 'react-native';
 
 import { AlertRow } from '@/components/alert-row';
 import { useAlerts } from '@/hooks/alerts';
+import { formatRelativeTime } from '@/lib/relative-time';
 import type { AlertDto } from '@/api/types/alerts';
 
 /**
@@ -66,23 +67,4 @@ export function AlertRegion({ zoneId, now }: AlertRegionProps) {
 function filterAlerts(alerts: readonly AlertDto[], zoneId: string | undefined): AlertDto[] {
     if (zoneId === undefined) return [...alerts];
     return alerts.filter(a => a.zoneId === zoneId);
-}
-
-/**
- * Formats an ISO-8601 timestamp into a short relative-age label:
- * `now` (< 60 s or future), `Nm` (< 60 min), `Nh` (< 24 h), `Nd` (≥ 24 h).
- * Exported for testing; the component calls it with the row's `dto.when`.
- */
-export function formatRelativeTime(iso: string, reference: Date = new Date()): string {
-    const ageMs = reference.getTime() - new Date(iso).getTime();
-    if (ageMs < 60_000) return 'now';
-
-    const ageMinutes = Math.floor(ageMs / 60_000);
-    if (ageMinutes < 60) return `${ageMinutes}m`;
-
-    const ageHours = Math.floor(ageMinutes / 60);
-    if (ageHours < 24) return `${ageHours}h`;
-
-    const ageDays = Math.floor(ageHours / 24);
-    return `${ageDays}d`;
 }
