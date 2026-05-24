@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, mock } from 'bun:test';
 import { runScheduleForZone } from '.';
+import { __resetWeatherCacheForTests } from '../data/weather';
 import { createTestZone } from '../mock/zone';
 
 const mockFetch = mock(() => Promise.resolve({} as Response));
@@ -37,6 +38,7 @@ const stubSuccess = () => mockFetch.mockResolvedValueOnce({
 describe('runScheduleForZone', () => {
     beforeEach(() => {
         mockFetch.mockClear();
+        __resetWeatherCacheForTests();
     });
 
     it(`passes the zone's location coordinates and default 7-day forecast to the weather API`, async () => {
@@ -113,6 +115,8 @@ describe('runScheduleForZone', () => {
     });
 
     it('forwards busyWindows to the planner so cycles avoid them', async () => {
+        // Single stub — the second `runScheduleForZone` call hits the API-70
+        // weather cache (same lat/lon/forecastDays/timezone) and skips fetch.
         stubSuccess();
         const zone = createTestZone({
             currentDepletionMm: 22,
@@ -122,7 +126,6 @@ describe('runScheduleForZone', () => {
         });
 
         // Baseline plan without busy windows — captures the natural cycle placement.
-        stubSuccess();
         const baseline = await runScheduleForZone(zone);
         const baselineCycle = baseline.entries[0]!.cycles[0]!;
         const baselineDay = baseline.entries[0]!.date.format('YYYY-MM-DD');
@@ -176,12 +179,15 @@ describe('runScheduleForZone', () => {
             location: { lat: 51.0447, lon: -114.0719 },
         });
 
-        // Baseline — Maintenance-style cadence against the stubbed 3-day forecast.
+        // Single stub — the second `runScheduleForZone` call hits the API-70
+        // weather cache (same lat/lon/forecastDays/timezone) and skips the
+        // fetch entirely.
         stubSuccess();
+
+        // Baseline — Maintenance-style cadence against the stubbed 3-day forecast.
         const baseline = await runScheduleForZone(zone);
 
         // Overseeding-style overrides: RAW ≈ 1.875 mm, ET ≈ 3.4 mm/day → daily.
-        stubSuccess();
         const overseeding = await runScheduleForZone(zone, {
             overrides: { rootDepthM: 0.05, allowableDepletionFraction: 0.25 },
         });
