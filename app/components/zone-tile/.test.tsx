@@ -49,24 +49,18 @@ const NEVER_FIRED_ZONE: ZoneSummary = {
 };
 
 describe('ZoneTile', () => {
-    it('renders the zone name and the grass · area summary.', () => {
+    it('renders the zone name and the grass-type summary.', () => {
         render(<ZoneTile zone={HEALTHY_ZONE} onPress={() => {}} now={NOW} />);
 
         expect(screen.getByText('North')).toBeOnTheScreen();
-        expect(screen.getByText('Fescue · 320 m²')).toBeOnTheScreen();
+        expect(screen.getByText('Fescue')).toBeOnTheScreen();
     });
 
-    it('renders depletion / raw with one decimal on depletion.', () => {
+    it('renders depletion / raw with one decimal on depletion and the mm suffix.', () => {
         render(<ZoneTile zone={HEALTHY_ZONE} onPress={() => {}} now={NOW} />);
 
-        expect(screen.getByText('14.4')).toBeOnTheScreen();
+        expect(screen.getByText('14.4 mm')).toBeOnTheScreen();
         expect(screen.getByText('/ 32 mm')).toBeOnTheScreen();
-    });
-
-    it(`labels the depletion pair with a "Water needed" eyebrow so the meaning is explicit (APP-45).`, () => {
-        render(<ZoneTile zone={HEALTHY_ZONE} onPress={() => {}} now={NOW} />);
-
-        expect(screen.getByText('Water needed')).toBeOnTheScreen();
     });
 
     it('formats the Last ran footer using the relative-time helper.', () => {
@@ -75,10 +69,10 @@ describe('ZoneTile', () => {
         expect(screen.getByText('Last ran 2 nights ago')).toBeOnTheScreen();
     });
 
-    it('renders "Runs tonight" in the danger tone when depletion crosses RAW.', () => {
+    it('renders "Runs next" in the danger tone when depletion crosses RAW.', () => {
         render(<ZoneTile zone={PAST_RAW_ZONE} onPress={() => {}} now={NOW} />);
 
-        expect(screen.getByText('Runs tonight')).toBeOnTheScreen();
+        expect(screen.getByText('Runs next')).toBeOnTheScreen();
         expect(screen.queryByText(/Last ran/)).toBeNull();
     });
 

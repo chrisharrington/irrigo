@@ -8,7 +8,7 @@ const colors = config.theme.extend.colors;
 const BANDS: ReadonlyArray<{ tone: 'ok' | 'warn' | 'danger'; label: string; color: string }> = [
     { tone: 'ok', label: 'On track', color: colors.accent },
     { tone: 'warn', label: 'Approaching limit', color: colors.warn },
-    { tone: 'danger', label: 'Runs tonight', color: colors.danger },
+    { tone: 'danger', label: 'Limit exceeded', color: colors.danger },
 ];
 
 export type DepletionLegendProps = {
@@ -24,9 +24,7 @@ export type DepletionLegendProps = {
  * boundaries (`< 80% RAW` / `80–100%` / `≥ RAW`) match
  * `computeBatteryGeometry`'s tone thresholds.
  */
-export function DepletionLegend({
-    accessibilityLabel = 'Soil moisture legend',
-}: DepletionLegendProps = {}) {
+export function DepletionLegend({ accessibilityLabel = 'Soil moisture legend' }: DepletionLegendProps = {}) {
     return (
         <View style={styles.row} accessibilityLabel={accessibilityLabel}>
             {BANDS.map(band => (

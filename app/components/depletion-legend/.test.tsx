@@ -10,7 +10,7 @@ describe('DepletionLegend', () => {
         expect(screen.getByLabelText('Soil moisture legend')).toBeOnTheScreen();
         expect(screen.getByText('On track')).toBeOnTheScreen();
         expect(screen.getByText('Approaching limit')).toBeOnTheScreen();
-        expect(screen.getByText('Runs tonight')).toBeOnTheScreen();
+        expect(screen.getByText('Limit exceeded')).toBeOnTheScreen();
     });
 
     it('paints each band swatch with the matching Battery tone color.', () => {

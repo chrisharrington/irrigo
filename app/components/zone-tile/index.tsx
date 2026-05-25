@@ -1,10 +1,10 @@
 import { useCallback, useMemo } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
+import type { ZoneSummary } from '@/api/types/zones';
 import { Battery } from '@/components/battery';
 import { FontFamily } from '@/constants/fonts';
 import { formatLastRan } from '@/lib/relative-time';
-import type { ZoneSummary } from '@/api/types/zones';
 import config from '@/tailwind.config';
 
 const colors = config.theme.extend.colors;
@@ -33,10 +33,7 @@ export function ZoneTile({ zone, onPress, now }: ZoneTileProps) {
     const handlePress = useCallback(() => onPress(zone), [onPress, zone]);
     const referenceNow = useMemo(() => now ?? new Date(), [now]);
     const pastRaw = zone.currentDepletionMm >= zone.rawMm;
-    const lastRan = useMemo(
-        () => formatLastRan(zone.lastFiredAt, referenceNow),
-        [zone.lastFiredAt, referenceNow],
-    );
+    const lastRan = useMemo(() => formatLastRan(zone.lastFiredAt, referenceNow), [zone.lastFiredAt, referenceNow]);
 
     return (
         <Pressable
@@ -48,14 +45,13 @@ export function ZoneTile({ zone, onPress, now }: ZoneTileProps) {
             <View style={styles.headerRow}>
                 <View style={styles.headerText}>
                     <Text style={styles.name}>{zone.name}</Text>
-                    <Text style={styles.summary}>{zone.grassType.name} · {zone.areaM2} m²</Text>
+                    <Text style={styles.summary}>{zone.grassType.name}</Text>
                 </View>
 
                 <View style={styles.depletionBlock}>
-                    <Text style={styles.depletionEyebrow}>Water needed</Text>
                     <View style={styles.depletionWrap}>
                         <Text style={[styles.depletion, pastRaw ? { color: colors.danger } : null]}>
-                            {zone.currentDepletionMm.toFixed(1)}
+                            {zone.currentDepletionMm.toFixed(1)} mm
                         </Text>
                         <Text style={styles.rawLabel}> / {zone.rawMm} mm</Text>
                     </View>
@@ -65,11 +61,11 @@ export function ZoneTile({ zone, onPress, now }: ZoneTileProps) {
             <Battery depletion={zone.currentDepletionMm} raw={zone.rawMm} />
 
             <Text style={[styles.footer, pastRaw ? { color: colors.danger } : null]}>
-                {pastRaw
-                    ? 'Runs tonight'
-                    : zone.lastFiredAt !== null
-                        ? `Last ran ${lastRan}`
-                        : 'No prior runs.'}
+                {pastRaw ?
+                    'Runs next'
+                : zone.lastFiredAt !== null ?
+                    `Last ran ${lastRan}`
+                :   'No prior runs.'}
             </Text>
         </Pressable>
     );

@@ -162,9 +162,7 @@ describe('HomeView', () => {
         expect(screen.getByLabelText('Soil moisture legend')).toBeOnTheScreen();
         expect(screen.getByText('On track')).toBeOnTheScreen();
         expect(screen.getByText('Approaching limit')).toBeOnTheScreen();
-        // The fixture's zones are healthy (not past RAW), so 'Runs tonight'
-        // only appears inside the legend — the lookup is unambiguous.
-        expect(screen.getByText('Runs tonight')).toBeOnTheScreen();
+        expect(screen.getByText('Limit exceeded')).toBeOnTheScreen();
     });
 
     it('renders the zones-section meta with the total area.', async () => {
