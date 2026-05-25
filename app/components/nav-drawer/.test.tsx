@@ -159,8 +159,10 @@ describe('NavDrawer', () => {
             <NavDrawer visible={false} onClose={jest.fn()} activeId='home' onSelect={jest.fn()} />,
         );
 
-        // Slide-out is 280ms; waitFor polls until the modal unmounts.
-        await waitFor(() => expect(screen.queryByLabelText('Home')).toBeNull(), { timeout: 1500 });
+        // Slide-out is 280ms; waitFor polls until the modal unmounts. Use a
+        // generous timeout so the assertion survives Jest scheduling under
+        // full-suite load (1500ms had observable flakes on shared CI).
+        await waitFor(() => expect(screen.queryByLabelText('Home')).toBeNull(), { timeout: 5000 });
     });
 
     it('"Switch profile" button calls onSelect("schedules") and onClose.', () => {

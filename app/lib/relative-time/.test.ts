@@ -1,4 +1,4 @@
-import { formatCountdown, formatEndsAt, formatLastRan, formatNextRunDate, formatRelativeTime, formatTimeOfDay } from '.';
+import { formatActivityDate, formatCountdown, formatEndsAt, formatLastRan, formatNextRunDate, formatRelativeTime, formatTimeOfDay } from '.';
 
 const TZ = 'America/Edmonton';
 // 2026-05-23T15:00:00Z = 09:00 MDT on 2026-05-23 (Saturday).
@@ -75,6 +75,19 @@ describe('formatTimeOfDay', () => {
     it('renders the am side of the boundary.', () => {
         // 2026-05-23T11:48Z = 05:48 MDT on 2026-05-23 (Saturday morning).
         expect(formatTimeOfDay('2026-05-23T11:48:00.000Z', TZ)).toBe('5:48 am');
+    });
+});
+
+describe('formatActivityDate', () => {
+    it(`formats an iso instant as 'MMM D' in the supplied site timezone.`, () => {
+        // 2026-05-13T15:00:00Z = 09:00 MDT on 2026-05-13. Locally May 13.
+        expect(formatActivityDate('2026-05-13T15:00:00.000Z', TZ)).toBe('May 13');
+    });
+
+    it(`uses the site timezone for the calendar-day, not UTC.`, () => {
+        // 2026-05-14T05:30:00Z = 23:30 MDT on 2026-05-13 (still May 13 locally).
+        // A UTC-anchored format would slip to May 14.
+        expect(formatActivityDate('2026-05-14T05:30:00.000Z', TZ)).toBe('May 13');
     });
 });
 

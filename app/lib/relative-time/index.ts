@@ -62,6 +62,16 @@ export function formatTimeOfDay(iso: string, timezoneName: string): string {
 }
 
 /**
+ * Formats `iso` as a short month-day label (`'May 13'`) in the supplied
+ * IANA timezone. Used by the Activity screen's FireLog. Site-local so a
+ * UTC-late instant that still lands on "today" locally doesn't slip to
+ * the next calendar day.
+ */
+export function formatActivityDate(iso: string, timezoneName: string): string {
+    return dayjs(iso).tz(timezoneName).format('MMM D');
+}
+
+/**
  * Formats `iso` for the hero's "ends ..." suffix (`'ends 5:48 am'`).
  * Identical formatter to `formatTimeOfDay`; named separately for grep-
  * ability at call sites.
