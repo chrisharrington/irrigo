@@ -60,7 +60,7 @@ describe('tailwind.config.js — Irrigo design tokens', () => {
         });
 
         it('maps semantic aliases (bg, surface, fg, accent) to the matching raw hex.', () => {
-            expect(colors.bg).toBe('#06090A');
+            expect(colors.bg).toBe('#000000');
             expect(colors.surface).toBe('#0E1412');
             expect(colors.fg).toBe('#ECF1ED');
             expect(colors['fg-soft']).toBe('#C7CFC9');

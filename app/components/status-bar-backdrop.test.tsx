@@ -32,7 +32,7 @@ describe('StatusBarBackdrop', () => {
             height?: number;
             position?: string;
         };
-        expect(style.backgroundColor).toBe('#06090A');
+        expect(style.backgroundColor).toBe('#000000');
         expect(style.height).toBe(42);
         expect(style.position).toBe('absolute');
     });
