@@ -2,6 +2,7 @@ import { useCallback, useMemo } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { Battery } from '@/components/battery';
+import { TileGradient } from '@/components/tile-gradient';
 import { FontFamily } from '@/constants/fonts';
 import { formatLastRan } from '@/lib/relative-time';
 import type { ZoneSummary } from '@/api/types/zones';
@@ -43,38 +44,38 @@ export function ZoneTile({ zone, onPress, now }: ZoneTileProps) {
             onPress={handlePress}
             accessibilityRole='button'
             accessibilityLabel={`Open ${zone.name}`}
-            style={styles.card}
         >
-            <View style={styles.headerRow}>
-                <View style={styles.headerText}>
-                    <Text style={styles.name}>{zone.name}</Text>
-                    <Text style={styles.summary}>{zone.grassType.name} · {zone.areaM2} m²</Text>
+            <TileGradient style={styles.card}>
+                <View style={styles.headerRow}>
+                    <View style={styles.headerText}>
+                        <Text style={styles.name}>{zone.name}</Text>
+                        <Text style={styles.summary}>{zone.grassType.name} · {zone.areaM2} m²</Text>
+                    </View>
+
+                    <View style={styles.depletionWrap}>
+                        <Text style={[styles.depletion, pastRaw ? { color: colors.danger } : null]}>
+                            {zone.currentDepletionMm.toFixed(1)}
+                        </Text>
+                        <Text style={styles.rawLabel}> / {zone.rawMm} mm</Text>
+                    </View>
                 </View>
 
-                <View style={styles.depletionWrap}>
-                    <Text style={[styles.depletion, pastRaw ? { color: colors.danger } : null]}>
-                        {zone.currentDepletionMm.toFixed(1)}
-                    </Text>
-                    <Text style={styles.rawLabel}> / {zone.rawMm} mm</Text>
-                </View>
-            </View>
+                <Battery depletion={zone.currentDepletionMm} raw={zone.rawMm} />
 
-            <Battery depletion={zone.currentDepletionMm} raw={zone.rawMm} />
-
-            <Text style={[styles.footer, pastRaw ? { color: colors.danger } : null]}>
-                {pastRaw
-                    ? 'Runs tonight'
-                    : zone.lastFiredAt !== null
-                        ? `Last ran ${lastRan}`
-                        : 'No prior runs.'}
-            </Text>
+                <Text style={[styles.footer, pastRaw ? { color: colors.danger } : null]}>
+                    {pastRaw
+                        ? 'Runs tonight'
+                        : zone.lastFiredAt !== null
+                            ? `Last ran ${lastRan}`
+                            : 'No prior runs.'}
+                </Text>
+            </TileGradient>
         </Pressable>
     );
 }
 
 const styles = StyleSheet.create({
     card: {
-        backgroundColor: colors.elevated,
         borderWidth: 1,
         borderColor: colors['accent-border'],
         borderRadius: 4,

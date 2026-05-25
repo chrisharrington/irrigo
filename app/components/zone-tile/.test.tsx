@@ -1,7 +1,9 @@
-import { fireEvent, render, screen } from '@testing-library/react-native';
+import { fireEvent, render, screen, within } from '@testing-library/react-native';
 import { StyleSheet, type ViewStyle } from 'react-native';
+import { LinearGradient } from 'expo-linear-gradient';
 
 import { ZoneTile } from '.';
+import { TILE_GRADIENT_COLORS } from '@/components/tile-gradient';
 import type { ZoneSummary } from '@/api/types/zones';
 import config from '@/tailwind.config';
 
@@ -92,13 +94,17 @@ describe('ZoneTile', () => {
         expect(onPress).toHaveBeenCalledWith(HEALTHY_ZONE);
     });
 
-    it('uses the elevated background and accent-border per the APP-47 home-card standard.', () => {
+    it('paints the elevated gradient and accent-border on the inner TileGradient (APP-47 / APP-60).', () => {
         render(<ZoneTile zone={HEALTHY_ZONE} onPress={() => {}} now={NOW} />);
 
+        // The Pressable is the accessibility anchor; the gradient is rendered
+        // by the TileGradient child inside it and owns the visual styles
+        // after the APP-60 swap.
         const card = screen.getByLabelText('Open North');
-        const style = StyleSheet.flatten(card.props.style) as ViewStyle;
+        const gradient = within(card).UNSAFE_getByType(LinearGradient);
+        const style = StyleSheet.flatten(gradient.props.style) as ViewStyle;
 
-        expect(style.backgroundColor).toBe(colors.elevated);
+        expect(gradient.props.colors).toEqual([...TILE_GRADIENT_COLORS.elevated]);
         expect(style.borderColor).toBe(colors['accent-border']);
     });
 });

@@ -1,7 +1,9 @@
-import { fireEvent, render, screen } from '@testing-library/react-native';
+import { fireEvent, render, screen, within } from '@testing-library/react-native';
 import { StyleSheet, type ViewStyle } from 'react-native';
+import { LinearGradient } from 'expo-linear-gradient';
 
 import { ActiveScheduleChip } from '.';
+import { TILE_GRADIENT_COLORS } from '@/components/tile-gradient';
 import type { ScheduleListItem } from '@/api/types/schedules';
 import config from '@/tailwind.config';
 
@@ -74,13 +76,14 @@ describe('ActiveScheduleChip', () => {
         expect(onPress).toHaveBeenCalledTimes(1);
     });
 
-    it('uses the elevated background and accent-border per the APP-47 home-card standard.', () => {
+    it('paints the elevated gradient and accent-border on the inner TileGradient (APP-47 / APP-60).', () => {
         render(<ActiveScheduleChip schedule={ACTIVE_SCHEDULE} onPress={() => {}} />);
 
         const card = screen.getByLabelText('Open Schedules — active profile Maintenance');
-        const style = StyleSheet.flatten(card.props.style) as ViewStyle;
+        const gradient = within(card).UNSAFE_getByType(LinearGradient);
+        const style = StyleSheet.flatten(gradient.props.style) as ViewStyle;
 
-        expect(style.backgroundColor).toBe(colors.elevated);
+        expect(gradient.props.colors).toEqual([...TILE_GRADIENT_COLORS.elevated]);
         expect(style.borderColor).toBe(colors['accent-border']);
     });
 });

@@ -1,6 +1,7 @@
 import { useCallback, useMemo } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
+import { TileGradient } from '@/components/tile-gradient';
 import { FontFamily } from '@/constants/fonts';
 import { SUN_FIRST_DAY_LETTERS, daysArrayFromAllowed } from '@/lib/schedule-format';
 import type { ScheduleListItem } from '@/api/types/schedules';
@@ -37,49 +38,49 @@ export function ActiveScheduleChip({ schedule, onPress, isRunning = false }: Act
             onPress={handlePress}
             accessibilityRole='button'
             accessibilityLabel={`Open Schedules — active profile ${schedule.name}`}
-            style={styles.card}
         >
-            <View style={styles.headerRow}>
-                <Text style={styles.eyebrow}>On profile</Text>
-                {isRunning && (
-                    <View style={styles.runningSlot}>
-                        <View style={styles.runningDot} />
-                        <Text style={styles.runningLabel}>RUNNING</Text>
-                    </View>
-                )}
-            </View>
-
-            <View style={styles.bodyRow}>
-                <View style={styles.bodyLeft}>
-                    <Text style={styles.name}>{schedule.name}</Text>
-                    <View style={styles.daysRow} accessibilityLabel='Schedule days'>
-                        {SUN_FIRST_DAY_LETTERS.map((letter, index) => {
-                            const on = days[index] === true;
-                            return (
-                                <Text
-                                    // eslint-disable-next-line react/no-array-index-key
-                                    key={index}
-                                    style={[styles.dayLetter, on ? styles.dayLetterOn : styles.dayLetterOff]}
-                                >
-                                    {letter}
-                                </Text>
-                            );
-                        })}
-                    </View>
+            <TileGradient style={styles.card}>
+                <View style={styles.headerRow}>
+                    <Text style={styles.eyebrow}>On profile</Text>
+                    {isRunning && (
+                        <View style={styles.runningSlot}>
+                            <View style={styles.runningDot} />
+                            <Text style={styles.runningLabel}>RUNNING</Text>
+                        </View>
+                    )}
                 </View>
 
-                <View style={styles.bodyRight}>
-                    <Text style={styles.countdownEyebrow}>Next run</Text>
-                    <Text style={styles.countdown}>{countdown}</Text>
+                <View style={styles.bodyRow}>
+                    <View style={styles.bodyLeft}>
+                        <Text style={styles.name}>{schedule.name}</Text>
+                        <View style={styles.daysRow} accessibilityLabel='Schedule days'>
+                            {SUN_FIRST_DAY_LETTERS.map((letter, index) => {
+                                const on = days[index] === true;
+                                return (
+                                    <Text
+                                        // eslint-disable-next-line react/no-array-index-key
+                                        key={index}
+                                        style={[styles.dayLetter, on ? styles.dayLetterOn : styles.dayLetterOff]}
+                                    >
+                                        {letter}
+                                    </Text>
+                                );
+                            })}
+                        </View>
+                    </View>
+
+                    <View style={styles.bodyRight}>
+                        <Text style={styles.countdownEyebrow}>Next run</Text>
+                        <Text style={styles.countdown}>{countdown}</Text>
+                    </View>
                 </View>
-            </View>
+            </TileGradient>
         </Pressable>
     );
 }
 
 const styles = StyleSheet.create({
     card: {
-        backgroundColor: colors.elevated,
         borderWidth: 1,
         borderColor: colors['accent-border'],
         borderLeftWidth: 3,

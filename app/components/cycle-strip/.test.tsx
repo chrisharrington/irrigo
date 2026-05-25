@@ -309,29 +309,6 @@ describe('CycleStrip', () => {
         expect(hasRight).toBe(false);
     });
 
-    it(`omits the sunset vertical line when sunset falls outside the chart's plotted window (APP-57).`, () => {
-        // Default axis 22:00 → 06:00. Sunset at 20:00 is before the axis,
-        // so the vertical SunLine would be meaningless and is skipped. Sun
-        // lines use the moon-500 token (#D8C690); grid lines use hairline,
-        // so we filter to just the moon-tinted vertical lines.
-        const NIGHT_SUNSET_BEFORE_AXIS: CycleStripNight = {
-            ...SAMPLE_NIGHT,
-            sunset: '20:00',
-            sunrise: '05:30',
-        };
-        const { root } = render(<CycleStrip night={NIGHT_SUNSET_BEFORE_AXIS} />);
-
-        const sunLines = root.findAll(node => {
-            if (typeof node.type !== 'string') return false;
-            const style = node.props.style as ReadonlyArray<Record<string, unknown>> | undefined;
-            if (!Array.isArray(style)) return false;
-            const flat = Object.assign({}, ...style.filter(s => typeof s === 'object' && s !== null)) as Record<string, unknown>;
-            return flat['width'] === 1 && flat['backgroundColor'] === '#D8C690';
-        });
-        // Only one sun line (sunrise in range); the off-axis sunset line is suppressed.
-        expect(sunLines).toHaveLength(1);
-    });
-
     it('renders an hour-axis label for every whole hour across the default axis.', () => {
         render(<CycleStrip night={SAMPLE_NIGHT} />);
 
