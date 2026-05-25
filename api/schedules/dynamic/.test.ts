@@ -1542,11 +1542,14 @@ describe('planZoneSchedule', () => {
 
             const result = planZoneSchedule(zone, weather, [], undefined, { rootDepthM: 0.05 });
 
-            // With currentDepletion clamped to 7.5 mm (overridden TAW), starting
-            // depletion > RAW (1.875 mm) so day-0 triggers and refills to 0.
-            // With ET=0 the projected end-of-day depletion is 0, not 30.
+            // With currentDepletion clamped to 7.5 mm (overridden TAW=7.5 mm),
+            // starting depletion (7.5) > RAW (3.75) so day-0 triggers. The
+            // applied gross is also capped at TAW=7.5 mm, but efficiency 0.8
+            // delivers only 6.0 mm net to the root zone — so depletionAfter
+            // is 7.5 − 6.0 = 1.5 mm (API-75). With ET=0 the projected
+            // end-of-day depletion equals that residual.
             expect(result.entries[0]?.depletionBeforeMm).toBeCloseTo(7.5, 1);
-            expect(result.projectedNextDepletionMm).toBe(0);
+            expect(result.projectedNextDepletionMm).toBeCloseTo(1.5, 5);
         });
 
         it('produces materially different output when the same fixture is planned under different override modes', () => {
@@ -1596,12 +1599,14 @@ describe('planZoneSchedule', () => {
             }
         });
 
-        it('defers a day when the required runtime exceeds the midnight-to-sunrise window', () => {
+        it('partially refills when the full-refill runtime exceeds the midnight-to-sunrise window (API-75)', () => {
             // Clay soil: infiltration 4 mm/hr → soak 60 min. AWHC=200 mm/m,
             // rootDepthM=0.3 → TAW=60 mm, RAW=30 mm. With precipitationRateMmPerHr=9 and
             // currentDepletionMm=29, irrigation fires on day 1 (29 + 0.85 ET → 30.7mm).
-            // That triggers 10 cycles; with 60-min soaks the total block is ~796 min —
-            // well over the 6-hour midnight-to-sunrise window → defer both days.
+            // Full refill would need ~10 cycles with 60-min soaks (~796 min, far
+            // beyond the 360-min overnight window). Pre-API-75 the day deferred
+            // entirely; now the planner clamps gross to what fits, partially
+            // refills, and carries the residual to the next allowed night.
             const zone = createTestZone({
                 currentDepletionMm: 29,
                 soil: SOIL_TYPES.clay,
@@ -1614,7 +1619,19 @@ describe('planZoneSchedule', () => {
 
             const { entries } = planZoneSchedule(zone, weather);
 
-            expect(entries).toHaveLength(0);
+            expect(entries.length).toBeGreaterThan(0);
+            for (const entry of entries) {
+                // Every placed entry's cycles fit inside [midnight, sunrise].
+                const midnight = entry.date.startOf('day');
+                const sunrise = entry.sunriseAt!;
+                for (const cycle of entry.cycles) {
+                    expect(cycle.startTime.valueOf()).toBeGreaterThanOrEqual(midnight.valueOf());
+                    const cycleEnd = cycle.startTime.add(cycle.durationMin, 'minute');
+                    expect(cycleEnd.valueOf()).toBeLessThanOrEqual(sunrise.valueOf() + 1000);
+                }
+                // Partial refill: depletionAfter is the residual, not zero.
+                expect(entry.depletionAfterMm).toBeGreaterThan(0);
+            }
         });
 
         it('places cycles when the required runtime fits within the midnight-to-sunrise window', () => {
