@@ -113,6 +113,24 @@ export function pctOf(startMin: number, totalMin: number, hhmm: string): number 
 }
 
 /**
+ * Like `pctOf`, but disambiguates "before the axis starts" from "next day"
+ * for sun events. Sunset typically happens before the night's axis (e.g.
+ * 20:30 vs 22:00) and shouldn't be projected to tomorrow's sunset; sunrise
+ * happens after midnight (next-day wrap) and should be.
+ *
+ * Heuristic: if `hhmm` falls less than half a day before `startMin`, treat
+ * it as "earlier today" and return a negative percent (the caller decides
+ * whether to clamp / hide). Otherwise wrap forward like `pctOf`.
+ */
+export function pctOfSunEvent(startMin: number, totalMin: number, hhmm: string): number {
+    const m = parseHHMM(hhmm);
+    const adjusted = m < startMin && startMin - m > MINUTES_PER_DAY / 2
+        ? m + MINUTES_PER_DAY
+        : m;
+    return ((adjusted - startMin) / totalMin) * 100;
+}
+
+/**
  * Percentage width of a cycle of `durMin` minutes against the total chart
  * width. Pure ratio, no clamping — callers apply a CSS `max(...)` so a tiny
  * cycle still renders as a visible pulse.
@@ -174,8 +192,8 @@ export function CycleStrip({
     const totalMin = getTotalMin(startMin, endMin);
 
     const ticks = buildHourTicks({ startMin, totalMin, stepH });
-    const sunsetPct = pctOf(startMin, totalMin, night.sunset);
-    const sunrisePct = pctOf(startMin, totalMin, night.sunrise);
+    const sunsetPct = pctOfSunEvent(startMin, totalMin, night.sunset);
+    const sunrisePct = pctOfSunEvent(startMin, totalMin, night.sunrise);
 
     return (
         <View accessibilityLabel={accessibilityLabel}>
@@ -280,17 +298,26 @@ function AxisTickLabel({ tick, isFirst, isLast }: { tick: HourTick; isFirst: boo
 }
 
 function SunLine({ leftPct }: { leftPct: number }) {
+    // Drawing a vertical line outside the plot area is meaningless — skip
+    // the line for out-of-axis sun events (typically sunset that occurs
+    // before the night's axis start).
+    if (leftPct < 0 || leftPct > 100) return null;
     return <View style={[styles.sunLine, { left: `${leftPct}%` }]} />;
 }
 
 function SunLabel({ leftPct, kind, time }: { leftPct: number; kind: 'set' | 'rise'; time: string }) {
+    // Clamp out-of-axis positions to the nearest edge so the label stays
+    // visible. The label TEXT still carries the accurate time, so the user
+    // gets the information even when the event itself falls outside the
+    // chart's plotted window.
+    const clampedPct = Math.max(0, Math.min(100, leftPct));
     // Past the midpoint, anchor the label's right edge to the line so it
     // never falls off the end of the chart.
-    const alignRight = leftPct > 50;
+    const alignRight = clampedPct > 50;
     const labelText = `${kind === 'set' ? 'sunset' : 'sunrise'} ${time}`;
     const positionStyle: ViewStyle = alignRight
-        ? { right: `${100 - leftPct}%` }
-        : { left: `${leftPct}%` };
+        ? { right: `${100 - clampedPct}%` }
+        : { left: `${clampedPct}%` };
 
     return (
         <View style={[styles.sunLabelWrap, positionStyle]} accessibilityLabel={labelText}>
