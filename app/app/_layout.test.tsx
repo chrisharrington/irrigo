@@ -44,7 +44,7 @@ jest.mock('react-native-safe-area-context', () => {
         SafeAreaProvider: ({ children }: { children?: React.ReactNode }) => (
             <View>{children}</View>
         ),
-        useSafeAreaInsets: () => ({ top: 0, bottom: 0, left: 0, right: 0 }),
+        useSafeAreaInsets: () => ({ top: 24, bottom: 0, left: 0, right: 0 }),
     };
 });
 
@@ -102,5 +102,11 @@ describe('RootLayout', () => {
         const registeredNames = mockStackScreen.mock.calls.map(([props]) => props.name);
         expect(registeredNames).toContain('modal');
         expect(registeredNames).not.toContain('(tabs)');
+    });
+
+    it('paints the opaque status-bar backdrop so the system bar is not transparent (APP-50).', () => {
+        render(<RootLayout />);
+
+        expect(screen.getByLabelText('Status bar backdrop')).toBeOnTheScreen();
     });
 });

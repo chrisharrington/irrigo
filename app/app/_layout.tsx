@@ -9,6 +9,7 @@ import { ApiProvider } from '@/api/provider';
 import { CanvasBackground } from '@/components/canvas-background';
 import { FontLoader } from '@/components/font-loader';
 import { NotificationsBridge } from '@/components/notifications-bridge';
+import { StatusBarBackdrop } from '@/components/status-bar-backdrop';
 import '../global.css';
 
 // Hold the native splash from auto-hiding so FontLoader can keep it visible
@@ -44,6 +45,7 @@ export default function RootLayout() {
                             </Stack>
                             <NotificationsBridge />
                         </CanvasBackground>
+                        <StatusBarBackdrop />
                         <StatusBar style='light' />
                     </ThemeProvider>
                 </SafeAreaProvider>
