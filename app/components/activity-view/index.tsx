@@ -1,7 +1,6 @@
 import { ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { AlertRegion } from '@/components/alert-region';
 import { FireLog } from '@/components/fire-log';
 import { FontFamily } from '@/constants/fonts';
 import { useActivity } from '@/hooks/activity';
@@ -14,11 +13,12 @@ const DEFAULT_TIMEZONE = 'UTC';
 
 /**
  * Smart container for the Activity screen. Composes the eyebrow + page
- * title, the persistent alert region, and the chronological fire log
- * sourced from `GET /activity`. Reads `useNextRun()` only for the site
- * timezone (already cached after a Home-screen visit); falls back to UTC
- * when the cache hasn't been primed yet. RN port of `ActivityView` from
- * `Mobile.jsx`. APP-32.
+ * title with the chronological fire log sourced from `GET /activity`.
+ * Reads `useNextRun()` only for the site timezone (already cached after a
+ * Home-screen visit); falls back to UTC when the cache hasn't been primed
+ * yet. RN port of `ActivityView` from `Mobile.jsx` — minus the alert
+ * region, since alerts have no dismiss affordance yet and lingering
+ * non-interactive copy is worse than silence here. APP-32.
  */
 export function ActivityView() {
     const insets = useSafeAreaInsets();
@@ -35,8 +35,6 @@ export function ActivityView() {
         >
             <Text style={styles.eyebrow}>Chronological · all zones</Text>
             <Text style={styles.title}>Activity</Text>
-
-            <AlertRegion />
 
             {activity.isPending ?
                 <PlaceholderCard label='Loading activity…' />

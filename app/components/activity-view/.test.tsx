@@ -84,7 +84,7 @@ describe('ActivityView', () => {
         expect(screen.getByText('9.0 mm · 51 min')).toBeOnTheScreen();
     });
 
-    it('renders the alert region above the fire log when active alerts exist.', async () => {
+    it('does not surface alerts inline — alerts have no in-screen dismiss affordance, so we keep them off Activity.', async () => {
         const alert: AlertDto = {
             id: 'al-1',
             class: 'weather-stale',
@@ -102,7 +102,10 @@ describe('ActivityView', () => {
 
         render(<ActivityView />, { wrapper });
 
-        await waitFor(() => expect(screen.getByText('Weather API stale')).toBeOnTheScreen());
+        // Wait for the activity rows to settle (proves the screen rendered).
+        await waitFor(() => expect(screen.getByText('14.0 mm · 62 min')).toBeOnTheScreen());
+        // Even with an active alert in the cache, the screen omits it.
+        expect(screen.queryByText('Weather API stale')).toBeNull();
     });
 
     it('renders the loading placeholder while /activity is pending.', () => {
