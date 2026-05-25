@@ -27,13 +27,14 @@ export type ZoneSummary = {
 };
 
 /**
- * Latest schedule-entry row per zone, as returned by `loadLatestScheduleEntries`.
- * `date` is the entry-date column (Postgres `date`, day-granularity) serialised
- * as a `YYYY-MM-DD` string. `appliedDepthMm` is the gross depth that was applied
- * to the zone on that date.
+ * Most-recent actual fire per zone, as returned by `loadLatestFires`. `firedAt`
+ * is the `irrigation_cycles.fired_at` timestamp of the latest cycle that
+ * actually opened the valve — *not* the latest `schedule_entries.date`, which
+ * would also include planned future entries written by the nightly planner.
+ * `appliedDepthMm` is the gross depth of the parent `schedule_entries` row.
  */
 export type LatestZoneFire = {
     zoneId: string;
-    date: string;
+    firedAt: Date;
     appliedDepthMm: number;
 };

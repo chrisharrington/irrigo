@@ -1,6 +1,6 @@
-import { desc, eq, sql } from 'drizzle-orm';
+import { desc, eq, isNotNull, sql } from 'drizzle-orm';
 import type { Database } from '@/db';
-import { grassTypes, scheduleEntries, sites, soilTypes, zones } from '@/db/schema';
+import { grassTypes, irrigationCycles, scheduleEntries, sites, soilTypes, zones } from '@/db/schema';
 import type { Zone } from '@/models';
 import type { LatestZoneFire } from '@/models/zone';
 
@@ -53,8 +53,14 @@ export interface ZonesRepository {
     /** Loads the zones × grass × soil joined rows used by the summary payload. */
     loadJoinedRowsForSummary(): Promise<SummaryJoinedRow[]>;
 
-    /** Loads the most-recent `schedule_entries` row per zone (one row per zone that has fired). */
-    loadLatestScheduleEntries(): Promise<LatestZoneFire[]>;
+    /**
+     * Loads the most-recent actual fire per zone — the `irrigation_cycles` row
+     * with the largest `fired_at` per zone (joined to its parent
+     * `schedule_entries` for `applied_depth_mm`). Filters out cycles that
+     * never opened (`fired_at IS NULL`). Zones that have never fired return
+     * no row.
+     */
+    loadLatestFires(): Promise<LatestZoneFire[]>;
 
     /**
      * Writes `current_depletion_mm` for the zone. Called by the daemon on two
@@ -130,15 +136,24 @@ export function createZonesRepository(db: Database): ZonesRepository {
                 .where(sql`true`);
         },
 
-        loadLatestScheduleEntries: async () => {
-            return db
+        loadLatestFires: async () => {
+            const rows = await db
                 .selectDistinctOn([scheduleEntries.zoneId], {
                     zoneId: scheduleEntries.zoneId,
-                    date: scheduleEntries.date,
+                    firedAt: irrigationCycles.firedAt,
                     appliedDepthMm: scheduleEntries.appliedDepthMm,
                 })
-                .from(scheduleEntries)
-                .orderBy(scheduleEntries.zoneId, desc(scheduleEntries.date));
+                .from(irrigationCycles)
+                .innerJoin(scheduleEntries, eq(irrigationCycles.scheduleEntryId, scheduleEntries.id))
+                .where(isNotNull(irrigationCycles.firedAt))
+                .orderBy(scheduleEntries.zoneId, desc(irrigationCycles.firedAt));
+            // `firedAt` is nullable in the schema; the `isNotNull` filter
+            // above guarantees the column is set on every returned row.
+            return rows.map(row => ({
+                zoneId: row.zoneId,
+                firedAt: row.firedAt!,
+                appliedDepthMm: row.appliedDepthMm,
+            }));
         },
 
         advanceDepletion: async (zoneId, depletionMm) => {

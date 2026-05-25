@@ -55,7 +55,7 @@ function fakeRepo(impl: Partial<ZonesRepository>): ZonesRepository {
         findById: async () => null,
         count: async () => ({ total: 0, enabled: 0 }),
         loadJoinedRowsForSummary: async () => [],
-        loadLatestScheduleEntries: async () => [],
+        loadLatestFires: async () => [],
         ...impl,
     };
 }
@@ -90,14 +90,14 @@ describe('mapJoinedRowToSummary', () => {
         expect(summary.lastAppliedMm).toBeNull();
     });
 
-    it('formats lastFiredAt as YYYY-MM-DD and passes through lastAppliedMm', () => {
+    it('serialises lastFiredAt as an ISO-8601 UTC timestamp and passes through lastAppliedMm', () => {
         const summary = mapJoinedRowToSummary(summaryRow(), {
             zoneId: 'zone-001',
-            date: '2026-05-13',
+            firedAt: new Date('2026-05-13T05:00:00.000Z'),
             appliedDepthMm: 14,
         });
 
-        expect(summary.lastFiredAt).toBe('2026-05-13');
+        expect(summary.lastFiredAt).toBe('2026-05-13T05:00:00.000Z');
         expect(summary.lastAppliedMm).toBe(14);
     });
 
@@ -162,12 +162,12 @@ describe('getZoneSummaries', () => {
             }),
         ];
         const entries: LatestZoneFire[] = [
-            { zoneId: 'zone-1', date: '2026-05-13', appliedDepthMm: 14 },
+            { zoneId: 'zone-1', firedAt: new Date('2026-05-13T05:00:00.000Z'), appliedDepthMm: 14 },
         ];
         bootZonesService({
             repo: fakeRepo({
                 loadJoinedRowsForSummary: async () => rows,
-                loadLatestScheduleEntries: async () => entries,
+                loadLatestFires: async () => entries,
             }),
         });
 
@@ -176,7 +176,7 @@ describe('getZoneSummaries', () => {
         expect(result).toHaveLength(2);
         expect(result[0]?.name).toBe('North');
         expect(result[0]?.rawMm).toBe(21);
-        expect(result[0]?.lastFiredAt).toBe('2026-05-13');
+        expect(result[0]?.lastFiredAt).toBe('2026-05-13T05:00:00.000Z');
         expect(result[0]?.lastAppliedMm).toBe(14);
         expect(result[1]?.name).toBe('South');
         expect(result[1]?.lastFiredAt).toBeNull();
@@ -187,7 +187,7 @@ describe('getZoneSummaries', () => {
         bootZonesService({
             repo: fakeRepo({
                 loadJoinedRowsForSummary: async () => [],
-                loadLatestScheduleEntries: async () => [],
+                loadLatestFires: async () => [],
             }),
         });
 
@@ -200,7 +200,7 @@ describe('getZoneSummaries', () => {
         bootZonesService({
             repo: fakeRepo({
                 loadJoinedRowsForSummary: async () => [summaryRow({ zone: { id: 'zone-1' } })],
-                loadLatestScheduleEntries: async () => [],
+                loadLatestFires: async () => [],
             }),
         });
 
