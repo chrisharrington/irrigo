@@ -28,6 +28,16 @@ describe('formatLastRan', () => {
         const isoThreeDaysAgo = new Date(NOW.getTime() - 3 * 24 * 60 * 60_000).toISOString();
         expect(formatLastRan(isoThreeDaysAgo, NOW)).toBe('3 nights ago');
     });
+
+    it('clamps future-dated input to "just now" (defensive: clock skew, upstream bugs). APP-55.', () => {
+        const isoOneHourAhead = new Date(NOW.getTime() + 60 * 60_000).toISOString();
+        expect(formatLastRan(isoOneHourAhead, NOW)).toBe('just now');
+    });
+
+    it('clamps far-future input to "just now" rather than rendering negative day buckets. APP-55.', () => {
+        const isoTwoDaysAhead = new Date(NOW.getTime() + 2 * 24 * 60 * 60_000).toISOString();
+        expect(formatLastRan(isoTwoDaysAhead, NOW)).toBe('just now');
+    });
 });
 
 describe('formatCountdown', () => {

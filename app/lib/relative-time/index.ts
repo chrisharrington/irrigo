@@ -22,7 +22,10 @@ export function formatLastRan(iso: string | null, now: Date): string {
     if (iso === null) return '';
     const last = dayjs(iso);
     const present = dayjs(now);
-    const diffMs = present.valueOf() - last.valueOf();
+    // Clamp future-dated input to 0 so clock skew (or upstream data bugs)
+    // can't bucket into a negative `Math.floor(diffMs / MS_PER_DAY)` and
+    // render `'-2 nights ago'`. APP-55.
+    const diffMs = Math.max(0, present.valueOf() - last.valueOf());
     if (diffMs < MS_PER_HOUR) return 'just now';
     if (diffMs < MS_PER_DAY) {
         const hours = Math.floor(diffMs / MS_PER_HOUR);
