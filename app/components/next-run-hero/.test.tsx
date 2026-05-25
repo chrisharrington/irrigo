@@ -131,7 +131,7 @@ describe('NextRunHero', () => {
         expect(screen.getByText('Scheduled')).toBeOnTheScreen();
     });
 
-    it('renders the Firing badge when state is firing.', () => {
+    it('does not render a badge when state is firing (APP-43).', () => {
         render(
             <NextRunHero
                 nextRun={{ ...SCHEDULED_NEXT_RUN, state: 'firing' }}
@@ -140,7 +140,14 @@ describe('NextRunHero', () => {
             />,
         );
 
-        expect(screen.getByText('Firing')).toBeOnTheScreen();
+        // The body of the card still renders — just the badge is suppressed.
+        expect(screen.getByText('10:23 pm')).toBeOnTheScreen();
+        // None of the badge labels appear.
+        expect(screen.queryByText('Firing')).toBeNull();
+        expect(screen.queryByText('Scheduled')).toBeNull();
+        expect(screen.queryByText('Skipped rain')).toBeNull();
+        expect(screen.queryByText('Skipped')).toBeNull();
+        expect(screen.queryByText('Idle')).toBeNull();
     });
 
     it('renders the embedded compact CycleStrip with the per-zone palette applied.', () => {
