@@ -1,48 +1,69 @@
+import { useState } from 'react';
 import { ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { FireLog } from '@/components/fire-log';
+import { ZoneFilterChipStrip } from '@/components/zone-filter-chip-strip';
 import { FontFamily } from '@/constants/fonts';
 import { useActivity } from '@/hooks/activity';
 import { useNextRun } from '@/hooks/next-run';
+import { useZones } from '@/hooks/zones';
 import config from '@/tailwind.config';
 
 const colors = config.theme.extend.colors;
 
 const DEFAULT_TIMEZONE = 'UTC';
+const ALL_ZONES_LABEL = 'all zones';
 
 /**
  * Smart container for the Activity screen. Composes the eyebrow + page
- * title with the chronological fire log sourced from `GET /activity`.
- * Reads `useNextRun()` only for the site timezone (already cached after a
- * Home-screen visit); falls back to UTC when the cache hasn't been primed
- * yet. RN port of `ActivityView` from `Mobile.jsx` — minus the alert
- * region, since alerts have no dismiss affordance yet and lingering
- * non-interactive copy is worse than silence here. APP-32.
+ * title with a zone-filter chip strip and the chronological fire log
+ * sourced from `GET /activity`. Reads `useNextRun()` only for the site
+ * timezone (already cached after a Home-screen visit); falls back to UTC
+ * when the cache hasn't been primed yet. Selecting a zone chip flips
+ * `useActivity({ zoneId })`'s query key, which React Query treats as a
+ * fresh query — so the fire log re-fetches the first page automatically.
+ * RN port of `ActivityView` from `Mobile.jsx` — minus the alert region,
+ * since alerts have no dismiss affordance yet and lingering non-
+ * interactive copy is worse than silence here. APP-32 / APP-61.
  */
 export function ActivityView() {
     const insets = useSafeAreaInsets();
-    const activity = useActivity();
+    const [selectedZoneId, setSelectedZoneId] = useState<string | undefined>(undefined);
+    const activity = useActivity({ ...(selectedZoneId !== undefined ? { zoneId: selectedZoneId } : {}) });
     const nextRun = useNextRun();
+    const zones = useZones();
     const siteTimezone = nextRun.data?.timezone ?? DEFAULT_TIMEZONE;
 
     const rows = activity.data?.pages.flatMap(page => page.activity) ?? [];
+    const selectedZoneName = selectedZoneId === undefined
+        ? null
+        : zones.data?.find(zone => zone.id === selectedZoneId)?.name ?? null;
+    const eyebrowSuffix = selectedZoneName ?? ALL_ZONES_LABEL;
 
     return (
         <ScrollView
             style={styles.scroll}
             contentContainerStyle={[styles.content, { paddingTop: 16, paddingBottom: insets.bottom + 32 }]}
         >
-            <Text style={styles.eyebrow}>Chronological · all zones</Text>
-            <Text style={styles.title}>Activity</Text>
+            <Text style={[styles.eyebrow, styles.inset]}>Chronological · {eyebrowSuffix}</Text>
+            <Text style={[styles.title, styles.inset]}>Activity</Text>
 
-            {activity.isPending ?
-                <PlaceholderCard label='Loading activity…' />
-            : activity.isError || activity.data === undefined ?
-                <PlaceholderCard label='Failed to load activity.' tone='error' />
-            : rows.length === 0 ?
-                <PlaceholderCard label='No runs yet.' />
-            :   <FireLog rows={rows} siteTimezone={siteTimezone} />}
+            <ZoneFilterChipStrip
+                zones={zones.data ?? []}
+                selectedZoneId={selectedZoneId}
+                onSelect={setSelectedZoneId}
+            />
+
+            <View style={styles.inset}>
+                {activity.isPending ?
+                    <PlaceholderCard label='Loading activity…' />
+                : activity.isError || activity.data === undefined ?
+                    <PlaceholderCard label='Failed to load activity.' tone='error' />
+                : rows.length === 0 ?
+                    <PlaceholderCard label='No runs yet.' />
+                :   <FireLog rows={rows} siteTimezone={siteTimezone} />}
+            </View>
         </ScrollView>
     );
 }
@@ -68,6 +89,11 @@ const styles = StyleSheet.create({
     },
     content: {
         gap: 18,
+    },
+    inset: {
+        // Most rows sit 20px in from the screen edge; the chip strip skips
+        // this so it can scroll edge-to-edge while keeping its own internal
+        // padding aligned with the rest of the content.
         paddingHorizontal: 20,
     },
     eyebrow: {
