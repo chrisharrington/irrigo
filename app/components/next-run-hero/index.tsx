@@ -68,6 +68,7 @@ export function NextRunHero({ nextRun, siteTimezone, now }: NextRunHeroProps) {
 
     const timeOfDay = formatTimeOfDay(nextRun.startTime, resolvedTimezone);
     const dateLabel = formatNextRunDate(nextRun.startTime, resolvedTimezone, resolvedNow);
+    const badgeLabel = badgeLabelForState(nextRun.state);
 
     return (
         <View style={[styles.card, styles.cardActive]} accessibilityLabel={`Next run at ${timeOfDay}`}>
@@ -78,7 +79,7 @@ export function NextRunHero({ nextRun, siteTimezone, now }: NextRunHeroProps) {
                     <Text style={styles.subtitle}>{dateLabel}</Text>
                 </View>
 
-                <Badge tone={badgeToneForState(nextRun.state)}>{badgeLabelForState(nextRun.state)}</Badge>
+                {badgeLabel !== null && <Badge tone={badgeToneForState(nextRun.state)}>{badgeLabel}</Badge>}
             </View>
 
             {cycleStripNight !== null && (
@@ -96,12 +97,13 @@ function badgeToneForState(state: NextRunState): BadgeTone {
     return 'neutral';
 }
 
-function badgeLabelForState(state: NextRunState): string {
+function badgeLabelForState(state: NextRunState): string | null {
     switch (state) {
         case 'scheduled':
             return 'Scheduled';
         case 'firing':
-            return 'Firing';
+            // Hidden — the badge isn't meaningful to operators during a run (APP-43).
+            return null;
         case 'skipped-rain':
             return 'Skipped rain';
         case 'skipped-manual':
