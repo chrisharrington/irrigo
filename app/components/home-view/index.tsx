@@ -46,7 +46,7 @@ export function HomeView() {
     return (
         <ScrollView
             style={styles.scroll}
-            contentContainerStyle={[styles.content, { paddingTop: insets.top + 16, paddingBottom: insets.bottom + 32 }]}
+            contentContainerStyle={[styles.content, { paddingTop: 16, paddingBottom: insets.bottom + 32 }]}
         >
             <MasterToggle />
 

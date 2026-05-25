@@ -1,12 +1,16 @@
+import { useState } from 'react';
+import { View } from 'react-native';
 import { DarkTheme, ThemeProvider, type Theme } from '@react-navigation/native';
-import { Stack } from 'expo-router';
+import { Stack, usePathname, useRouter } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { StatusBar } from 'expo-status-bar';
 import 'react-native-reanimated';
-import { SafeAreaProvider } from 'react-native-safe-area-context';
+import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { ApiProvider } from '@/api/provider';
 import { FontLoader } from '@/components/font-loader';
+import { Header } from '@/components/header';
+import { NavDrawer, type NavItemId } from '@/components/nav-drawer';
 import { NotificationsBridge } from '@/components/notifications-bridge';
 import { StatusBarBackdrop } from '@/components/status-bar-backdrop';
 import '../global.css';
@@ -31,15 +35,29 @@ export const irrigoDarkTheme: Theme = {
     },
 };
 
+const ROUTE_FOR_NAV_ID: Record<NavItemId, string> = {
+    home: '/',
+    zones: '/zones',
+    schedules: '/schedules',
+    activity: '/activity',
+};
+
+function pathnameToActiveId(pathname: string): NavItemId {
+    // Strip trailing 's' off each plural id so `/zone/<slug>` resolves to
+    // the same tab as `/zones` (no separate /zone/* schedules / activity
+    // detail routes exist, but the form holds for them too).
+    return (Object.keys(ROUTE_FOR_NAV_ID) as NavItemId[]).find(
+        id => id !== 'home' && pathname.startsWith('/' + id.replace(/s$/, '')),
+    ) ?? 'home';
+}
+
 export default function RootLayout() {
     return (
         <ApiProvider>
             <FontLoader>
                 <SafeAreaProvider>
                     <ThemeProvider value={irrigoDarkTheme}>
-                        <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: '#000000' } }}>
-                            <Stack.Screen name='modal' options={{ presentation: 'modal', title: 'Modal' }} />
-                        </Stack>
+                        <AppShell />
                         <NotificationsBridge />
                         <StatusBarBackdrop />
                         <StatusBar style='light' />
@@ -47,5 +65,35 @@ export default function RootLayout() {
                 </SafeAreaProvider>
             </FontLoader>
         </ApiProvider>
+    );
+}
+
+/**
+ * Renders the persistent app chrome (header + drawer) around the route
+ * stack. Owns the drawer's open/closed state and maps the current
+ * `usePathname()` onto the drawer's `activeId`. APP-22 / APP-58.
+ */
+function AppShell() {
+    const insets = useSafeAreaInsets();
+    const router = useRouter();
+    const pathname = usePathname();
+    const [drawerOpen, setDrawerOpen] = useState(false);
+    const activeId = pathnameToActiveId(pathname);
+
+    return (
+        <View style={{ flex: 1 }}>
+            <View style={{ paddingTop: insets.top, backgroundColor: '#000000' }}>
+                <Header onMenuPress={() => setDrawerOpen(true)} />
+            </View>
+            <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: '#000000' } }}>
+                <Stack.Screen name='modal' options={{ presentation: 'modal', title: 'Modal' }} />
+            </Stack>
+            <NavDrawer
+                visible={drawerOpen}
+                onClose={() => setDrawerOpen(false)}
+                activeId={activeId}
+                onSelect={(id) => router.push(ROUTE_FOR_NAV_ID[id] as never)}
+            />
+        </View>
     );
 }
