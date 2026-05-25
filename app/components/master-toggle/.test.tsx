@@ -43,8 +43,25 @@ describe('MasterToggle', () => {
 
         await waitFor(() => expect(screen.getByText('System off')).toBeOnTheScreen());
         expect(screen.getByText('Irrigation disabled')).toBeOnTheScreen();
-        expect(screen.getByText('Master kill switch · all runs blocked')).toBeOnTheScreen();
+        expect(screen.getByText('Scheduling & manual runs blocked')).toBeOnTheScreen();
         expect(screen.getByLabelText('Enable irrigation')).toBeOnTheScreen();
+    });
+
+    it(`subtitle strings for enabled and disabled are the same length so toggling doesn't shift the panel height (APP-56).`, async () => {
+        // Render the enabled card and capture its subtitle.
+        mockFetch.mockResolvedValueOnce(jsonResponse({ irrigationEnabled: true, since: SAMPLE_TIMESTAMP }));
+        const enabledRender = render(<MasterToggle />, { wrapper: buildApiWrapper().wrapper });
+        await waitFor(() => expect(enabledRender.getByText('Scheduling & manual runs allowed')).toBeOnTheScreen());
+        const enabledSub = enabledRender.getByText('Scheduling & manual runs allowed').props.children as string;
+        enabledRender.unmount();
+
+        // Render the disabled card and capture its subtitle.
+        mockFetch.mockResolvedValueOnce(jsonResponse({ irrigationEnabled: false, since: SAMPLE_TIMESTAMP }));
+        const disabledRender = render(<MasterToggle />, { wrapper: buildApiWrapper().wrapper });
+        await waitFor(() => expect(disabledRender.getByText('Scheduling & manual runs blocked')).toBeOnTheScreen());
+        const disabledSub = disabledRender.getByText('Scheduling & manual runs blocked').props.children as string;
+
+        expect(disabledSub.length).toBe(enabledSub.length);
     });
 
     it('POSTs /system/disable when the toggle is flipped from on to off.', async () => {
