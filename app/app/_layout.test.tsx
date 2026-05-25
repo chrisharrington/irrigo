@@ -78,10 +78,9 @@ describe('RootLayout', () => {
         mockStackScreen.mockClear();
     });
 
-    it('renders the Irrigo canvas background under the navigation stack once fonts load.', () => {
+    it('renders the navigation stack once fonts load.', () => {
         render(<RootLayout />);
 
-        expect(screen.getByLabelText('Irrigo canvas')).toBeOnTheScreen();
         expect(screen.getByLabelText('Stack')).toBeOnTheScreen();
     });
 
@@ -91,9 +90,9 @@ describe('RootLayout', () => {
         expect(mockStatusBar).toHaveBeenCalledWith(expect.objectContaining({ style: 'light' }));
     });
 
-    it('exposes a dark-only theme whose background matches the canvas hex.', () => {
+    it('exposes a dark-only theme whose background is plain black (APP-52).', () => {
         expect(irrigoDarkTheme.dark).toBe(true);
-        expect(irrigoDarkTheme.colors.background).toBe('#06090A');
+        expect(irrigoDarkTheme.colors.background).toBe('#000000');
     });
 
     it('registers the modal screen and no longer registers the legacy (tabs) anchor.', () => {

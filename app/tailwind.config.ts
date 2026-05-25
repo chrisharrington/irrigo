@@ -52,7 +52,7 @@ export default {
                 'moon-500': '#D8C690',
 
                 // Semantic.
-                bg: '#06090A',
+                bg: '#000000',
                 'bg-alt': '#0B1110',
                 surface: '#0E1412',
                 'surface-2': '#141B18',

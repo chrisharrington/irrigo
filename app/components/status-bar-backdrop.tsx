@@ -1,10 +1,10 @@
 import { View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-const CANVAS_BG = '#06090A';
+const CANVAS_BG = '#000000';
 
 export type StatusBarBackdropProps = {
-    /** Optional. Hex/rgba color filling the status-bar inset. Defaults to the canvas base `#06090A`. */
+    /** Optional. Hex/rgba color filling the status-bar inset. Defaults to the canvas base `#000000`. */
     color?: string;
 };
 
