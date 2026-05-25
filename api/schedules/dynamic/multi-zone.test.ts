@@ -806,4 +806,80 @@ describe('planZoneSchedule — multi-zone matrix', () => {
             assertNoCrossZoneOverlap(combined);
         });
     });
+
+    describe('Theme I — Partial refill when full-refill exceeds the overnight window (API-75)', () => {
+        // Production-shaped zone: clay-loam soil (5 mm/hr infiltration → 45-min
+        // soak, 165 AWHC/m), default root 0.3 m, low precipitation (18.75 mm/hr).
+        // Full-refill runtime at TAW depletion (49.5 mm) is ~14 h — well past
+        // the 360-min midnight-to-sunrise window. Pre-API-75 this deferred the
+        // night forever; now the planner clamps to a partial refill and carries
+        // the residual into the next allowed night.
+        const CLAY_LOAM_SLOW = { name: 'ClayLoamSlow', availableWaterHoldingCapacityMmPerM: 165, infiltrationRateMmPerHr: 5 };
+        const PARTIAL_REFILL_ZONE: Partial<Zone> = {
+            soil: CLAY_LOAM_SLOW,
+            rootDepthM: 0.3,
+            allowableDepletionFraction: 0.5,
+            irrigationEfficiency: 0.8,
+            precipitationRateMmPerHr: 18.75,
+        };
+
+        it('29. Single zone with deep deficit: cycles fit the window; entry reflects a partial refill.', () => {
+            const zone = makeZone('a', { ...PARTIAL_REFILL_ZONE, currentDepletionMm: 49.5 });
+            const weather = gatedWeather(7);
+
+            const { entries } = planZoneSchedule(zone, weather);
+
+            expect(entries.length).toBeGreaterThan(0);
+            const day0 = entries[0]!;
+            // All cycles fit inside [midnight, sunrise].
+            const midnight = day0.date.startOf('day');
+            const sunrise = day0.sunriseAt!;
+            for (const cycle of day0.cycles) {
+                expect(cycle.startTime.valueOf()).toBeGreaterThanOrEqual(midnight.valueOf());
+                const cycleEnd = cycle.startTime.add(cycle.durationMin, 'minute');
+                expect(cycleEnd.valueOf()).toBeLessThanOrEqual(sunrise.valueOf() + 1000);
+            }
+            // Clamp activated: applied gross is less than full-refill gross
+            // (depletion / efficiency) and depletionAfter is the residual.
+            const fullRefillGross = day0.depletionBeforeMm / zone.irrigationEfficiency;
+            expect(day0.appliedDepthMm).toBeLessThan(fullRefillGross);
+            expect(day0.depletionAfterMm).toBeGreaterThan(0);
+            const expectedAfter = day0.depletionBeforeMm - day0.appliedDepthMm * zone.irrigationEfficiency;
+            expect(day0.depletionAfterMm).toBeCloseTo(expectedAfter, 0);
+        });
+
+        it('30. Follow-on night picks up the residual.', () => {
+            const zone = makeZone('a', { ...PARTIAL_REFILL_ZONE, currentDepletionMm: 49.5 });
+            const weather = gatedWeather(7);
+
+            const { entries } = planZoneSchedule(zone, weather);
+
+            // The deficit doesn't clear in one night — the planner emits a
+            // follow-on entry on day 1 to keep irrigating.
+            expect(entries.length).toBeGreaterThanOrEqual(2);
+            const day0 = entries[0]!;
+            const day1 = entries[1]!;
+            // Day 1's depletionBefore picks up the residual from day 0 plus
+            // ~1 day of ET; it must NOT reset to the seed value or to 0.
+            expect(day1.depletionBeforeMm).toBeGreaterThan(0);
+            expect(day1.depletionBeforeMm).toBeLessThan(day0.depletionBeforeMm);
+        });
+
+        it('31. Fits-in-one-night zones remain unchanged: no clamp, full refill.', () => {
+            // Default loam + COMPACT precip — the standard multi-zone profile.
+            // Full-refill runtime (~60 min) fits well within the 360-min window.
+            const zone = makeZone('a', { currentDepletionMm: 22.5 });
+            const weather = gatedWeather(7);
+
+            const { entries } = planZoneSchedule(zone, weather);
+
+            expect(entries.length).toBeGreaterThan(0);
+            const day0 = entries[0]!;
+            // Full refill: applied gross ≈ depletionBefore / efficiency (within
+            // 1-decimal rounding) and the residual depletion is zero.
+            const fullRefillGross = day0.depletionBeforeMm / zone.irrigationEfficiency;
+            expect(Math.abs(day0.appliedDepthMm - fullRefillGross)).toBeLessThanOrEqual(0.1);
+            expect(day0.depletionAfterMm).toBe(0);
+        });
+    });
 });

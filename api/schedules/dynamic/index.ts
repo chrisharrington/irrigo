@@ -153,10 +153,12 @@ export function planZoneSchedule(
 
                 irrigationSchedule.push(irrigationOutcome.entry);
 
-                // Reset depletion to zero after irrigation, then re-apply
-                // the day's net ET for the post-irrigation portion.
+                // Start the post-irrigation portion from the entry's residual
+                // depletion (zero on a full refill, positive on a partial
+                // refill clamped by the overnight window — see API-75), then
+                // re-apply the day's net ET for the post-irrigation hours.
                 currentDepletionMillimeters = clampValue(
-                    cropEvapotranspiration - effectiveRainfallMillimeters,
+                    irrigationOutcome.entry.depletionAfterMm + cropEvapotranspiration - effectiveRainfallMillimeters,
                     0,
                     totalAvailableWaterMillimeters
                 );
@@ -228,18 +230,38 @@ function tryPlaceIrrigationForDay(inputs: PlaceIrrigationInputs): PlaceIrrigatio
     }
 
     const depletionBeforeIrrigation = currentDepletionMillimeters;
-    const grossIrrigationDepthMillimeters = Math.min(
+    const fullRefillGrossDepthMillimeters = Math.min(
         currentDepletionMillimeters / zone.irrigationEfficiency,
         totalAvailableWaterMillimeters,
     );
-    const totalRunTimeMinutes = (grossIrrigationDepthMillimeters / precipitationRateMillimetersPerHour) * 60;
+    const fullRefillRunTimeMinutes = (fullRefillGrossDepthMillimeters / precipitationRateMillimetersPerHour) * 60;
     const maximumCycleMinutes = infiltrationRateMillimetersPerHour > 0
         ? (infiltrationRateMillimetersPerHour / precipitationRateMillimetersPerHour) * 60
-        : totalRunTimeMinutes;
+        : fullRefillRunTimeMinutes;
 
     // Overnight floor: midnight (00:00 local) of the irrigation entry's date.
     // No cycle may start before this time.
     const earliestStart = sunrise.startOf('day');
+
+    // Cap runtime at what tonight's overnight window can physically hold
+    // (API-75). The closed-form picks the largest N where
+    // `N·maxCycle + (N-1)·soak ≤ windowMinutes`, then maxRunTime = N·maxCycle.
+    // When the full-refill runtime exceeds this cap, we accept a partial
+    // refill — depletionAfter reflects the residual and carries forward to
+    // the next allowed day. Without this clamp, deep deficits on low-
+    // infiltration soils defer forever because every full refill is longer
+    // than [midnight, sunrise].
+    const windowMinutes = sunrise.diff(earliestStart, 'minute');
+    const maxRunTimeMinutes = computeMaxRunTimeMinutes(maximumCycleMinutes, soakTimeMinutes, windowMinutes);
+    if (maxRunTimeMinutes <= 0) {
+        console.warn(`planner: zone ${zone.id} (${zone.name}): overnight window (${windowMinutes} min) too short to fit even one cycle (maxCycle ${maximumCycleMinutes.toFixed(1)} min) on ${date.format('YYYY-MM-DD')} — skipping irrigation.`);
+        return null;
+    }
+    const totalRunTimeMinutes = Math.min(fullRefillRunTimeMinutes, maxRunTimeMinutes);
+    const grossIrrigationDepthMillimeters = (totalRunTimeMinutes / 60) * precipitationRateMillimetersPerHour;
+    if (totalRunTimeMinutes < fullRefillRunTimeMinutes) {
+        console.log(`planner: zone ${zone.id} (${zone.name}): clamping run time ${fullRefillRunTimeMinutes.toFixed(1)} → ${totalRunTimeMinutes.toFixed(1)} min on ${date.format('YYYY-MM-DD')} (window ${windowMinutes} min); applying ${grossIrrigationDepthMillimeters.toFixed(1)} of ${fullRefillGrossDepthMillimeters.toFixed(1)} mm.`);
+    }
 
     // The daemon plumbs a "past window" — { start: epoch, end: now } — as a
     // busy interval that pushes past-dated cycles forward. It's handled
@@ -298,16 +320,44 @@ function tryPlaceIrrigationForDay(inputs: PlaceIrrigationInputs): PlaceIrrigatio
         return null;
     }
 
+    // Net depth that actually reaches the root zone after losses. `depletionAfter`
+    // is the residual depletion after this event — zero on a full refill,
+    // positive when the overnight-window clamp limited the applied gross
+    // (API-75). The planner's day loop carries this residual into tomorrow.
+    const netAppliedDepthMillimeters = grossIrrigationDepthMillimeters * zone.irrigationEfficiency;
+    const depletionAfterIrrigation = Math.max(0, depletionBeforeIrrigation - netAppliedDepthMillimeters);
+
     const entry: IrrigationScheduleEntry = {
         date,
         zoneId: zone.id,
         cycles: finalCycles,
         appliedDepthMm: roundTo1Decimal(grossIrrigationDepthMillimeters),
         depletionBeforeMm: roundTo1Decimal(depletionBeforeIrrigation),
-        depletionAfterMm: 0,
+        depletionAfterMm: roundTo1Decimal(depletionAfterIrrigation),
         sunriseAt: sunrise,
     };
     return { cycles: finalCycles, entry };
+}
+
+/**
+ * Returns the largest total runtime (minutes) whose cycle layout fits inside
+ * `windowMinutes` given the per-cycle infiltration cap (`maxCycleMinutes`) and
+ * the intra-zone soak gap. Closed form: pick the largest `N` where
+ * `N·maxCycle + (N-1)·soak ≤ windowMinutes`, then `maxRunTime = N·maxCycle`.
+ * Returns 0 when not even one minimum-width cycle fits.
+ *
+ * For `maxCycleMinutes <= 0` (no infiltration limit), a single uninterrupted
+ * cycle is allowed up to the full window — there's no per-cycle ceiling.
+ *
+ * Exposed for upcoming partial-refill tests (API-75). Kept inside this module
+ * because callers shouldn't need to reason about cycle math directly.
+ */
+function computeMaxRunTimeMinutes(maxCycleMinutes: number, soakTimeMinutes: number, windowMinutes: number): number {
+    if (windowMinutes <= 0) return 0;
+    if (maxCycleMinutes <= 0) return windowMinutes;
+    const cyclesThatFit = Math.floor((windowMinutes + soakTimeMinutes) / (maxCycleMinutes + soakTimeMinutes));
+    if (cyclesThatFit <= 0) return 0;
+    return cyclesThatFit * maxCycleMinutes;
 }
 
 
