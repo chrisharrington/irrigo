@@ -582,14 +582,7 @@ describe('planZoneSchedule — multi-zone matrix', () => {
     describe('Theme F — Past-window mechanics', () => {
         const pastWindow = (now: Dayjs): BusyWindow => ({ start: dayjs(new Date(0)), end: now });
 
-        it('21. Past window without endBySunrise — every zone\'s day-0 cycles shift to start at-or-after now.', () => {
-            // Note (known planner limitation): when multiple zones get the
-            // past-window forward shift, each zone's cycles are re-anchored
-            // independently against the pastWindow only — not against the
-            // already-shifted cross-zone cycles. Result: B's shifted cycles
-            // can collide with A's shifted cycles. Tracked separately as a
-            // planner follow-up; this scenario only asserts the "shifted to
-            // at-or-after now" invariant, not cross-zone non-overlap.
+        it(`21. Past window without endBySunrise — every zone's day-0 cycles shift to start at-or-after now AND don't overlap earlier zones' shifted cycles (API-77).`, () => {
             const zones = [
                 makeZone('a', { currentDepletionMm: 22.5 }),
                 makeZone('b', { currentDepletionMm: 22.5 }),
@@ -620,6 +613,10 @@ describe('planZoneSchedule — multi-zone matrix', () => {
                     expect(cycle.startTime.valueOf()).toBeGreaterThanOrEqual(now.valueOf());
                 }
             }
+            // The past-window forward shift now also dodges cross-zone busy
+            // windows (API-77) — shifted cycles must not collide with cycles
+            // already planted by an earlier zone in the per-zone loop.
+            assertNoCrossZoneOverlap(results);
         });
 
         it('22. Past window WITH endBySunrise — day-0 cycles dropped for every zone.', () => {
@@ -976,6 +973,44 @@ describe('planZoneSchedule — multi-zone matrix', () => {
             }
             assertNoCrossZoneOverlap(results);
             assertProjectedDepletionSane(results, zones);
+        });
+
+        it(`35. Past-window forward-shift respects cross-zone busy windows — pushed cycles don't overlap existing busy intervals.`, () => {
+            // Zone B's backward placement avoids zone A's busy windows; then
+            // the past-window forward shift could push B's cycles on top of
+            // A's windows. Pre-API-77 it did exactly that — now the shift
+            // dodges both pastWindow AND cross-zone busy windows.
+            const date = START; // 2026-05-04
+            const now = date.hour(2).minute(0); // 02:00 — between A's planted intervals
+            // Cross-zone busy windows: simulate zone A having already planted
+            // two windows that bracket `now`. The past-window shift will try
+            // to push B's cycles past 02:00; without the fix it lands on A.
+            const zoneABusyWindows: BusyWindow[] = [
+                { start: date.hour(2).minute(15), end: date.hour(2).minute(45) },
+                { start: date.hour(3).minute(0), end: date.hour(3).minute(30) },
+            ];
+            const pastWindow: BusyWindow = { start: dayjs(new Date(0)), end: now };
+            const busyWindows: BusyWindow[] = [pastWindow, ...zoneABusyWindows];
+
+            const zone = makeZone('b', { currentDepletionMm: 22.5 });
+            const weather = gatedWeather(7);
+
+            const { entries } = planZoneSchedule(zone, weather, busyWindows);
+
+            expect(entries.length).toBeGreaterThan(0);
+            const day0 = entries.find(e => e.date.format('YYYY-MM-DD') === '2026-05-04');
+            expect(day0).toBeDefined();
+            // Every placed cycle starts at-or-after now AND does not overlap
+            // any of A's busy windows.
+            for (const cycle of day0!.cycles) {
+                expect(cycle.startTime.valueOf()).toBeGreaterThanOrEqual(now.valueOf());
+                const cycleStart = cycle.startTime;
+                const cycleEnd = cycle.startTime.add(cycle.durationMin, 'minute');
+                for (const window of zoneABusyWindows) {
+                    const overlaps = cycleStart.isBefore(window.end) && cycleEnd.isAfter(window.start);
+                    expect(overlaps).toBe(false);
+                }
+            }
         });
     });
 });

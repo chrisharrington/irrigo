@@ -337,7 +337,12 @@ function tryPlaceIrrigationForDay(inputs: PlaceIrrigationInputs): PlaceIrrigatio
                 return endMs > nowMs;
             });
         }
-        const shifted = deconflictCycles(placedCycles, [pastWindow], soakTimeMinutes);
+        // Forward-shift must dodge both the past-window AND cross-zone busy
+        // windows (API-77). Pre-fix this only considered the past-window, so a
+        // cycle pushed past `now` could land on top of an in-flight cycle or
+        // an earlier zone's planned interval — the daemon then caught it at
+        // arm time and refused to arm, leaving the row persisted but dead.
+        const shifted = deconflictCycles(placedCycles, [pastWindow, ...crossZoneBusyWindows], soakTimeMinutes);
         const midnight = date.startOf('day');
         return shifted.filter(c => !c.startTime.isBefore(midnight));
     })();
