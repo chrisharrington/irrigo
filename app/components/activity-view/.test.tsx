@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/react-native';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react-native';
 
 jest.mock('react-native-safe-area-context', () => ({
     useSafeAreaInsets: () => ({ top: 44, bottom: 0, left: 0, right: 0 }),
@@ -7,12 +7,42 @@ jest.mock('react-native-safe-area-context', () => ({
 import type { ActivityDto, ActivityListResult } from '@/api/types/activity';
 import type { AlertDto } from '@/api/types/alerts';
 import type { NextRunDto } from '@/api/types/next-run';
+import type { ZoneSummary } from '@/api/types/zones';
 import { keys } from '@/api/query-keys';
 import { buildApiWrapper, jsonResponse } from '@/api/test-utils';
 
 import { ActivityView } from '.';
 
 const mockFetch = jest.fn();
+
+function buildZone(overrides?: Partial<ZoneSummary>): ZoneSummary {
+    return {
+        id: 'z-1',
+        slug: 'north',
+        name: 'North',
+        isEnabled: true,
+        grassType: { name: 'Fescue' },
+        soilType: { name: 'Loam' },
+        areaM2: 320,
+        rootDepthM: 0.18,
+        allowableDepletionFraction: 0.5,
+        irrigationEfficiency: 0.8,
+        microclimateFactor: 1,
+        precipitationRateMmPerHr: 10,
+        currentDepletionMm: 14.4,
+        rawMm: 32,
+        lastFiredAt: null,
+        lastAppliedMm: null,
+        homeAssistantEntityId: 'switch.zone_north',
+        patch: 'a',
+        ...overrides,
+    };
+}
+
+const ZONES: ZoneSummary[] = [
+    buildZone({ id: 'z-1', slug: 'north', name: 'North' }),
+    buildZone({ id: 'z-2', slug: 'south', name: 'South' }),
+];
 
 const NEXT_RUN: NextRunDto = {
     state: 'scheduled',
@@ -170,5 +200,97 @@ describe('ActivityView', () => {
 
         expect(screen.getByText('5.0 mm · 30 min')).toBeOnTheScreen();
         expect(screen.getByText('8.0 mm · 40 min')).toBeOnTheScreen();
+    });
+
+    it('renders the "All zones" chip plus one chip per zone returned by /zones (APP-61).', async () => {
+        const { wrapper, client } = buildApiWrapper();
+        client.setQueryData(keys.zones.list(), ZONES);
+        client.setQueryData(keys.activity.list({}), {
+            pages: [activityResult([buildActivity()])],
+            pageParams: [undefined],
+        });
+
+        render(<ActivityView />, { wrapper });
+
+        expect(screen.getByText('All zones')).toBeOnTheScreen();
+        expect(screen.getByText('North')).toBeOnTheScreen();
+        expect(screen.getByText('South')).toBeOnTheScreen();
+        await waitFor(() => expect(screen.getByLabelText('Show all zones').props.accessibilityState).toMatchObject({ selected: true }));
+    });
+
+    it('refetches /activity scoped to the selected zone when a zone chip is tapped (APP-61).', async () => {
+        const { wrapper, client } = buildApiWrapper();
+        client.setQueryData(keys.zones.list(), ZONES);
+        mockFetch.mockImplementation(async (input: RequestInfo) => {
+            const url = typeof input === 'string' ? input : input.url;
+            if (url.includes('/activity')) return jsonResponse(activityResult([buildActivity()]));
+            return jsonResponse({ error: 'unhandled' }, 500);
+        });
+
+        render(<ActivityView />, { wrapper });
+
+        // Wait for the default (no-filter) activity fetch to settle.
+        await waitFor(() => {
+            const calls = mockFetch.mock.calls.filter(([u]) => String(u).includes('/activity'));
+            expect(calls.length).toBeGreaterThan(0);
+        });
+
+        await act(async () => {
+            fireEvent.press(screen.getByLabelText('Filter to North'));
+        });
+
+        await waitFor(() => {
+            const scopedCall = mockFetch.mock.calls.find(([u]) => {
+                const url = new URL(String(u));
+                return url.pathname === '/activity' && url.searchParams.get('zoneId') === 'z-1';
+            });
+            expect(scopedCall).toBeDefined();
+        });
+    });
+
+    it('refetches /activity without the zoneId param when "All zones" is tapped after a zone selection (APP-61).', async () => {
+        const { wrapper, client } = buildApiWrapper();
+        client.setQueryData(keys.zones.list(), ZONES);
+        mockFetch.mockImplementation(async (input: RequestInfo) => {
+            const url = typeof input === 'string' ? input : input.url;
+            if (url.includes('/activity')) return jsonResponse(activityResult([buildActivity()]));
+            return jsonResponse({ error: 'unhandled' }, 500);
+        });
+
+        render(<ActivityView />, { wrapper });
+
+        // Pick a zone first.
+        await act(async () => {
+            fireEvent.press(screen.getByLabelText('Filter to South'));
+        });
+        // Then clear back to All zones.
+        await act(async () => {
+            fireEvent.press(screen.getByLabelText('Show all zones'));
+        });
+
+        await waitFor(() => {
+            const lastCall = mockFetch.mock.calls
+                .map(([u]) => new URL(String(u)))
+                .reverse()
+                .find(url => url.pathname === '/activity');
+            expect(lastCall).toBeDefined();
+            expect(lastCall?.searchParams.has('zoneId')).toBe(false);
+        });
+    });
+
+    it('updates the eyebrow suffix to the zone name when a zone is selected (APP-61).', async () => {
+        const { wrapper, client } = buildApiWrapper();
+        client.setQueryData(keys.zones.list(), ZONES);
+        mockFetch.mockImplementation(async () => jsonResponse(activityResult([buildActivity()])));
+
+        render(<ActivityView />, { wrapper });
+
+        expect(screen.getByText('Chronological · all zones')).toBeOnTheScreen();
+
+        await act(async () => {
+            fireEvent.press(screen.getByLabelText('Filter to South'));
+        });
+
+        await waitFor(() => expect(screen.getByText('Chronological · South')).toBeOnTheScreen());
     });
 });
