@@ -63,6 +63,12 @@ describe('ZoneTile', () => {
         expect(screen.getByText('/ 32 mm')).toBeOnTheScreen();
     });
 
+    it(`labels the depletion pair with a "Water needed" eyebrow so the meaning is explicit (APP-45).`, () => {
+        render(<ZoneTile zone={HEALTHY_ZONE} onPress={() => {}} now={NOW} />);
+
+        expect(screen.getByText('Water needed')).toBeOnTheScreen();
+    });
+
     it('formats the Last ran footer using the relative-time helper.', () => {
         render(<ZoneTile zone={HEALTHY_ZONE} onPress={() => {}} now={NOW} />);
 

@@ -154,6 +154,19 @@ describe('HomeView', () => {
         expect(screen.getByLabelText('Open South')).toBeOnTheScreen();
     });
 
+    it('renders the soil-moisture legend above the zone tiles (APP-45).', async () => {
+        setupSuccessfulFetch();
+        render(<HomeView />, { wrapper: buildApiWrapper().wrapper });
+
+        await waitFor(() => expect(screen.getByLabelText('Open North')).toBeOnTheScreen());
+        expect(screen.getByLabelText('Soil moisture legend')).toBeOnTheScreen();
+        expect(screen.getByText('On track')).toBeOnTheScreen();
+        expect(screen.getByText('Approaching limit')).toBeOnTheScreen();
+        // The fixture's zones are healthy (not past RAW), so 'Runs tonight'
+        // only appears inside the legend — the lookup is unambiguous.
+        expect(screen.getByText('Runs tonight')).toBeOnTheScreen();
+    });
+
     it('renders the zones-section meta with the total area.', async () => {
         setupSuccessfulFetch();
         render(<HomeView />, { wrapper: buildApiWrapper().wrapper });

@@ -51,11 +51,14 @@ export function ZoneTile({ zone, onPress, now }: ZoneTileProps) {
                     <Text style={styles.summary}>{zone.grassType.name} · {zone.areaM2} m²</Text>
                 </View>
 
-                <View style={styles.depletionWrap}>
-                    <Text style={[styles.depletion, pastRaw ? { color: colors.danger } : null]}>
-                        {zone.currentDepletionMm.toFixed(1)}
-                    </Text>
-                    <Text style={styles.rawLabel}> / {zone.rawMm} mm</Text>
+                <View style={styles.depletionBlock}>
+                    <Text style={styles.depletionEyebrow}>Water needed</Text>
+                    <View style={styles.depletionWrap}>
+                        <Text style={[styles.depletion, pastRaw ? { color: colors.danger } : null]}>
+                            {zone.currentDepletionMm.toFixed(1)}
+                        </Text>
+                        <Text style={styles.rawLabel}> / {zone.rawMm} mm</Text>
+                    </View>
                 </View>
             </View>
 
@@ -102,6 +105,18 @@ const styles = StyleSheet.create({
         fontFamily: FontFamily.monoMedium,
         fontSize: 11,
         lineHeight: 13,
+        color: colors['fg-muted'],
+    },
+    depletionBlock: {
+        alignItems: 'flex-end',
+    },
+    depletionEyebrow: {
+        marginBottom: 2,
+        fontFamily: FontFamily.sansMedium,
+        fontSize: 10,
+        lineHeight: 12,
+        letterSpacing: 1.4,
+        textTransform: 'uppercase',
         color: colors['fg-muted'],
     },
     depletionWrap: {

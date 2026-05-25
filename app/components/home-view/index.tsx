@@ -3,6 +3,7 @@ import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { ActiveScheduleChip } from '@/components/active-schedule-chip';
+import { DepletionLegend } from '@/components/depletion-legend';
 import { MasterToggle } from '@/components/master-toggle';
 import { NextRunHero } from '@/components/next-run-hero';
 import { SystemDisabledWrapper } from '@/components/system-disabled-wrapper';
@@ -76,11 +77,14 @@ export function HomeView() {
                     ) : zones.isError || zones.data == null ? (
                         <PlaceholderCard label='Failed to load zones.' tone='error' />
                     ) : (
-                        <View style={styles.zoneList}>
-                            {zones.data.map(zone => (
-                                <ZoneTile key={zone.id} zone={zone} onPress={handleZonePress} />
-                            ))}
-                        </View>
+                        <>
+                            <DepletionLegend />
+                            <View style={styles.zoneList}>
+                                {zones.data.map(zone => (
+                                    <ZoneTile key={zone.id} zone={zone} onPress={handleZonePress} />
+                                ))}
+                            </View>
+                        </>
                     )}
 
                     {activeSchedule !== null && (
