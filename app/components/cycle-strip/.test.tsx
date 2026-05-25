@@ -114,6 +114,20 @@ describe('pctOfSunEvent', () => {
         // (240 + 1440 - 1320) / 480 = 360 / 480 = 75%.
         expect(pctOfSunEvent(startMin, totalMin, '04:00')).toBeCloseTo(75, 5);
     });
+
+    it('wraps backward when axisStart is post-midnight and sunset is the prior evening (APP-57 follow-up).', () => {
+        // First cycle at 00:30 → axisStart=00:30, totalMin=360 (00:30 → 06:30).
+        // Sunset 20:00 belongs to the *previous* day relative to that axis;
+        // it must resolve to a NEGATIVE percent (not +325%) so the label
+        // clamps to the left edge rather than landing alongside sunrise on
+        // the right.
+        const postMidnightStart = 30; // 00:30
+        const postMidnightTotal = 360;
+        expect(pctOfSunEvent(postMidnightStart, postMidnightTotal, '20:00')).toBeCloseTo(-75, 5);
+        // Sunrise 05:30 on the same axis lands inside the chart, no wrap.
+        expect(pctOfSunEvent(postMidnightStart, postMidnightTotal, '05:30'))
+            .toBeCloseTo(((330 - 30) / 360) * 100, 5);
+    });
 });
 
 describe('widthPctOf', () => {

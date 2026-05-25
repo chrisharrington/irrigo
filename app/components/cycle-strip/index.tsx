@@ -113,21 +113,34 @@ export function pctOf(startMin: number, totalMin: number, hhmm: string): number 
 }
 
 /**
- * Like `pctOf`, but disambiguates "before the axis starts" from "next day"
- * for sun events. Sunset typically happens before the night's axis (e.g.
- * 20:30 vs 22:00) and shouldn't be projected to tomorrow's sunset; sunrise
- * happens after midnight (next-day wrap) and should be.
+ * Like `pctOf`, but bidirectional: the same `HH:MM` clock value can map to
+ * yesterday, today, or tomorrow — and for sun events the right answer
+ * depends on where the chart's axis sits.
  *
- * Heuristic: if `hhmm` falls less than half a day before `startMin`, treat
- * it as "earlier today" and return a negative percent (the caller decides
- * whether to clamp / hide). Otherwise wrap forward like `pctOf`.
+ *   • Sunset 20:00 on a 22:00–06:00 axis is just before the night starts
+ *     → ≈ -25%.
+ *   • Sunrise 05:30 on the same axis is tomorrow-morning → 100%.
+ *   • Sunset 20:00 on a 00:30–06:00 axis (first cycle post-midnight) is
+ *     also previous-day → negative, *not* +325%.
+ *
+ * Strategy: enumerate the three candidate absolute minutes (m−1day, m,
+ * m+1day) and pick whichever chart-position is closest to the visible
+ * [0%, 100%] window. The caller clamps the returned value when rendering.
  */
 export function pctOfSunEvent(startMin: number, totalMin: number, hhmm: string): number {
     const m = parseHHMM(hhmm);
-    const adjusted = m < startMin && startMin - m > MINUTES_PER_DAY / 2
-        ? m + MINUTES_PER_DAY
-        : m;
-    return ((adjusted - startMin) / totalMin) * 100;
+    const candidates = [m - MINUTES_PER_DAY, m, m + MINUTES_PER_DAY];
+    let best = m;
+    let bestDistance = Infinity;
+    for (const candidate of candidates) {
+        const pct = (candidate - startMin) / totalMin;
+        const distance = pct < 0 ? -pct : pct > 1 ? pct - 1 : 0;
+        if (distance < bestDistance) {
+            best = candidate;
+            bestDistance = distance;
+        }
+    }
+    return ((best - startMin) / totalMin) * 100;
 }
 
 /**
