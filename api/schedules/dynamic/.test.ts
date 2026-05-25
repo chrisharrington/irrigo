@@ -83,12 +83,14 @@ describe('planZoneSchedule', () => {
                 currentDepletionMm: 18,
                 allowableDepletionFraction: 0.5,
             });
+            // Trailing day provides the next-day sunrise anchor (API-76).
             const weather = createWeatherDays([
                 { evapotranspirationMmPerDay: 0.5, rainfallMm: 0 },
                 { evapotranspirationMmPerDay: 0.5, rainfallMm: 0 },
                 { evapotranspirationMmPerDay: 0.5, rainfallMm: 0 },
                 { evapotranspirationMmPerDay: 0.5, rainfallMm: 0 },
                 { evapotranspirationMmPerDay: 10.0, rainfallMm: 0 },
+                { evapotranspirationMmPerDay: 0.5, rainfallMm: 0 },
             ]);
 
             const { entries: schedule } = planZoneSchedule(zone, weather);
@@ -623,12 +625,15 @@ describe('planZoneSchedule', () => {
         });
 
         it('should handle very early sunrise with limited cycle window', () => {
+            // The cycle-day's sunrise (day 1) is the anchor under API-76 — pin
+            // it to 04:30 on '2025-10-21' so day-0 cycles end before then.
             const zone = createTestZone({ currentDepletionMm: 22 });
             const weather = createWeatherDays([
+                { evapotranspirationMmPerDay: 1.0, rainfallMm: 0 },
                 {
                     evapotranspirationMmPerDay: 1.0,
                     rainfallMm: 0,
-                    sunrise: dayjs('2025-10-20').hour(4).minute(30),
+                    sunrise: dayjs('2025-10-21').hour(4).minute(30),
                 },
             ]);
 
@@ -641,10 +646,11 @@ describe('planZoneSchedule', () => {
         it('should handle late sunrise with extended cycle window', () => {
             const zone = createTestZone({ currentDepletionMm: 22 });
             const weather = createWeatherDays([
+                { evapotranspirationMmPerDay: 1.0, rainfallMm: 0 },
                 {
                     evapotranspirationMmPerDay: 1.0,
                     rainfallMm: 0,
-                    sunrise: dayjs('2025-10-20').hour(8).minute(30),
+                    sunrise: dayjs('2025-10-21').hour(8).minute(30),
                 },
             ]);
 
@@ -790,9 +796,10 @@ describe('planZoneSchedule', () => {
             expect(schedule.length).toBeGreaterThan(0);
         });
 
-        it('should handle single day planning', () => {
+        it('should handle minimal planning horizon (2 days)', () => {
+            // Need 2 days so day-0 has a next-day sunrise to anchor against (API-76).
             const zone = createTestZone({ currentDepletionMm: 23 });
-            const weather = createDryPeriod(1, 2.0);
+            const weather = createDryPeriod(2, 2.0);
 
             const { entries: schedule } = planZoneSchedule(zone, weather);
 
@@ -901,7 +908,8 @@ describe('planZoneSchedule', () => {
             });
         });
 
-        it('should ensure all cycles end before sunrise', () => {
+        it('should ensure all cycles end before the entry sunriseAt', () => {
+            // Anchor sunrise = `entry.sunriseAt` (cycle-day's sunrise, API-76).
             const zone = createTestZone({
                 soil: SOIL_TYPES.clay,
                 currentDepletionMm: 22,
@@ -912,11 +920,9 @@ describe('planZoneSchedule', () => {
 
             const { entries: schedule } = planZoneSchedule(zone, weather);
 
-            schedule.forEach((entry, index) => {
-                const weatherDay = weather.find(w => w.date.isSame(entry.date, 'day'));
-                if (!weatherDay || !weatherDay.sunrise) return;
-                
-                const sunrise = weatherDay.sunrise;
+            schedule.forEach((entry) => {
+                const sunrise = entry.sunriseAt;
+                if (!sunrise) return;
                 entry.cycles.forEach((cycle) => {
                     const cycleEnd = cycle.startTime.add(cycle.durationMin, 'minute');
                     expect(cycleEnd.isBefore(sunrise) || cycleEnd.isSame(sunrise)).toBe(true);
@@ -990,7 +996,9 @@ describe('planZoneSchedule', () => {
 
         it('reflects post-irrigation reset plus another full day of net ET when day-0 irrigates', () => {
             const zone = createTestZone({ currentDepletionMm: 25, allowableDepletionFraction: 0.5 });
+            // Two days so day 0's irrigation has a next-day sunrise anchor (API-76).
             const weather = createWeatherDays([
+                { evapotranspirationMmPerDay: 2.0, rainfallMm: 0 },
                 { evapotranspirationMmPerDay: 2.0, rainfallMm: 0 },
             ]);
 
@@ -1012,11 +1020,17 @@ describe('planZoneSchedule', () => {
             soil: { name: 'TestSoil', availableWaterHoldingCapacityMmPerM: 150, infiltrationRateMmPerHr: 100 },
             precipitationRateMmPerHr: 50,
         });
+        // Two weather days so day 0's irrigation can anchor to day 1's sunrise (API-76).
         const singleCycleWeather = () => createWeatherDays([
             {
                 evapotranspirationMmPerDay: 1.0,
                 rainfallMm: 0,
                 sunrise: dayjs('2025-10-20').hour(6).minute(0).second(0).millisecond(0),
+            },
+            {
+                evapotranspirationMmPerDay: 1.0,
+                rainfallMm: 0,
+                sunrise: dayjs('2025-10-21').hour(6).minute(0).second(0).millisecond(0),
             },
         ]);
 
@@ -1122,6 +1136,11 @@ describe('planZoneSchedule', () => {
                     rainfallMm: 0,
                     sunrise: dayjs('2025-10-20').hour(6).minute(0).second(0).millisecond(0),
                 },
+                {
+                    evapotranspirationMmPerDay: 1.0,
+                    rainfallMm: 0,
+                    sunrise: dayjs('2025-10-21').hour(6).minute(0).second(0).millisecond(0),
+                },
             ]);
             const baseline = planZoneSchedule(zone, weather);
             expect(baseline.entries[0]!.cycles).toHaveLength(2);
@@ -1146,15 +1165,16 @@ describe('planZoneSchedule', () => {
 
         it('drops the day when a busy window blocks every backward placement before earliestStart', () => {
             // Day 0 with a busy window covering the entire midnight-to-sunrise span
-            // leaves no slot the cycle can backward-slide into. The placer defers
-            // (returns null) and the day is skipped.
+            // of the cycle day (day 1) leaves no slot the cycle can backward-slide
+            // into. The placer defers (returns null) and the day is skipped.
             const zone = singleCycleZone();
-            const sunrise = dayjs('2025-10-20').hour(6).minute(0).second(0).millisecond(0);
+            const cycleSunrise = dayjs('2025-10-21').hour(6).minute(0).second(0).millisecond(0);
             const weather = createWeatherDays([
-                { evapotranspirationMmPerDay: 1.0, rainfallMm: 0, sunrise },
+                { evapotranspirationMmPerDay: 1.0, rainfallMm: 0, sunrise: dayjs('2025-10-20').hour(6).minute(0).second(0).millisecond(0) },
+                { evapotranspirationMmPerDay: 1.0, rainfallMm: 0, sunrise: cycleSunrise },
             ]);
-            const busyStart = sunrise.startOf('day');
-            const busyEnd = sunrise;
+            const busyStart = cycleSunrise.startOf('day');
+            const busyEnd = cycleSunrise;
 
             const { entries } = planZoneSchedule(zone, weather, [{ start: busyStart, end: busyEnd }]);
 
@@ -1210,6 +1230,11 @@ describe('planZoneSchedule', () => {
                     rainfallMm: 0,
                     sunrise: dayjs('2025-10-20').hour(6).minute(0).second(0).millisecond(0),
                 },
+                {
+                    evapotranspirationMmPerDay: 1.0,
+                    rainfallMm: 0,
+                    sunrise: dayjs('2025-10-21').hour(6).minute(0).second(0).millisecond(0),
+                },
             ]);
 
             const planA = planZoneSchedule(zone, weather);
@@ -1244,9 +1269,13 @@ describe('planZoneSchedule', () => {
             precipitationRateMmPerHr: 50,
         });
 
+        // Adds one extra trailing day automatically so day-(N-1) has an anchor
+        // (API-76). Tests that count entries by date still reference the
+        // original `days` window — the trailing day produces no entry.
         function weatherFromDates(startDate: string, days: number, sunriseHour = 6) {
+            const total = days + 1;
             return createWeatherDays(
-                Array.from({ length: days }, () => ({ evapotranspirationMmPerDay: 1.0, rainfallMm: 0 })),
+                Array.from({ length: total }, () => ({ evapotranspirationMmPerDay: 1.0, rainfallMm: 0 })),
                 dayjs(startDate),
             ).map((day, idx) => ({
                 ...day,
@@ -1416,10 +1445,11 @@ describe('planZoneSchedule', () => {
             const zone = singleCycleZone();
             const weather = weatherFromDates('2026-05-06', 1, 6);
 
-            // Cross-zone busy block covers midnight through well after sunrise — nowhere to fit.
+            // Cross-zone busy block covers the cycle day's [midnight, sunrise]
+            // (API-76: cycles anchor to next-day sunrise) — nowhere to fit.
             const busyWindows = [{
-                start: dayjs('2026-05-06').hour(0).minute(0).second(0).millisecond(0),
-                end: dayjs('2026-05-06').hour(11).minute(0).second(0).millisecond(0),
+                start: dayjs('2026-05-07').hour(0).minute(0).second(0).millisecond(0),
+                end: dayjs('2026-05-07').hour(11).minute(0).second(0).millisecond(0),
             }];
 
             const result = planZoneSchedule(zone, weather, busyWindows);
@@ -1457,7 +1487,9 @@ describe('planZoneSchedule', () => {
             soil: { name: 'Loam', availableWaterHoldingCapacityMmPerM: 150, infiltrationRateMmPerHr: 25 },
         });
 
-        const drySevenDays = () => createDryPeriod(7, 5.0, dayjs('2026-05-04'));
+        // 8 days so the planner has a next-day anchor for each of the 7
+        // planning days (API-76: the last day in the horizon is dropped).
+        const drySevenDays = () => createDryPeriod(8, 5.0, dayjs('2026-05-04'));
 
         it('produces output identical to a no-args call when overrides are omitted (regression)', () => {
             const zone = baseZone();
@@ -1538,7 +1570,11 @@ describe('planZoneSchedule', () => {
                 rootDepthM: 0.3,
                 soil: { name: 'Loam', availableWaterHoldingCapacityMmPerM: 150, infiltrationRateMmPerHr: 25 },
             });
-            const weather = createWeatherDays([{ evapotranspirationMmPerDay: 0, rainfallMm: 0 }], dayjs('2026-05-04'));
+            // 2 days so day 0 has a next-day sunrise anchor (API-76).
+            const weather = createWeatherDays([
+                { evapotranspirationMmPerDay: 0, rainfallMm: 0 },
+                { evapotranspirationMmPerDay: 0, rainfallMm: 0 },
+            ], dayjs('2026-05-04'));
 
             const result = planZoneSchedule(zone, weather, [], undefined, { rootDepthM: 0.05 });
 
@@ -1574,28 +1610,31 @@ describe('planZoneSchedule', () => {
     });
 
     describe('midnight floor (API-72)', () => {
-        // The overnight window is [midnight, sunrise]. No cycle may start before
-        // 00:00 local of the irrigation entry's date.
+        // The overnight window is [midnight of cycle day, sunrise of cycle day]
+        // — the cycle day is one day after the entry's planning date (API-76).
 
-        it('all placed cycles start at or after midnight of the entry date', () => {
-            // Single-cycle zone fires on day 0. Cycles must fall in [midnight, sunrise].
+        it('all placed cycles start at or after midnight of the cycle day (API-76)', () => {
+            // Single-cycle zone fires on day 0. Cycles must fall in [midnight cycle-day, sunrise cycle-day].
             const zone = createTestZone({
                 currentDepletionMm: 22,
                 soil: { name: 'TestSoil', availableWaterHoldingCapacityMmPerM: 150, infiltrationRateMmPerHr: 100 },
                 precipitationRateMmPerHr: 50,
             });
-            const date = dayjs('2026-05-04');
+            const planningDate = dayjs('2026-05-04');
             const weather = createWeatherDays(
-                [{ evapotranspirationMmPerDay: 1.0, rainfallMm: 0, sunrise: date.hour(6).minute(0).second(0).millisecond(0) }],
-                date,
+                [
+                    { evapotranspirationMmPerDay: 1.0, rainfallMm: 0, sunrise: planningDate.hour(6).minute(0).second(0).millisecond(0) },
+                    { evapotranspirationMmPerDay: 1.0, rainfallMm: 0, sunrise: planningDate.add(1, 'day').hour(6).minute(0).second(0).millisecond(0) },
+                ],
+                planningDate,
             );
 
             const { entries } = planZoneSchedule(zone, weather);
 
             expect(entries).toHaveLength(1);
-            const midnight = date.startOf('day');
+            const cycleDayMidnight = entries[0]!.sunriseAt!.startOf('day');
             for (const cycle of entries[0]!.cycles) {
-                expect(cycle.startTime.valueOf()).toBeGreaterThanOrEqual(midnight.valueOf());
+                expect(cycle.startTime.valueOf()).toBeGreaterThanOrEqual(cycleDayMidnight.valueOf());
             }
         });
 
@@ -1615,17 +1654,18 @@ describe('planZoneSchedule', () => {
             const weather = createWeatherDays([
                 { evapotranspirationMmPerDay: 1.0, rainfallMm: 0 },
                 { evapotranspirationMmPerDay: 1.0, rainfallMm: 0 },
+                { evapotranspirationMmPerDay: 1.0, rainfallMm: 0 },
             ], dayjs('2026-05-04'));
 
             const { entries } = planZoneSchedule(zone, weather);
 
             expect(entries.length).toBeGreaterThan(0);
             for (const entry of entries) {
-                // Every placed entry's cycles fit inside [midnight, sunrise].
-                const midnight = entry.date.startOf('day');
+                // Every placed entry's cycles fit inside [midnight cycle-day, sunrise cycle-day].
                 const sunrise = entry.sunriseAt!;
+                const cycleDayMidnight = sunrise.startOf('day');
                 for (const cycle of entry.cycles) {
-                    expect(cycle.startTime.valueOf()).toBeGreaterThanOrEqual(midnight.valueOf());
+                    expect(cycle.startTime.valueOf()).toBeGreaterThanOrEqual(cycleDayMidnight.valueOf());
                     const cycleEnd = cycle.startTime.add(cycle.durationMin, 'minute');
                     expect(cycleEnd.valueOf()).toBeLessThanOrEqual(sunrise.valueOf() + 1000);
                 }
@@ -1641,10 +1681,13 @@ describe('planZoneSchedule', () => {
                 soil: { name: 'TestSoil', availableWaterHoldingCapacityMmPerM: 150, infiltrationRateMmPerHr: 100 },
                 precipitationRateMmPerHr: 50,
             });
-            const date = dayjs('2026-05-04');
+            const planningDate = dayjs('2026-05-04');
             const weather = createWeatherDays(
-                [{ evapotranspirationMmPerDay: 1.0, rainfallMm: 0, sunrise: date.hour(6).minute(0).second(0).millisecond(0) }],
-                date,
+                [
+                    { evapotranspirationMmPerDay: 1.0, rainfallMm: 0, sunrise: planningDate.hour(6).minute(0).second(0).millisecond(0) },
+                    { evapotranspirationMmPerDay: 1.0, rainfallMm: 0, sunrise: planningDate.add(1, 'day').hour(6).minute(0).second(0).millisecond(0) },
+                ],
+                planningDate,
             );
 
             const { entries } = planZoneSchedule(zone, weather);
@@ -1652,44 +1695,45 @@ describe('planZoneSchedule', () => {
             expect(entries).toHaveLength(1);
         });
 
-        it('keeps overnight cycles when a late-night past-window ends before midnight of the entry date', () => {
-            // Re-plan at 23:45 on the day before `date`; the past-window is
-            // [epoch, 2026-05-03T23:45]. The cycle is placed in [midnight, sunrise]
-            // of 2026-05-04 — well after the past-window end — so no shift occurs
-            // and the entry fires as planned.
+        it('keeps overnight cycles when a late-night past-window ends before midnight of the cycle day (API-76)', () => {
+            // Re-plan at 23:45 on the day before `cycleDate`; the past-window is
+            // [epoch, 2026-05-04T23:45]. The cycle is placed in [midnight, sunrise]
+            // of 2026-05-05 — well after the past-window end — so the in-flight
+            // filter doesn't bite.
             const zone = createTestZone({
                 currentDepletionMm: 22,
                 soil: { name: 'TestSoil', availableWaterHoldingCapacityMmPerM: 150, infiltrationRateMmPerHr: 100 },
                 precipitationRateMmPerHr: 50,
             });
-            const date = dayjs('2026-05-04');
+            const planningDate = dayjs('2026-05-04');
             const weather = createWeatherDays(
-                [{ evapotranspirationMmPerDay: 1.0, rainfallMm: 0, sunrise: date.hour(6).minute(0).second(0).millisecond(0) }],
-                date,
+                [
+                    { evapotranspirationMmPerDay: 1.0, rainfallMm: 0, sunrise: planningDate.hour(6).minute(0).second(0).millisecond(0) },
+                    { evapotranspirationMmPerDay: 1.0, rainfallMm: 0, sunrise: planningDate.add(1, 'day').hour(6).minute(0).second(0).millisecond(0) },
+                ],
+                planningDate,
             );
-            const pastWindowEnd = dayjs('2026-05-03T23:45:00.000Z');
+            const pastWindowEnd = dayjs('2026-05-04T23:45:00.000Z');
             const pastWindow = { start: dayjs(new Date(0)), end: pastWindowEnd };
 
             const { entries } = planZoneSchedule(zone, weather, [pastWindow]);
 
             expect(entries).toHaveLength(1);
-            // Cycle lands in [midnight, sunrise] — not shifted by the past-window.
+            // Cycle lands in cycle-day's [midnight, sunrise] — not shifted by the past-window.
             const cycle = entries[0]!.cycles[0]!;
-            expect(cycle.startTime.valueOf()).toBeGreaterThanOrEqual(date.startOf('day').valueOf());
-            expect(cycle.startTime.valueOf()).toBeLessThanOrEqual(date.hour(6).valueOf());
+            const cycleDay = entries[0]!.sunriseAt!;
+            expect(cycle.startTime.valueOf()).toBeGreaterThanOrEqual(cycleDay.startOf('day').valueOf());
+            expect(cycle.startTime.valueOf()).toBeLessThanOrEqual(cycleDay.valueOf());
         });
     });
 
-    describe('past-window deconfliction', () => {
-        // Simulates the daemon passing { start: epoch, end: now } as a busy window
-        // so that past-dated cycles are shifted forward to fire after now.
-
-        const NOW = dayjs('2026-05-04T14:00:00.000Z');
-        const PAST_WINDOW = { start: dayjs(new Date(0)), end: NOW };
+    describe('past-window handling (API-76)', () => {
+        // After API-76 the planner anchors each weather day's block to the
+        // *next* day's sunrise — so day 0's cycles run [Mon 00:00, Mon sunrise]
+        // and the past window only matters in the in-flight scenario (now
+        // lands inside the planning block).
 
         function pastWindowZone() {
-            // Single-cycle zone: high infiltration → no cycle splitting.
-            // currentDepletionMm=22 plus ET=0.85 pushes over RAW (22.5 mm) on day 0.
             return createTestZone({
                 currentDepletionMm: 22,
                 soil: { name: 'TestSoil', availableWaterHoldingCapacityMmPerM: 150, infiltrationRateMmPerHr: 100 },
@@ -1697,207 +1741,101 @@ describe('planZoneSchedule', () => {
             });
         }
 
-        function multiCycleZone() {
-            // Clay soil (infiltration 4 mm/hr) forces 3 cycles.
-            // currentDepletionMm=8 plus ET=0.85 pushes over RAW (8 mm) on day 0.
-            return createTestZone({
-                currentDepletionMm: 8,
-                allowableDepletionFraction: 0.5,
-                rootDepthM: 0.08,
+        function twoWeatherDays() {
+            return createWeatherDays(
+                [
+                    { evapotranspirationMmPerDay: 1.0, rainfallMm: 0 },
+                    { evapotranspirationMmPerDay: 1.0, rainfallMm: 0 },
+                ],
+                dayjs('2026-05-04'),
+            );
+        }
+
+        it('10:55 pm Sun replan places day-0 cycles in [00:00 Mon, sunrise Mon] (API-76)', () => {
+            // Pre-API-76 day-0 cycles anchored to Sun's sunrise (already past)
+            // and the past-window forward-shift dropped them at ~11pm Sun. Now
+            // they anchor to Mon's sunrise, so the entire block is in the
+            // future and no shift is needed.
+            const nowSunEvening = dayjs('2026-05-04T22:55:00.000Z');
+            const pastWindow = { start: dayjs(new Date(0)), end: nowSunEvening };
+            const zone = pastWindowZone();
+            const weather = twoWeatherDays();
+            const mondayMidnight = dayjs('2026-05-05').startOf('day');
+
+            const { entries } = planZoneSchedule(zone, weather, [pastWindow]);
+
+            // Day-0 entry exists (entry.date = planning day = Sun).
+            const day0 = entries.find(e => e.date.format('YYYY-MM-DD') === '2026-05-04');
+            expect(day0).toBeDefined();
+            for (const cycle of day0!.cycles) {
+                expect(cycle.startTime.valueOf()).toBeGreaterThanOrEqual(mondayMidnight.valueOf());
+            }
+        });
+
+        it('02:00 am Sun replan during an in-progress block drops cycles whose start is before now (API-76)', () => {
+            // The planner places cycles in [Mon 00:00, Mon sunrise]. With now
+            // = Mon 02:00, the past-window filter drops any cycle starting
+            // before that. The remaining cycles must all start at-or-after now.
+            const nowMidBlock = dayjs('2026-05-05T02:00:00.000Z');
+            const pastWindow = { start: dayjs(new Date(0)), end: nowMidBlock };
+            const zone = pastWindowZone();
+            const weather = twoWeatherDays();
+
+            const { entries } = planZoneSchedule(zone, weather, [pastWindow]);
+
+            const day0 = entries.find(e => e.date.format('YYYY-MM-DD') === '2026-05-04');
+            if (day0 !== undefined) {
+                for (const cycle of day0.cycles) {
+                    expect(cycle.startTime.valueOf()).toBeGreaterThanOrEqual(nowMidBlock.valueOf());
+                }
+            }
+        });
+
+        it('drops the in-flight cycles that would land before now in a multi-cycle plan (API-76)', () => {
+            // Multi-cycle clay zone: 8 cycles × ~14 min spanning most of the
+            // overnight window. With now = Mon 04:00, the past-window filter
+            // must drop earlier cycles while keeping post-04:00 cycles.
+            const zone = createTestZone({
+                currentDepletionMm: 29,
                 soil: SOIL_TYPES.clay,
                 precipitationRateMmPerHr: 9,
             });
-        }
+            const weather = createWeatherDays([
+                { evapotranspirationMmPerDay: 1.0, rainfallMm: 0 },
+                { evapotranspirationMmPerDay: 1.0, rainfallMm: 0 },
+                { evapotranspirationMmPerDay: 1.0, rainfallMm: 0 },
+            ], dayjs('2026-05-04'));
+            const baselineCycles = planZoneSchedule(zone, weather).entries[0]?.cycles ?? [];
+            expect(baselineCycles.length).toBeGreaterThan(0);
+            const earliestBaseline = baselineCycles[0]!.startTime;
 
-        function weatherDay(sunriseHour = 6) {
-            return createWeatherDays(
+            const nowMidBlock = earliestBaseline.add(30, 'minute');
+            const pastWindow = { start: dayjs(new Date(0)), end: nowMidBlock };
+
+            const { entries } = planZoneSchedule(zone, weather, [pastWindow]);
+            const day0 = entries.find(e => e.date.format('YYYY-MM-DD') === '2026-05-04');
+
+            // At minimum the baseline's earliest cycle (which starts before
+            // nowMidBlock) must have been filtered out.
+            const survivors = day0?.cycles ?? [];
+            expect(survivors.length).toBeLessThan(baselineCycles.length);
+            for (const cycle of survivors) {
+                expect(cycle.startTime.valueOf()).toBeGreaterThanOrEqual(nowMidBlock.valueOf());
+            }
+        });
+
+        it('drops the day entirely when it is the last weather day (no next-day anchor available, API-76)', () => {
+            // Single weather day → no `weatherHistory[1]` → planner emits a
+            // warning and continues without producing an entry for the day.
+            const zone = pastWindowZone();
+            const weather = createWeatherDays(
                 [{ evapotranspirationMmPerDay: 1.0, rainfallMm: 0 }],
                 dayjs('2026-05-04'),
-            ).map(day => ({
-                ...day,
-                sunrise: dayjs('2026-05-04').hour(sunriseHour).minute(0).second(0).millisecond(0),
-            }));
-        }
-
-        it('shifts a single past-dated cycle to start at or after now when there is no time window restriction', () => {
-            const zone = pastWindowZone();
-            const weather = weatherDay();
-
-            const { entries } = planZoneSchedule(zone, weather, [PAST_WINDOW]);
-
-            expect(entries).toHaveLength(1);
-            const cycle = entries[0]!.cycles[0]!;
-            expect(cycle.startTime.valueOf()).toBeGreaterThanOrEqual(NOW.valueOf());
-        });
-
-        it('shifts all cycles in a multi-cycle plan to start sequentially after now', () => {
-            const zone = multiCycleZone();
-            const weather = weatherDay();
-
-            const { entries } = planZoneSchedule(zone, weather, [PAST_WINDOW]);
-
-            expect(entries).toHaveLength(1);
-            const cycles = entries[0]!.cycles;
-            expect(cycles.length).toBeGreaterThan(1);
-            for (const cycle of cycles) {
-                expect(cycle.startTime.valueOf()).toBeGreaterThanOrEqual(NOW.valueOf());
-            }
-        });
-
-        it('places a past-dated cycle at NOW even after sunrise has passed', () => {
-            // PAST_WINDOW.end = 14:00 UTC, well past sunrise 06:00. The cycle is
-            // intentionally shifted past sunrise so the daemon can fire it now.
-            const zone = pastWindowZone();
-            const weather = weatherDay();
-
-            const { entries } = planZoneSchedule(zone, weather, [PAST_WINDOW]);
-
-            expect(entries).toHaveLength(1);
-            const cycle = entries[0]!.cycles[0]!;
-            expect(cycle.startTime.isSame(NOW)).toBe(true);
-        });
-
-        it('places a cycle at NOW when the past window ends earlier in the day', () => {
-            const NOW_09 = dayjs('2026-05-04T09:00:00.000Z');
-            const zone = pastWindowZone();
-            const weather = weatherDay();
-
-            const { entries } = planZoneSchedule(zone, weather, [{ start: dayjs(new Date(0)), end: NOW_09 }]);
-
-            expect(entries).toHaveLength(1);
-            const cycle = entries[0]!.cycles[0]!;
-            expect(cycle.startTime.valueOf()).toBeGreaterThanOrEqual(NOW_09.valueOf());
-        });
-
-        it('drops past-due cycles entirely when restrictions.endBySunrise is true (API-66)', () => {
-            // Re-plan at 14:00 UTC (well past sunrise); the planned cycle would land
-            // before sunrise. With endBySunrise=true the forward push is forbidden
-            // (no daytime irrigation), so the cycle is dropped and depletion carries
-            // forward to the next plan.
-            const zone = pastWindowZone();
-            const weather = weatherDay();
-
-            const { entries } = planZoneSchedule(
-                zone,
-                weather,
-                [PAST_WINDOW],
-                { allowedDays: null, allowedTimeWindows: null, endBySunrise: true },
             );
+
+            const { entries } = planZoneSchedule(zone, weather);
 
             expect(entries).toHaveLength(0);
-        });
-
-        it('carries depletion forward to day 1 when day 0 is dropped under endBySunrise', () => {
-            // Day 0 fires before re-plan (cycles dropped → no irrigation); depletion
-            // accumulates and day 1 fires. The planner's `projectedNextDepletionMm`
-            // reflects the carried-forward deficit.
-            const zone = pastWindowZone();
-            const weather = createWeatherDays(
-                [
-                    { evapotranspirationMmPerDay: 1.0, rainfallMm: 0 },
-                    { evapotranspirationMmPerDay: 1.0, rainfallMm: 0 },
-                ],
-                dayjs('2026-05-04'),
-            ).map((day, i) => ({
-                ...day,
-                sunrise: dayjs(`2026-05-0${4 + i}`).hour(6).minute(0).second(0).millisecond(0),
-            }));
-
-            const withSunriseGate = planZoneSchedule(
-                zone,
-                weather,
-                [PAST_WINDOW],
-                { allowedDays: null, allowedTimeWindows: null, endBySunrise: true },
-            );
-
-            // Day 0's cycles are all past-due → dropped. Day 1 still gets planned with
-            // accumulated depletion (visible via day-1 entry's depletionBeforeMm > the
-            // baseline single-day RAW).
-            expect(withSunriseGate.entries.length).toBeGreaterThan(0);
-            for (const entry of withSunriseGate.entries) {
-                expect(entry.date.format('YYYY-MM-DD')).not.toBe('2026-05-04');
-            }
-        });
-
-        it('preserves the accumulated depletion on day 1 when day 0 was dropped under 20:00 endBySunrise (API-68)', () => {
-            // Locks in the API-66 carry-forward guarantee under the new API-68
-            // re-plan hour. At 20:00 local, day-0's overnight cycles (planned
-            // backward from day-0 sunrise) are all past-due. They must be
-            // dropped *and* depletion must NOT silently reset — otherwise day 1
-            // would start at a clean ~0 mm and not cross RAW at all on this
-            // horizon.
-            const zone = pastWindowZone();
-            const twentyHundredUtc = dayjs('2026-05-04T20:00:00.000Z');
-            const weather = createWeatherDays(
-                [
-                    { evapotranspirationMmPerDay: 1.0, rainfallMm: 0 },
-                    { evapotranspirationMmPerDay: 1.0, rainfallMm: 0 },
-                ],
-                dayjs('2026-05-04'),
-            ).map((day, i) => ({
-                ...day,
-                sunrise: dayjs(`2026-05-0${4 + i}`).hour(6).minute(0).second(0).millisecond(0),
-            }));
-
-            const result = planZoneSchedule(
-                zone,
-                weather,
-                [{ start: dayjs(new Date(0)), end: twentyHundredUtc }],
-                { allowedDays: null, allowedTimeWindows: null, endBySunrise: true },
-            );
-
-            // Day 0 has no entry; day 1 fires because day-0 depletion carried.
-            const day0 = result.entries.find(e => e.date.format('YYYY-MM-DD') === '2026-05-04');
-            const day1 = result.entries.find(e => e.date.format('YYYY-MM-DD') === '2026-05-05');
-            expect(day0).toBeUndefined();
-            expect(day1).toBeDefined();
-
-            // Carry-forward proof: starting depletion was 22; day-0 net ET adds
-            // ~0.85 mm (no irrigation); day-1 net ET adds another ~0.85 mm → day-1
-            // `depletionBeforeMm` should be ~23. If day 0 had silently reset on
-            // drop, day 1's value would be only ~0.85 — well below RAW (22.5).
-            expect(day1!.depletionBeforeMm).toBeGreaterThan(20);
-        });
-
-        it('keeps the existing forward-shift behaviour when endBySunrise is false (default)', () => {
-            // Regression guard: without endBySunrise the planner still pushes past-due
-            // cycles to fire at NOW.
-            const zone = pastWindowZone();
-            const weather = weatherDay();
-
-            const { entries } = planZoneSchedule(
-                zone,
-                weather,
-                [PAST_WINDOW],
-                { allowedDays: null, allowedTimeWindows: null, endBySunrise: false },
-            );
-
-            expect(entries).toHaveLength(1);
-            const cycle = entries[0]!.cycles[0]!;
-            expect(cycle.startTime.valueOf()).toBeGreaterThanOrEqual(NOW.valueOf());
-        });
-
-        it('keeps future cycles on day 0 when re-plan kicks off before sunrise under endBySunrise', () => {
-            // Re-plan at 03:00 UTC — sunrise 06:00. Day-0 cycle planned around 05:50
-            // (single-cycle zone): still in the future, so it survives the
-            // endBySunrise gate.
-            const NOW_03 = dayjs('2026-05-04T03:00:00.000Z');
-            const zone = pastWindowZone();
-            const weather = weatherDay();
-
-            const { entries } = planZoneSchedule(
-                zone,
-                weather,
-                [{ start: dayjs(new Date(0)), end: NOW_03 }],
-                { allowedDays: null, allowedTimeWindows: null, endBySunrise: true },
-            );
-
-            expect(entries).toHaveLength(1);
-            const cycle = entries[0]!.cycles[0]!;
-            const cycleEnd = cycle.startTime.add(cycle.durationMin, 'minute');
-            expect(cycle.startTime.valueOf()).toBeGreaterThan(NOW_03.valueOf());
-            // And the cycle still ends at-or-before sunrise (06:00).
-            expect(cycleEnd.valueOf()).toBeLessThanOrEqual(weather[0]!.sunrise!.valueOf() + 1000);
         });
     });
 
@@ -1908,9 +1846,12 @@ describe('planZoneSchedule', () => {
             precipitationRateMmPerHr: 50,
         });
 
+        // Same trailing-day convention as the schedule-restrictions helper:
+        // `days` is the count of planning days; an extra anchor day is appended.
         function weatherFromDates(startDate: string, days: number, sunriseHour = 6) {
+            const total = days + 1;
             return createWeatherDays(
-                Array.from({ length: days }, () => ({ evapotranspirationMmPerDay: 1.0, rainfallMm: 0 })),
+                Array.from({ length: total }, () => ({ evapotranspirationMmPerDay: 1.0, rainfallMm: 0 })),
                 dayjs(startDate),
             ).map((day, idx) => ({
                 ...day,
@@ -1984,19 +1925,27 @@ describe('planZoneSchedule', () => {
             precipitationRateMmPerHr: 50,
         });
 
-        it('attaches sunriseAt = the day weather sunrise on each produced entry', () => {
+        it(`attaches sunriseAt = the *next* day's weather sunrise on each produced entry (API-76)`, () => {
             const zone = singleCycleZone();
-            const sunrise = dayjs('2026-05-06').hour(6).minute(15).second(0).millisecond(0);
+            const day0Sunrise = dayjs('2026-05-06').hour(6).minute(15).second(0).millisecond(0);
+            const day1Sunrise = dayjs('2026-05-07').hour(6).minute(20).second(0).millisecond(0);
             const weather = createWeatherDays(
-                [{ evapotranspirationMmPerDay: 1.0, rainfallMm: 0, sunrise }],
+                [
+                    { evapotranspirationMmPerDay: 1.0, rainfallMm: 0, sunrise: day0Sunrise },
+                    { evapotranspirationMmPerDay: 1.0, rainfallMm: 0, sunrise: day1Sunrise },
+                ],
                 dayjs('2026-05-06'),
             );
 
             const { entries } = planZoneSchedule(zone, weather);
 
+            // Only day 0 produces an entry — day 1 is the last weather day and
+            // has no next-day sunrise to anchor against. The entry's
+            // `sunriseAt` reflects the morning the irrigation ends, i.e. day
+            // 1's sunrise.
             expect(entries).toHaveLength(1);
             expect(entries[0]?.sunriseAt).toBeDefined();
-            expect(entries[0]?.sunriseAt?.isSame(sunrise)).toBe(true);
+            expect(entries[0]?.sunriseAt?.isSame(day1Sunrise)).toBe(true);
         });
     });
 });

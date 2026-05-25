@@ -108,8 +108,7 @@ export function planZoneSchedule(
 
     // Process each day of weather history.
     for (const [dayIndex, weatherDay] of weatherHistory.entries()) {
-        const date = weatherDay.date,
-            sunrise = weatherDay.sunrise ?? date.hour(6).minute(0).second(0);
+        const date = weatherDay.date;
 
         // Calculate crop evapotranspiration and effective rainfall.
         const referenceEvapotranspiration = Math.max(0, weatherDay.evapotranspirationMmPerDay ?? 0),
@@ -128,6 +127,18 @@ export function planZoneSchedule(
 
         // Check if irrigation is needed.
         if (currentDepletionMillimeters >= readilyAvailableWaterMillimeters) {
+            // Anchor each planning day's overnight block to the *next* day's
+            // sunrise — i.e. the block runs [midnight day i+1, sunrise day i+1],
+            // the overnight starting tonight and ending tomorrow morning. The
+            // last day of the horizon has no successor and is therefore dropped
+            // (no anchor). See API-76.
+            const nextDay = weatherHistory[dayIndex + 1];
+            if (nextDay === undefined) {
+                console.warn(`planner: zone ${zone.id} (${zone.name}): day ${date.format('YYYY-MM-DD')} is the last weather day — no next-day sunrise to anchor to, deferring irrigation.`);
+                continue;
+            }
+            const sunrise = nextDay.sunrise ?? nextDay.date.hour(6).minute(0).second(0).millisecond(0);
+
             const irrigationOutcome = tryPlaceIrrigationForDay({
                 date,
                 sunrise,
@@ -199,12 +210,15 @@ type PlaceIrrigationOutcome = {
 
 /**
  * Computes the day's irrigation block, anchored so the last cycle ends at
- * sunrise and cycles fill backward into the night. Returns `null` when the
- * day is disallowed or no cycles fit the overnight window — callers treat
- * that as "skip, carry depletion forward."
+ * the next day's sunrise and cycles fill backward into the night. Returns
+ * `null` when the day is disallowed or no cycles fit the overnight window —
+ * callers treat that as "skip, carry depletion forward."
  *
- * The overnight window is [midnight, sunrise] — no cycle may start before
- * 00:00 local of the irrigation entry's date.
+ * The overnight window is [midnight of cycle day, sunrise of cycle day] —
+ * derived from `sunrise.startOf('day')` and `sunrise`. With the API-76 anchor
+ * shift, the cycle day is the day *after* the planning day, so for an evening
+ * replan on Sun the block runs [Mon 00:00, Mon sunrise] — naturally in the
+ * future.
  *
  * Cycle sizing uses an iterative downward retry (API-77): the closed-form
  * `maxRunTimeMinutes` gives an upper bound on N against the empty window,
@@ -214,10 +228,10 @@ type PlaceIrrigationOutcome = {
  * refill `appliedDepthMm` / `depletionAfterMm` math.
  *
  * Past-window busy intervals (those starting at the epoch) are split out
- * from cross-zone busy windows and applied as a forward shift *after*
- * overnight-window validation, so a cycle whose planned time has already
- * passed gets pushed to fire now-ish rather than being dropped for ending
- * past sunrise.
+ * from cross-zone busy windows. Once the placer has produced the cycle list,
+ * any cycle whose `startTime` falls before `pastWindow.end` (= `now`) is
+ * dropped. In the normal evening-replan flow no cycle is dropped; the filter
+ * only bites for in-flight replans (`now` lies inside the planning block).
  */
 function tryPlaceIrrigationForDay(inputs: PlaceIrrigationInputs): PlaceIrrigationOutcome | null {
     const {
@@ -320,32 +334,17 @@ function tryPlaceIrrigationForDay(inputs: PlaceIrrigationInputs): PlaceIrrigatio
         console.log(`planner: zone ${zone.id} (${zone.name}): clamping run time ${fullRefillRunTimeMinutes.toFixed(1)} → ${actualTotalRunTimeMinutes.toFixed(1)} min on ${date.format('YYYY-MM-DD')} (window ${windowMinutes} min, ${placedCycles.length} cycle(s)); applying ${grossIrrigationDepthMillimeters.toFixed(1)} of ${fullRefillGrossDepthMillimeters.toFixed(1)} mm.`);
     }
 
-    // Past-window handling differs by schedule shape (API-66):
-    //  - default: shift past-due cycles forward to fire at-or-after `now`.
-    //    After shifting, drop any cycle whose startTime is before midnight of
-    //    `date` (API-72) — a late-night re-plan can push cycles into the
-    //    previous calendar day; those must be deferred, not fired.
-    //  - `endBySunrise=true`: daytime irrigation is explicitly forbidden, so
-    //    push-forward is wrong. Drop the past-due cycles instead and let
-    //    depletion carry forward to the next allowed day.
-    const finalCycles = (() => {
-        if (pastWindow === undefined) return placedCycles;
-        if (restrictions.endBySunrise === true) {
-            const nowMs = pastWindow.end.valueOf();
-            return placedCycles.filter(c => {
-                const endMs = c.startTime.valueOf() + c.durationMin * 60_000;
-                return endMs > nowMs;
-            });
-        }
-        // Forward-shift must dodge both the past-window AND cross-zone busy
-        // windows (API-77). Pre-fix this only considered the past-window, so a
-        // cycle pushed past `now` could land on top of an in-flight cycle or
-        // an earlier zone's planned interval — the daemon then caught it at
-        // arm time and refused to arm, leaving the row persisted but dead.
-        const shifted = deconflictCycles(placedCycles, [pastWindow, ...crossZoneBusyWindows], soakTimeMinutes);
-        const midnight = date.startOf('day');
-        return shifted.filter(c => !c.startTime.isBefore(midnight));
-    })();
+    // Past-window handling (API-76). The block now anchors to the next day's
+    // sunrise, so for an evening replan the placed cycles already sit in the
+    // future. The only case where the past window matters is the in-flight
+    // replan — `now` lands inside [midnight cycle-day, sunrise cycle-day] —
+    // and we drop any cycle whose start has already passed. No forward shift,
+    // no midnight filter, no endBySunrise drop: the new anchor already
+    // guarantees `cycleEnd ≤ sunrise` and that all surviving cycles are
+    // overnight by construction.
+    const finalCycles = pastWindow === undefined
+        ? placedCycles
+        : placedCycles.filter(c => !c.startTime.isBefore(pastWindow.end));
 
     if (finalCycles.length === 0) {
         console.warn(`planner: zone ${zone.id} (${zone.name}): no cycles remain after past-window handling on ${date.format('YYYY-MM-DD')} — skipping irrigation.`);
@@ -495,53 +494,6 @@ function placeCyclesBackwardAvoidingBusy(
     }
 
     return cyclesInReverse.reverse();
-}
-
-/**
- * Shifts cycles forward in chronological order so none overlap any busy
- * window, while preserving intra-zone soak time between consecutive cycles.
- * Walks input cycles in order; for each cycle the new start is at least
- * `max(plannedStart, prevPlacedEnd + soakTime)`, then iteratively pushed
- * past any busy interval it overlaps until stable. Durations are unchanged.
- *
- * @param cycles - Planned cycles (chronological, intra-zone soak-spaced).
- * @param busyWindows - Intervals to avoid. Order doesn't matter.
- * @param soakTimeMinutes - Soak time required between this zone's cycles.
- * @returns New cycle list with possibly-shifted start times.
- */
-function deconflictCycles(
-    cycles: IrrigationCycle[],
-    busyWindows: ReadonlyArray<BusyWindow>,
-    soakTimeMinutes: number,
-): IrrigationCycle[] {
-    if (cycles.length === 0) return cycles;
-    if (busyWindows.length === 0) return cycles;
-
-    const placed: IrrigationCycle[] = [];
-    let prevEnd: dayjs.Dayjs | null = null;
-
-    for (const cycle of cycles) {
-        const intraZoneFloor: dayjs.Dayjs = prevEnd === null ? cycle.startTime : prevEnd.add(soakTimeMinutes, 'minute');
-        let start: dayjs.Dayjs = cycle.startTime.isAfter(intraZoneFloor) ? cycle.startTime : intraZoneFloor;
-
-        let shifted = true;
-        while (shifted) {
-            shifted = false;
-            const cycleEnd = start.add(cycle.durationMin, 'minute');
-            for (const window of busyWindows) {
-                if (start.isBefore(window.end) && cycleEnd.isAfter(window.start)) {
-                    start = window.end;
-                    shifted = true;
-                    break;
-                }
-            }
-        }
-
-        placed.push({ startTime: start, durationMin: cycle.durationMin });
-        prevEnd = start.add(cycle.durationMin, 'minute');
-    }
-
-    return placed;
 }
 
 /**

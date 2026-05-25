@@ -292,7 +292,9 @@ describe('planZoneSchedule — multi-zone matrix', () => {
                 makeZone('a', { currentDepletionMm: 11.25, rootDepthM: 0.15 }), // RAW 11.25
                 makeZone('b', { currentDepletionMm: 0, rootDepthM: 0.30 }),     // RAW 22.5
             ];
-            const weather = gatedWeather(14);
+            // 15 days so B (which needs ~14 days of ET to cross RAW) has a
+            // next-day anchor when it finally fires (API-76 drops the last day).
+            const weather = gatedWeather(15);
 
             const results = planAllZonesSequentially(zones, weather);
 
@@ -619,7 +621,13 @@ describe('planZoneSchedule — multi-zone matrix', () => {
             assertNoCrossZoneOverlap(results);
         });
 
-        it('22. Past window WITH endBySunrise — day-0 cycles dropped for every zone.', () => {
+        it('22. Past window WITH endBySunrise — day-0 cycles still land overnight by construction (API-76).', () => {
+            // Pre-API-76 the planner placed day-0 cycles in [Sun 00:00, Sun
+            // sunrise] (already past) and the forward-shift + endBySunrise gate
+            // dropped them. With the anchor shift cycles cleanly run [Mon 00:00,
+            // Mon sunrise] — already overnight, no shift needed — so the
+            // endBySunrise restriction is automatically satisfied and day 0
+            // continues to produce an entry.
             const zones = [
                 makeZone('a', { currentDepletionMm: 22.5 }),
                 makeZone('b', { currentDepletionMm: 22.5 }),
@@ -650,7 +658,12 @@ describe('planZoneSchedule — multi-zone matrix', () => {
 
             for (const result of results.values()) {
                 const day0 = result.entries.find(e => e.date.format('YYYY-MM-DD') === '2026-05-04');
-                expect(day0).toBeUndefined();
+                expect(day0).toBeDefined();
+                const sunrise = day0!.sunriseAt!;
+                for (const cycle of day0!.cycles) {
+                    const cycleEnd = cycle.startTime.add(cycle.durationMin, 'minute');
+                    expect(cycleEnd.valueOf()).toBeLessThanOrEqual(sunrise.valueOf() + 1000);
+                }
             }
         });
     });

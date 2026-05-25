@@ -22,11 +22,13 @@ const stubWeatherResponse = {
         et0_fao_evapotranspiration: 'mm',
     },
     daily: {
-        time: ['2025-10-20', '2025-10-21', '2025-10-22'],
-        sunrise: ['2025-10-20T07:30', '2025-10-21T07:31', '2025-10-22T07:33'],
-        sunset: ['2025-10-20T18:10', '2025-10-21T18:08', '2025-10-22T18:06'],
-        rain_sum: [0, 0, 0],
-        et0_fao_evapotranspiration: [4.0, 4.0, 4.0],
+        // Trailing 2025-10-23 supplies the next-day-sunrise anchor for
+        // planning days 0-2 (API-76 drops the last day in the horizon).
+        time: ['2025-10-20', '2025-10-21', '2025-10-22', '2025-10-23'],
+        sunrise: ['2025-10-20T07:30', '2025-10-21T07:31', '2025-10-22T07:33', '2025-10-23T07:34'],
+        sunset: ['2025-10-20T18:10', '2025-10-21T18:08', '2025-10-22T18:06', '2025-10-23T18:04'],
+        rain_sum: [0, 0, 0, 0],
+        et0_fao_evapotranspiration: [4.0, 4.0, 4.0, 4.0],
     },
 };
 
