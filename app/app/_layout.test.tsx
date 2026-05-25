@@ -1,9 +1,13 @@
-import { render, screen } from '@testing-library/react-native';
+import { act, fireEvent, render, screen } from '@testing-library/react-native';
 
 const mockUseFonts = jest.fn();
 const mockHideAsync = jest.fn(() => Promise.resolve());
 const mockStatusBar = jest.fn();
 const mockStackScreen = jest.fn();
+const mockRouterPush = jest.fn();
+const mockUsePathname = jest.fn(() => '/');
+const mockHeaderProps = jest.fn();
+const mockDrawerProps = jest.fn();
 
 jest.mock('expo-font', () => ({
     useFonts: (...args: unknown[]) => mockUseFonts(...args),
@@ -32,7 +36,50 @@ jest.mock('expo-router', () => {
     };
     return {
         Stack,
-        useRouter: () => ({ push: jest.fn() }),
+        useRouter: () => ({ push: mockRouterPush }),
+        usePathname: () => mockUsePathname(),
+    };
+});
+
+// Stand-ins for Header and NavDrawer keep this layout test focused on
+// wiring (does the layout render them? does it pass the right props?)
+// without dragging in React Query plumbing that the components themselves
+// already cover under @/components/header and @/components/nav-drawer.
+jest.mock('@/components/header', () => {
+    const { Pressable, Text, View } = require('react-native');
+    return {
+        Header: (props: { onMenuPress: () => void }) => {
+            mockHeaderProps(props);
+            return (
+                <View accessibilityLabel='App header'>
+                    <Pressable accessibilityLabel='Open menu' onPress={props.onMenuPress}>
+                        <Text>menu</Text>
+                    </Pressable>
+                </View>
+            );
+        },
+    };
+});
+
+jest.mock('@/components/nav-drawer', () => {
+    const { Text, View } = require('react-native');
+    return {
+        NavDrawer: (props: {
+            visible: boolean;
+            activeId: string;
+            onClose: () => void;
+            onSelect: (id: string) => void;
+        }) => {
+            mockDrawerProps(props);
+            return (
+                <View
+                    accessibilityLabel='Navigation drawer'
+                    accessibilityState={{ expanded: props.visible }}
+                >
+                    <Text>active:{props.activeId}</Text>
+                </View>
+            );
+        },
     };
 });
 
@@ -76,6 +123,11 @@ describe('RootLayout', () => {
         mockStatusBar.mockClear();
         mockHideAsync.mockClear();
         mockStackScreen.mockClear();
+        mockRouterPush.mockReset();
+        mockUsePathname.mockReset();
+        mockUsePathname.mockReturnValue('/');
+        mockHeaderProps.mockClear();
+        mockDrawerProps.mockClear();
     });
 
     it('renders the navigation stack once fonts load.', () => {
@@ -107,5 +159,87 @@ describe('RootLayout', () => {
         render(<RootLayout />);
 
         expect(screen.getByLabelText('Status bar backdrop')).toBeOnTheScreen();
+    });
+
+    it('renders the app header above the stack (APP-58).', () => {
+        render(<RootLayout />);
+
+        expect(screen.getByLabelText('App header')).toBeOnTheScreen();
+    });
+
+    it('renders the nav drawer hidden by default (APP-58).', () => {
+        render(<RootLayout />);
+
+        const drawer = screen.getByLabelText('Navigation drawer');
+        expect(drawer).toBeOnTheScreen();
+        expect(drawer.props.accessibilityState).toMatchObject({ expanded: false });
+    });
+
+    it('opens the drawer when the header menu button is pressed (APP-58).', () => {
+        render(<RootLayout />);
+
+        fireEvent.press(screen.getByLabelText('Open menu'));
+
+        expect(screen.getByLabelText('Navigation drawer').props.accessibilityState).toMatchObject({ expanded: true });
+    });
+
+    it('passes activeId derived from usePathname to the drawer (APP-58).', () => {
+        mockUsePathname.mockReturnValue('/schedules');
+
+        render(<RootLayout />);
+
+        expect(screen.getByText('active:schedules')).toBeOnTheScreen();
+    });
+
+    it('maps /zone/<slug> paths onto the zones nav id (APP-58).', () => {
+        mockUsePathname.mockReturnValue('/zone/north');
+
+        render(<RootLayout />);
+
+        expect(screen.getByText('active:zones')).toBeOnTheScreen();
+    });
+
+    it('maps /activity onto the activity nav id (APP-58).', () => {
+        mockUsePathname.mockReturnValue('/activity');
+
+        render(<RootLayout />);
+
+        expect(screen.getByText('active:activity')).toBeOnTheScreen();
+    });
+
+    it('falls back to the home nav id for unknown pathnames (APP-58).', () => {
+        mockUsePathname.mockReturnValue('/unknown-route');
+
+        render(<RootLayout />);
+
+        expect(screen.getByText('active:home')).toBeOnTheScreen();
+    });
+
+    it('routes via expo-router when the drawer selects a destination (APP-58).', () => {
+        render(<RootLayout />);
+
+        // The drawer stand-in captured the onSelect prop; invoke it directly
+        // to verify routing without driving the real drawer animation.
+        const drawerProps = mockDrawerProps.mock.calls.at(-1)?.[0] as { onSelect: (id: string) => void };
+        drawerProps.onSelect('schedules');
+
+        expect(mockRouterPush).toHaveBeenCalledWith('/schedules');
+    });
+
+    it('collapses the drawer when its onClose handler fires (APP-58).', () => {
+        render(<RootLayout />);
+
+        // Open the drawer first.
+        fireEvent.press(screen.getByLabelText('Open menu'));
+        expect(screen.getByLabelText('Navigation drawer').props.accessibilityState).toMatchObject({ expanded: true });
+
+        // Then trigger onClose via the captured drawer prop (wrapped in act
+        // so the React Native state update commits before the assertion).
+        const drawerProps = mockDrawerProps.mock.calls.at(-1)?.[0] as { onClose: () => void };
+        act(() => {
+            drawerProps.onClose();
+        });
+
+        expect(screen.getByLabelText('Navigation drawer').props.accessibilityState).toMatchObject({ expanded: false });
     });
 });
