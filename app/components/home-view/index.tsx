@@ -1,8 +1,10 @@
-import { ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useRouter } from 'expo-router';
+import { ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import type { ZoneSummary } from '@/api/types/zones';
 import { ActiveScheduleChip } from '@/components/active-schedule-chip';
+import { DepletionLegend } from '@/components/depletion-legend';
 import { MasterToggle } from '@/components/master-toggle';
 import { NextRunHero } from '@/components/next-run-hero';
 import { SystemDisabledWrapper } from '@/components/system-disabled-wrapper';
@@ -12,7 +14,6 @@ import { useNextRun } from '@/hooks/next-run';
 import { useSchedules } from '@/hooks/schedules';
 import { useSystem } from '@/hooks/system';
 import { useZones } from '@/hooks/zones';
-import type { ZoneSummary } from '@/api/types/zones';
 import config from '@/tailwind.config';
 
 const colors = config.theme.extend.colors;
@@ -52,36 +53,36 @@ export function HomeView() {
 
             <SystemDisabledWrapper disabled={!irrigationEnabled}>
                 <View style={styles.body}>
-                    {nextRun.isPending ? (
+                    {nextRun.isPending ?
                         <PlaceholderCard label='Loading next run…' />
-                    ) : nextRun.isError || nextRun.data == null ? (
+                    : nextRun.isError || nextRun.data == null ?
                         <PlaceholderCard label='Failed to load next run.' tone='error' />
-                    ) : (
                         // siteTimezone comes from the API response — single
                         // source of truth, no env-var dependency (APP-54).
-                        <NextRunHero nextRun={nextRun.data} siteTimezone={nextRun.data.timezone} />
-                    )}
+                    :   <NextRunHero nextRun={nextRun.data} siteTimezone={nextRun.data.timezone} />}
 
                     <View style={styles.zonesHeading}>
                         <Text style={styles.h2}>Zones</Text>
-                        {zones.data !== undefined && zones.data.length > 0 ? (
+                        {zones.data !== undefined && zones.data.length > 0 ?
                             <Text style={styles.zonesMeta}>
                                 {zones.data.length} · {totalArea(zones.data)} m²
                             </Text>
-                        ) : null}
+                        :   null}
                     </View>
 
-                    {zones.isPending ? (
+                    {zones.isPending ?
                         <PlaceholderCard label='Loading zones…' />
-                    ) : zones.isError || zones.data == null ? (
+                    : zones.isError || zones.data == null ?
                         <PlaceholderCard label='Failed to load zones.' tone='error' />
-                    ) : (
-                        <View style={styles.zoneList}>
-                            {zones.data.map(zone => (
-                                <ZoneTile key={zone.id} zone={zone} onPress={handleZonePress} />
-                            ))}
-                        </View>
-                    )}
+                    :   <>
+                            <DepletionLegend />
+                            <View style={styles.zoneList}>
+                                {zones.data.map(zone => (
+                                    <ZoneTile key={zone.id} zone={zone} onPress={handleZonePress} />
+                                ))}
+                            </View>
+                        </>
+                    }
 
                     {activeSchedule !== null && (
                         <ActiveScheduleChip
