@@ -17,6 +17,7 @@ const SCHEDULED_NEXT_RUN: NextRunDto = {
     axisEnd: '06:00',
     sunset: '20:45',
     sunrise: '05:30',
+    timezone: 'America/Edmonton',
     zoneOrder: ['North', 'South'],
     totalCycles: 10,
     zones: [
@@ -33,6 +34,7 @@ const IDLE_NEXT_RUN: NextRunDto = {
     axisEnd: null,
     sunset: null,
     sunrise: null,
+    timezone: 'America/Edmonton',
     zoneOrder: [],
     totalCycles: 0,
     zones: [],

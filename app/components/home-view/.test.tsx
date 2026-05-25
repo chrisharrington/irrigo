@@ -29,6 +29,7 @@ const NEXT_RUN_SCHEDULED: NextRunDto = {
     axisEnd: '06:00',
     sunset: '20:45',
     sunrise: '05:30',
+    timezone: 'America/Edmonton',
     zoneOrder: ['North'],
     totalCycles: 5,
     zones: [{ name: 'North', slug: 'north', patch: 'a', cycles: [{ start: '22:23', durMin: 15 }] }],
@@ -125,6 +126,24 @@ describe('HomeView', () => {
         // eyebrow is absent. The inner card's own "Next run" eyebrow stays.
         await waitFor(() => expect(screen.getByText('10:23 pm')).toBeOnTheScreen());
         expect(screen.queryByText(/Next run · America\/Edmonton/)).toBeNull();
+    });
+
+    it('formats the next-run time in the API-provided timezone — env-var EXPO_PUBLIC_SITE_TIMEZONE has no influence (APP-54).', async () => {
+        // Set the env-var hypothesis to a *wrong* timezone. The displayed
+        // time must still match the API's `timezone` field (Edmonton), not
+        // the env-var override (UTC), which would render as 4:23 am.
+        const saved = process.env.EXPO_PUBLIC_SITE_TIMEZONE;
+        process.env.EXPO_PUBLIC_SITE_TIMEZONE = 'UTC';
+        try {
+            setupSuccessfulFetch();
+            render(<HomeView />, { wrapper: buildApiWrapper().wrapper });
+
+            await waitFor(() => expect(screen.getByText('10:23 pm')).toBeOnTheScreen());
+            expect(screen.queryByText('4:23 am')).toBeNull();
+        } finally {
+            if (saved === undefined) delete process.env.EXPO_PUBLIC_SITE_TIMEZONE;
+            else process.env.EXPO_PUBLIC_SITE_TIMEZONE = saved;
+        }
     });
 
     it('renders a zone tile for every zone returned by /zones.', async () => {
