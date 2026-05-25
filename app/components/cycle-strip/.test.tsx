@@ -6,6 +6,7 @@ import {
     getTotalMin,
     parseHHMM,
     pctOf,
+    pctOfSunEvent,
     widthPctOf,
     type CycleStripNight,
 } from '.';
@@ -85,6 +86,47 @@ describe('pctOf', () => {
         const startMin = 22 * 60;
         const totalMin = 8 * 60;
         expect(pctOf(startMin, totalMin, '06:00')).toBeCloseTo(100, 5);
+    });
+});
+
+describe('pctOfSunEvent', () => {
+    const startMin = 22 * 60; // 22:00
+    const totalMin = 8 * 60;  // 22:00 → 06:00 = 480 min
+
+    it('returns the direct ratio when the time falls inside the axis.', () => {
+        // 23:00 = 60 min past axis start → 60 / 480 = 12.5%.
+        expect(pctOfSunEvent(startMin, totalMin, '23:00')).toBeCloseTo(12.5, 5);
+        // 06:00 (axis end) wraps to next-day → 100%.
+        expect(pctOfSunEvent(startMin, totalMin, '06:00')).toBeCloseTo(100, 5);
+    });
+
+    it('returns a negative percent for sunset that falls before the axis start (APP-57).', () => {
+        // Sunset 20:30 is 90 min BEFORE axis start 22:00 — should not wrap
+        // to next-day. (1230 - 1320) / 480 = -18.75%.
+        expect(pctOfSunEvent(startMin, totalMin, '20:30')).toBeCloseTo(-18.75, 5);
+    });
+
+    it('still wraps far-before times to the next day (sunrise after midnight).', () => {
+        // 06:00 is far before axis start (16h before), but it's clearly the
+        // next-morning sunrise — wrap forward to 100%.
+        expect(pctOfSunEvent(startMin, totalMin, '06:00')).toBeCloseTo(100, 5);
+        // 04:00 is 18h before axis start (> half a day) → wrap. Result:
+        // (240 + 1440 - 1320) / 480 = 360 / 480 = 75%.
+        expect(pctOfSunEvent(startMin, totalMin, '04:00')).toBeCloseTo(75, 5);
+    });
+
+    it('wraps backward when axisStart is post-midnight and sunset is the prior evening (APP-57 follow-up).', () => {
+        // First cycle at 00:30 → axisStart=00:30, totalMin=360 (00:30 → 06:30).
+        // Sunset 20:00 belongs to the *previous* day relative to that axis;
+        // it must resolve to a NEGATIVE percent (not +325%) so the label
+        // clamps to the left edge rather than landing alongside sunrise on
+        // the right.
+        const postMidnightStart = 30; // 00:30
+        const postMidnightTotal = 360;
+        expect(pctOfSunEvent(postMidnightStart, postMidnightTotal, '20:00')).toBeCloseTo(-75, 5);
+        // Sunrise 05:30 on the same axis lands inside the chart, no wrap.
+        expect(pctOfSunEvent(postMidnightStart, postMidnightTotal, '05:30'))
+            .toBeCloseTo(((330 - 30) / 360) * 100, 5);
     });
 });
 
@@ -238,6 +280,56 @@ describe('CycleStrip', () => {
 
         expect(screen.getByText('sunset 20:45')).toBeOnTheScreen();
         expect(screen.getByText('sunrise 05:30')).toBeOnTheScreen();
+    });
+
+    it(`anchors the sunset label at the chart's left edge when sunset falls before axisStart (APP-57).`, () => {
+        // Default axis is 22:00 → 06:00. Sunset at 20:00 is BEFORE the axis
+        // starts. Pre-fix the label landed at right: -175% (off-screen). The
+        // fix clamps the anchor to left: 0% so the label stays visible at
+        // the chart's left edge.
+        const NIGHT_SUNSET_BEFORE_AXIS: CycleStripNight = {
+            ...SAMPLE_NIGHT,
+            sunset: '20:00',
+        };
+        const { root } = render(<CycleStrip night={NIGHT_SUNSET_BEFORE_AXIS} />);
+
+        // The label text is rendered.
+        expect(screen.getByText('sunset 20:00')).toBeOnTheScreen();
+
+        // And it's anchored to the left edge (left: 0%), not off-screen right.
+        const sunsetWraps = root.findAll(node =>
+            typeof node.type === 'string'
+            && node.props.accessibilityLabel === 'sunset 20:00',
+        );
+        expect(sunsetWraps).toHaveLength(1);
+        const styles = sunsetWraps[0]?.props.style as ReadonlyArray<Record<string, unknown>>;
+        const leftStyle = styles.find(s => typeof s === 'object' && s !== null && 'left' in s);
+        expect(leftStyle?.['left']).toBe('0%');
+        const hasRight = styles.some(s => typeof s === 'object' && s !== null && 'right' in s);
+        expect(hasRight).toBe(false);
+    });
+
+    it(`omits the sunset vertical line when sunset falls outside the chart's plotted window (APP-57).`, () => {
+        // Default axis 22:00 → 06:00. Sunset at 20:00 is before the axis,
+        // so the vertical SunLine would be meaningless and is skipped. Sun
+        // lines use the moon-500 token (#D8C690); grid lines use hairline,
+        // so we filter to just the moon-tinted vertical lines.
+        const NIGHT_SUNSET_BEFORE_AXIS: CycleStripNight = {
+            ...SAMPLE_NIGHT,
+            sunset: '20:00',
+            sunrise: '05:30',
+        };
+        const { root } = render(<CycleStrip night={NIGHT_SUNSET_BEFORE_AXIS} />);
+
+        const sunLines = root.findAll(node => {
+            if (typeof node.type !== 'string') return false;
+            const style = node.props.style as ReadonlyArray<Record<string, unknown>> | undefined;
+            if (!Array.isArray(style)) return false;
+            const flat = Object.assign({}, ...style.filter(s => typeof s === 'object' && s !== null)) as Record<string, unknown>;
+            return flat['width'] === 1 && flat['backgroundColor'] === '#D8C690';
+        });
+        // Only one sun line (sunrise in range); the off-axis sunset line is suppressed.
+        expect(sunLines).toHaveLength(1);
     });
 
     it('renders an hour-axis label for every whole hour across the default axis.', () => {

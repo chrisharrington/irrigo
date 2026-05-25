@@ -113,6 +113,40 @@ export function pctOf(startMin: number, totalMin: number, hhmm: string): number 
 }
 
 /**
+ * Like `pctOf`, but bidirectional: the same `HH:MM` clock value can map to
+ * yesterday, today, or tomorrow — and for sun events the right answer
+ * depends on where the chart's axis sits.
+ *
+ *   • Sunset 20:00 on a 22:00–06:00 axis is just before the night starts
+ *     → ≈ -25%.
+ *   • Sunrise 05:30 on the same axis is tomorrow-morning → 100%.
+ *   • Sunset 20:00 on a 00:30–06:00 axis (first cycle post-midnight) is
+ *     also previous-day → negative, *not* +325%.
+ *
+ * Strategy: enumerate the three candidate absolute minutes (m−1day, m,
+ * m+1day) and pick whichever chart-position is closest to the visible
+ * [0%, 100%] window. The caller clamps the returned value when rendering.
+ */
+export function pctOfSunEvent(startMin: number, totalMin: number, hhmm: string): number {
+    const m = parseHHMM(hhmm);
+    const candidates = [m - MINUTES_PER_DAY, m, m + MINUTES_PER_DAY];
+    let best = m;
+    let bestDistance = Infinity;
+    for (const candidate of candidates) {
+        const pct = (candidate - startMin) / totalMin;
+        const distance =
+            pct < 0 ? -pct
+            : pct > 1 ? pct - 1
+            : 0;
+        if (distance < bestDistance) {
+            best = candidate;
+            bestDistance = distance;
+        }
+    }
+    return ((best - startMin) / totalMin) * 100;
+}
+
+/**
  * Percentage width of a cycle of `durMin` minutes against the total chart
  * width. Pure ratio, no clamping — callers apply a CSS `max(...)` so a tiny
  * cycle still renders as a visible pulse.
@@ -140,7 +174,11 @@ export function buildHourTicks({
     startMin,
     totalMin,
     stepH,
-}: { startMin: number; totalMin: number; stepH: number }): ReadonlyArray<HourTick> {
+}: {
+    startMin: number;
+    totalMin: number;
+    stepH: number;
+}): ReadonlyArray<HourTick> {
     const ticks: HourTick[] = [];
     const firstTick = Math.ceil(startMin / 60) * 60;
     for (let m = firstTick; m <= startMin + totalMin; m += stepH * 60) {
@@ -174,8 +212,8 @@ export function CycleStrip({
     const totalMin = getTotalMin(startMin, endMin);
 
     const ticks = buildHourTicks({ startMin, totalMin, stepH });
-    const sunsetPct = pctOf(startMin, totalMin, night.sunset);
-    const sunrisePct = pctOf(startMin, totalMin, night.sunrise);
+    const sunsetPct = pctOfSunEvent(startMin, totalMin, night.sunset);
+    const sunrisePct = pctOfSunEvent(startMin, totalMin, night.sunrise);
 
     return (
         <View accessibilityLabel={accessibilityLabel}>
@@ -201,7 +239,12 @@ export function CycleStrip({
 
             <View style={styles.axis}>
                 {ticks.map((tick, i) => (
-                    <AxisTickLabel key={`${tick.hour}-${tick.leftPct}`} tick={tick} isFirst={i === 0} isLast={i === ticks.length - 1} />
+                    <AxisTickLabel
+                        key={`${tick.hour}-${tick.leftPct}`}
+                        tick={tick}
+                        isFirst={i === 0}
+                        isLast={i === ticks.length - 1}
+                    />
                 ))}
             </View>
 
@@ -213,9 +256,6 @@ export function CycleStrip({
                     />
                 ))}
 
-                <SunLine leftPct={sunsetPct} />
-                <SunLine leftPct={sunrisePct} />
-
                 <View style={{ gap: laneGap }}>
                     {night.zones.map(zone => (
                         <View
@@ -223,12 +263,7 @@ export function CycleStrip({
                             style={{ position: 'relative', height: laneHeight }}
                             accessibilityLabel={`${zone.name}: ${zone.cycles.length} cycles, ${Math.round(totalCycleMin(zone))} minutes`}
                         >
-                            <View
-                                style={[
-                                    styles.laneWash,
-                                    { backgroundColor: zone.color },
-                                ]}
-                            />
+                            <View style={[styles.laneWash, { backgroundColor: zone.color }]} />
                             {zone.cycles.map(cycle => (
                                 <View
                                     key={`${cycle.start}-${cycle.durMin}`}
@@ -263,11 +298,10 @@ function totalCycleMin(zone: CycleStripZone): number {
 function AxisTickLabel({ tick, isFirst, isLast }: { tick: HourTick; isFirst: boolean; isLast: boolean }) {
     // Anchor the first and last tick labels to their respective edges to
     // avoid clipping off the chart; everything in between is centred.
-    const transformStyle: StyleProp<ViewStyle> = isFirst
-        ? { transform: [{ translateX: 0 }] }
-        : isLast
-            ? undefined
-            : { transform: [{ translateX: -0.5 }] };
+    const transformStyle: StyleProp<ViewStyle> =
+        isFirst ? { transform: [{ translateX: 0 }] }
+        : isLast ? undefined
+        : { transform: [{ translateX: -0.5 }] };
 
     return (
         <View style={[styles.tickWrap, { left: `${tick.leftPct}%` }, transformStyle]}>
@@ -279,18 +313,17 @@ function AxisTickLabel({ tick, isFirst, isLast }: { tick: HourTick; isFirst: boo
     );
 }
 
-function SunLine({ leftPct }: { leftPct: number }) {
-    return <View style={[styles.sunLine, { left: `${leftPct}%` }]} />;
-}
-
 function SunLabel({ leftPct, kind, time }: { leftPct: number; kind: 'set' | 'rise'; time: string }) {
+    // Clamp out-of-axis positions to the nearest edge so the label stays
+    // visible. The label TEXT still carries the accurate time, so the user
+    // gets the information even when the event itself falls outside the
+    // chart's plotted window.
+    const clampedPct = Math.max(0, Math.min(100, leftPct));
     // Past the midpoint, anchor the label's right edge to the line so it
     // never falls off the end of the chart.
-    const alignRight = leftPct > 50;
+    const alignRight = clampedPct > 50;
     const labelText = `${kind === 'set' ? 'sunset' : 'sunrise'} ${time}`;
-    const positionStyle: ViewStyle = alignRight
-        ? { right: `${100 - leftPct}%` }
-        : { left: `${leftPct}%` };
+    const positionStyle: ViewStyle = alignRight ? { right: `${100 - clampedPct}%` } : { left: `${clampedPct}%` };
 
     return (
         <View style={[styles.sunLabelWrap, positionStyle]} accessibilityLabel={labelText}>
@@ -382,6 +415,7 @@ const styles = StyleSheet.create({
     },
     sunLabelRow: {
         position: 'relative',
+        flex: 1,
         height: 16,
         marginTop: 6,
     },
