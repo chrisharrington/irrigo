@@ -7,7 +7,7 @@ import { grassTypes, irrigationCycles, scheduleEntries, schedules, sites, soilTy
 
 dayjs.extend(utc);
 dayjs.extend(timezone);
-import type { IrrigationScheduleEntry, Zone } from '@/models';
+import type { DailyWeather, IrrigationScheduleEntry, Zone } from '@/models';
 import type { FutureCyclePair, PersistedCycle } from '@/models/cycle';
 import type { ScheduleEntriesRepository } from '@/repositories/schedule-entries';
 import type { Schedule, SchedulesRepository } from '@/repositories/schedules';
@@ -15,6 +15,7 @@ import type { SitesRepository } from '@/repositories/sites';
 import type { WeatherStateRepository } from '@/repositories/weather-state';
 import type { ZoneJoinedRow, ZonesRepository } from '@/repositories/zones';
 import { joinedRowToZone } from '@/repositories/zones';
+import { planZoneSchedule } from '@/schedules/dynamic';
 import type { NotificationContext, NotificationEvent, Notifier } from '@/notifications';
 import { bootSystemService } from '@/service/system';
 import { bootDaemonService, computeNextRePlanAt, start } from '.';
@@ -1211,6 +1212,69 @@ describe('start', () => {
                 expect(opens).not.toContain('zone-plan');
                 const warnMessages = warnSpy.mock.calls.map(args => String((args as unknown[])[0]));
                 expect(warnMessages.some(m => m.includes('overlaps a busy window'))).toBe(true);
+            } finally {
+                warnSpy.mockRestore();
+            }
+        });
+
+        it(`every cycle returned by replaceForZone passes the daemon's busy-window overlap predicate (API-77)`, async () => {
+            // Integration: feed the *real* planner into runPlan and assert
+            // the daemon emits no "overlaps a busy window — not arming"
+            // warnings. Pre-API-77 the planner could shift past-due cycles
+            // on top of cross-zone busy windows; the daemon then refused to
+            // arm them and the warning was a routine event for multi-zone
+            // schedules. Post-fix the planner's output respects the daemon's
+            // overlap predicate by construction.
+            const warnSpy = spyOn(console, 'warn').mockImplementation(() => {});
+            try {
+                const enabledRows = [
+                    buildJoinedRow({ zone: { id: 'zone-A', name: 'Zone A', currentDepletionMm: 22.5 } }),
+                    buildJoinedRow({ zone: { id: 'zone-B', name: 'Zone B', currentDepletionMm: 22.5 } }),
+                    buildJoinedRow({ zone: { id: 'zone-C', name: 'Zone C', currentDepletionMm: 22.5 } }),
+                ];
+                const futureRow = buildFutureCycleRow({
+                    cycle: { id: 'cycle-inflight', startTime: new Date('2026-05-04T12:30:00.000Z'), durationMin: 60 },
+                    zone: { id: 'zone-inflight' },
+                });
+                const stub = createDaemonReposStub({
+                    enabledZones: enabledRows,
+                    futureCycles: [futureRow],
+                });
+                bootDaemonService({ repos: stub.repos, alertsDb: stub.alertsDb });
+                const { clock } = createFakeClock(NOW);
+
+                // Synthetic weather: 6:00 sunrise (360-min window).
+                const weather: DailyWeather[] = Array.from({ length: 7 }, (_, i) => {
+                    const date = dayjs('2026-05-04').add(i, 'day');
+                    return {
+                        date,
+                        sunrise: date.hour(6).minute(0).second(0),
+                        sunset: date.hour(20).minute(0).second(0),
+                        rainfallMm: 0,
+                        evapotranspirationMmPerDay: 2.0,
+                    };
+                });
+
+                const control = await start({
+                    clock,
+                    rePlanHourLocal: 4,
+                    runPlan: async (zone, opts) => {
+                        const busy = (opts?.busyWindows ?? []).map(w => ({
+                            start: dayjs(w.start),
+                            end: dayjs(w.end),
+                        }));
+                        return planZoneSchedule(zone, weather, busy);
+                    },
+                    getZoneState: async () => 'off',
+                    openZone: async () => {},
+                    closeZone: async () => {},
+                });
+
+                await control.rePlan();
+
+                const warnMessages = warnSpy.mock.calls.map(args => String((args as unknown[])[0]));
+                const overlapWarnings = warnMessages.filter(m => m.includes('overlaps a busy window'));
+                expect(overlapWarnings).toEqual([]);
             } finally {
                 warnSpy.mockRestore();
             }

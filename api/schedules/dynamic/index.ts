@@ -220,6 +220,13 @@ type PlaceIrrigationOutcome = {
  * replan on Sun the block runs [Mon 00:00, Mon sunrise] — naturally in the
  * future.
  *
+ * Cycle sizing uses an iterative downward retry (API-77): the closed-form
+ * `maxRunTimeMinutes` gives an upper bound on N against the empty window,
+ * but cross-zone busy windows can consume so much of the residual gaps that
+ * the placer can't fit N cycles. The caller retries with N-1, N-2, … until
+ * placement succeeds or N=0. The `actualTotalRunTime` drives the partial-
+ * refill `appliedDepthMm` / `depletionAfterMm` math.
+ *
  * Past-window busy intervals (those starting at the epoch) are split out
  * from cross-zone busy windows. Once the placer has produced the cycle list,
  * any cycle whose `startTime` falls before `pastWindow.end` (= `now`) is
@@ -271,11 +278,7 @@ function tryPlaceIrrigationForDay(inputs: PlaceIrrigationInputs): PlaceIrrigatio
         console.warn(`planner: zone ${zone.id} (${zone.name}): overnight window (${windowMinutes} min) too short to fit even one cycle (maxCycle ${maximumCycleMinutes.toFixed(1)} min) on ${date.format('YYYY-MM-DD')} — skipping irrigation.`);
         return null;
     }
-    const totalRunTimeMinutes = Math.min(fullRefillRunTimeMinutes, maxRunTimeMinutes);
-    const grossIrrigationDepthMillimeters = (totalRunTimeMinutes / 60) * precipitationRateMillimetersPerHour;
-    if (totalRunTimeMinutes < fullRefillRunTimeMinutes) {
-        console.log(`planner: zone ${zone.id} (${zone.name}): clamping run time ${fullRefillRunTimeMinutes.toFixed(1)} → ${totalRunTimeMinutes.toFixed(1)} min on ${date.format('YYYY-MM-DD')} (window ${windowMinutes} min); applying ${grossIrrigationDepthMillimeters.toFixed(1)} of ${fullRefillGrossDepthMillimeters.toFixed(1)} mm.`);
-    }
+    const initialTotalRunTimeMinutes = Math.min(fullRefillRunTimeMinutes, maxRunTimeMinutes);
 
     // The daemon plumbs a "past window" — { start: epoch, end: now } — as a
     // busy interval that pushes past-dated cycles forward. It's handled
@@ -288,23 +291,47 @@ function tryPlaceIrrigationForDay(inputs: PlaceIrrigationInputs): PlaceIrrigatio
         ? busyWindowsSoFar.filter(w => w !== pastWindow)
         : busyWindowsSoFar;
 
-    const placedCycles = placeCyclesBackwardAvoidingBusy(
-        totalRunTimeMinutes,
-        maximumCycleMinutes,
-        sunrise,
-        soakTimeMinutes,
-        earliestStart,
-        crossZoneBusyWindows,
-    );
+    // Iterative downward cap (API-77). The closed-form `maxRunTimeMinutes`
+    // sizes against the *empty* overnight window; with earlier zones already
+    // planted, the residual gaps may not fit the chosen N cycles. Try N, then
+    // N-1, etc., until the placer succeeds. Shrinking N is more honest than
+    // a residual-time closed form because interleaving into soak gaps fits
+    // cycles when arithmetic says no. The first non-null placement wins.
+    const initialN = computeInitialCycleCount(initialTotalRunTimeMinutes, maximumCycleMinutes);
+    let placedCycles: IrrigationCycle[] | null = null;
+    let actualTotalRunTimeMinutes = 0;
+    for (let n = initialN; n >= 1; n--) {
+        const candidateRunTime = candidateTotalRunTime(n, fullRefillRunTimeMinutes, maximumCycleMinutes);
+        const candidatePerCycle = roundTo1Decimal(candidateRunTime / n);
+        if (candidatePerCycle <= 0) continue;
+        const candidate = placeCyclesBackwardAvoidingBusy(
+            n,
+            candidatePerCycle,
+            sunrise,
+            soakTimeMinutes,
+            earliestStart,
+            crossZoneBusyWindows,
+        );
+        if (candidate !== null) {
+            placedCycles = candidate;
+            actualTotalRunTimeMinutes = n * candidatePerCycle;
+            break;
+        }
+    }
 
     if (placedCycles === null) {
-        console.warn(`planner: zone ${zone.id} (${zone.name}): overnight window too short to fit the planned cycles on ${date.format('YYYY-MM-DD')} — deferring irrigation.`);
+        console.warn(`planner: zone ${zone.id} (${zone.name}): no cycle count from ${initialN} down fit the overnight window's residual gaps on ${date.format('YYYY-MM-DD')} — deferring irrigation.`);
         return null;
     }
 
     if (placedCycles.length === 0) {
         console.warn(`planner: zone ${zone.id} (${zone.name}): no cycles fit the overnight window on ${date.format('YYYY-MM-DD')} — skipping irrigation.`);
         return null;
+    }
+
+    const grossIrrigationDepthMillimeters = (actualTotalRunTimeMinutes / 60) * precipitationRateMillimetersPerHour;
+    if (actualTotalRunTimeMinutes < fullRefillRunTimeMinutes) {
+        console.log(`planner: zone ${zone.id} (${zone.name}): clamping run time ${fullRefillRunTimeMinutes.toFixed(1)} → ${actualTotalRunTimeMinutes.toFixed(1)} min on ${date.format('YYYY-MM-DD')} (window ${windowMinutes} min, ${placedCycles.length} cycle(s)); applying ${grossIrrigationDepthMillimeters.toFixed(1)} of ${fullRefillGrossDepthMillimeters.toFixed(1)} mm.`);
     }
 
     // Past-window handling (API-76). The block now anchors to the next day's
@@ -353,8 +380,9 @@ function tryPlaceIrrigationForDay(inputs: PlaceIrrigationInputs): PlaceIrrigatio
  * For `maxCycleMinutes <= 0` (no infiltration limit), a single uninterrupted
  * cycle is allowed up to the full window — there's no per-cycle ceiling.
  *
- * Exposed for upcoming partial-refill tests (API-75). Kept inside this module
- * because callers shouldn't need to reason about cycle math directly.
+ * Sizes against the *empty* window — API-77 wraps this in an outer downward
+ * retry that shrinks N when the residual gaps after cross-zone placement
+ * can't hold the closed-form plan.
  */
 function computeMaxRunTimeMinutes(maxCycleMinutes: number, soakTimeMinutes: number, windowMinutes: number): number {
     if (windowMinutes <= 0) return 0;
@@ -362,6 +390,30 @@ function computeMaxRunTimeMinutes(maxCycleMinutes: number, soakTimeMinutes: numb
     const cyclesThatFit = Math.floor((windowMinutes + soakTimeMinutes) / (maxCycleMinutes + soakTimeMinutes));
     if (cyclesThatFit <= 0) return 0;
     return cyclesThatFit * maxCycleMinutes;
+}
+
+/**
+ * Returns the initial cycle count (N) the iterative downward retry should
+ * start from, given a total runtime and per-cycle infiltration cap. Matches
+ * the pre-API-77 placer's internal derivation: N=1 for the no-cap / single-
+ * cycle case, otherwise `ceil(totalRunTime / maxCycle)`.
+ */
+function computeInitialCycleCount(totalRunTimeMinutes: number, maximumCycleMinutes: number): number {
+    if (totalRunTimeMinutes <= 0) return 0;
+    if (maximumCycleMinutes <= 0 || totalRunTimeMinutes <= maximumCycleMinutes) return 1;
+    return Math.ceil(totalRunTimeMinutes / maximumCycleMinutes);
+}
+
+/**
+ * Returns the candidate total runtime for `n` cycles inside the iterative
+ * downward retry: capped at the full-refill runtime (no point watering past
+ * a full refill) and at `n * maxCycle` (the infiltration ceiling for `n`
+ * cycles). When `maxCycle <= 0` (no infiltration limit) the only cap is
+ * the full refill.
+ */
+function candidateTotalRunTime(n: number, fullRefillRunTimeMinutes: number, maximumCycleMinutes: number): number {
+    if (maximumCycleMinutes <= 0) return fullRefillRunTimeMinutes;
+    return Math.min(fullRefillRunTimeMinutes, n * maximumCycleMinutes);
 }
 
 
@@ -385,37 +437,31 @@ function computeMaxRunTimeMinutes(maxCycleMinutes: number, soakTimeMinutes: numb
  * When a cycle still doesn't fit (sliding earlier would land before
  * `earliestStart` = midnight), the entire day is treated as un-irrigatable:
  * the function returns `null` so the caller defers and carries depletion
- * into the next allowed day.
+ * into the next allowed day. The caller (API-77) wraps this in an iterative
+ * downward retry, calling with progressively smaller `numberOfCycles` until
+ * placement succeeds.
  *
- * @param totalRunTimeMinutes - Total irrigation runtime needed.
- * @param maximumCycleMinutes - Maximum duration per cycle (infiltration limit).
+ * @param numberOfCycles - Number of cycles to lay down (chosen by the caller's
+ *   downward retry). Returns `[]` when zero.
+ * @param perCycleMinutes - Per-cycle duration. The caller picks this such
+ *   that `numberOfCycles * perCycleMinutes` matches the desired total runtime.
  * @param sunrise - End anchor: last cycle ends here (or earlier if busy windows displace it).
  * @param soakTimeMinutes - Soak gap between consecutive cycles of this zone.
  * @param earliestStart - Hard floor: no cycle may start before this time (midnight of the entry date).
  * @param busyWindows - Intervals occupied by other zones (or the past window
  *   if handled here). Cycles slide earlier to avoid overlap.
  * @returns Cycles in chronological order (earliest first), `null` when the
- *   day must be deferred, or `[]` when nothing needs to run.
+ *   day must be deferred, or `[]` when `numberOfCycles === 0`.
  */
 function placeCyclesBackwardAvoidingBusy(
-    totalRunTimeMinutes: number,
-    maximumCycleMinutes: number,
+    numberOfCycles: number,
+    perCycleMinutes: number,
     sunrise: dayjs.Dayjs,
     soakTimeMinutes: number,
     earliestStart: dayjs.Dayjs,
     busyWindows: ReadonlyArray<BusyWindow>,
 ): IrrigationCycle[] | null {
-    if (totalRunTimeMinutes <= 0) return [];
-
-    let numberOfCycles: number;
-    let perCycleMinutes: number;
-    if (maximumCycleMinutes <= 0 || totalRunTimeMinutes <= maximumCycleMinutes) {
-        numberOfCycles = 1;
-        perCycleMinutes = roundTo1Decimal(totalRunTimeMinutes);
-    } else {
-        numberOfCycles = Math.ceil(totalRunTimeMinutes / maximumCycleMinutes);
-        perCycleMinutes = roundTo1Decimal(totalRunTimeMinutes / numberOfCycles);
-    }
+    if (numberOfCycles <= 0 || perCycleMinutes <= 0) return [];
 
     const cyclesInReverse: IrrigationCycle[] = [];
     let cursor: dayjs.Dayjs = sunrise; // latest-allowed end for the next placed cycle (walking backward)
