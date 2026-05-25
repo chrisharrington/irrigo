@@ -1,7 +1,11 @@
 import { fireEvent, render, screen } from '@testing-library/react-native';
+import { StyleSheet, type ViewStyle } from 'react-native';
 
 import { ZoneTile } from '.';
 import type { ZoneSummary } from '@/api/types/zones';
+import config from '@/tailwind.config';
+
+const colors = config.theme.extend.colors;
 
 const NOW = new Date('2026-05-24T15:00:00.000Z');
 
@@ -86,5 +90,15 @@ describe('ZoneTile', () => {
 
         expect(onPress).toHaveBeenCalledTimes(1);
         expect(onPress).toHaveBeenCalledWith(HEALTHY_ZONE);
+    });
+
+    it('uses the elevated background and accent-border per the APP-47 home-card standard.', () => {
+        render(<ZoneTile zone={HEALTHY_ZONE} onPress={() => {}} now={NOW} />);
+
+        const card = screen.getByLabelText('Open North');
+        const style = StyleSheet.flatten(card.props.style) as ViewStyle;
+
+        expect(style.backgroundColor).toBe(colors.elevated);
+        expect(style.borderColor).toBe(colors['accent-border']);
     });
 });
