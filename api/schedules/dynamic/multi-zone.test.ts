@@ -582,14 +582,7 @@ describe('planZoneSchedule — multi-zone matrix', () => {
     describe('Theme F — Past-window mechanics', () => {
         const pastWindow = (now: Dayjs): BusyWindow => ({ start: dayjs(new Date(0)), end: now });
 
-        it('21. Past window without endBySunrise — every zone\'s day-0 cycles shift to start at-or-after now.', () => {
-            // Note (known planner limitation): when multiple zones get the
-            // past-window forward shift, each zone's cycles are re-anchored
-            // independently against the pastWindow only — not against the
-            // already-shifted cross-zone cycles. Result: B's shifted cycles
-            // can collide with A's shifted cycles. Tracked separately as a
-            // planner follow-up; this scenario only asserts the "shifted to
-            // at-or-after now" invariant, not cross-zone non-overlap.
+        it(`21. Past window without endBySunrise — every zone's day-0 cycles shift to start at-or-after now AND don't overlap earlier zones' shifted cycles (API-77).`, () => {
             const zones = [
                 makeZone('a', { currentDepletionMm: 22.5 }),
                 makeZone('b', { currentDepletionMm: 22.5 }),
@@ -620,6 +613,10 @@ describe('planZoneSchedule — multi-zone matrix', () => {
                     expect(cycle.startTime.valueOf()).toBeGreaterThanOrEqual(now.valueOf());
                 }
             }
+            // The past-window forward shift now also dodges cross-zone busy
+            // windows (API-77) — shifted cycles must not collide with cycles
+            // already planted by an earlier zone in the per-zone loop.
+            assertNoCrossZoneOverlap(results);
         });
 
         it('22. Past window WITH endBySunrise — day-0 cycles dropped for every zone.', () => {
@@ -880,6 +877,140 @@ describe('planZoneSchedule — multi-zone matrix', () => {
             const fullRefillGross = day0.depletionBeforeMm / zone.irrigationEfficiency;
             expect(Math.abs(day0.appliedDepthMm - fullRefillGross)).toBeLessThanOrEqual(0.1);
             expect(day0.depletionAfterMm).toBe(0);
+        });
+    });
+
+    describe('Theme J — Busy-window-aware clamp (API-77)', () => {
+        // Production-shaped "East" zone: clay soil just under the 5 mm/hr
+        // soak boundary (infiltration 4.8 mm/hr → 60-min soak), low precip
+        // (12 mm/hr). At 49.5 mm depletion the closed-form picks 5×24-min
+        // cycles whose 360-min span exactly fills the 360-min window — a
+        // single zone fits, but 3 sequential zones can't all fit 5 cycles
+        // each via interleaving (B's 5th cycle would land before midnight).
+        // Pre-API-77 the placer returned null and the night deferred entirely.
+        const CLAY_SLOW = { name: 'ClaySlow', availableWaterHoldingCapacityMmPerM: 165, infiltrationRateMmPerHr: 4.8 };
+        const EAST_LIKE_ZONE: Partial<Zone> = {
+            soil: CLAY_SLOW,
+            rootDepthM: 0.3,
+            allowableDepletionFraction: 0.5,
+            irrigationEfficiency: 0.8,
+            precipitationRateMmPerHr: 12,
+        };
+
+        it(`32. 3 zones × 49.5 mm depletion (East-like profile) — every zone gets at least one cycle on day 0; later zones' plans shrink rather than deferring.`, () => {
+            const zones = [
+                makeZone('a', { ...EAST_LIKE_ZONE, currentDepletionMm: 49.5 }),
+                makeZone('b', { ...EAST_LIKE_ZONE, currentDepletionMm: 49.5 }),
+                makeZone('c', { ...EAST_LIKE_ZONE, currentDepletionMm: 49.5 }),
+            ];
+            const weather = gatedWeather(7);
+
+            const results = planAllZonesSequentially(zones, weather);
+
+            // Each zone fires on day 0 — none defer to null. This is the
+            // central acceptance criterion: pre-API-77 the placer returned
+            // null for zone B (and C) and the entry was dropped.
+            const day0a = day0CyclesSorted(results.get('a')!, '2026-05-04');
+            const day0b = day0CyclesSorted(results.get('b')!, '2026-05-04');
+            const day0c = day0CyclesSorted(results.get('c')!, '2026-05-04');
+            expect(day0a.length).toBeGreaterThanOrEqual(1);
+            expect(day0b.length).toBeGreaterThanOrEqual(1);
+            expect(day0c.length).toBeGreaterThanOrEqual(1);
+            // No cross-zone overlap across the night.
+            assertNoCrossZoneOverlap(results);
+            assertProjectedDepletionSane(results, zones);
+            // Later zones shrink to fit; total cycles non-increasing across A→B→C.
+            expect(day0b.length).toBeLessThanOrEqual(day0a.length);
+            expect(day0c.length).toBeLessThanOrEqual(day0b.length);
+        });
+
+        it(`33. Synthetic cross-zone busy windows occupying most of the night — planner still emits a non-null plan and avoids the busy intervals.`, () => {
+            // Pre-plant two busy windows covering ~70% of the 360-min night
+            // (00:00 — 02:00 and 03:00 — 05:00). Zone A's closed-form would
+            // place 5 East-like cycles; the iterative retry must shrink N.
+            const date = START; // 2026-05-04
+            const busyWindows: BusyWindow[] = [
+                { start: date.hour(0).minute(0), end: date.hour(2).minute(0) },
+                { start: date.hour(3).minute(0), end: date.hour(5).minute(0) },
+            ];
+            const zone = makeZone('a', { ...EAST_LIKE_ZONE, currentDepletionMm: 49.5 });
+            const weather = gatedWeather(7);
+
+            const { entries } = planZoneSchedule(zone, weather, busyWindows);
+
+            expect(entries.length).toBeGreaterThan(0);
+            const day0 = entries[0]!;
+            expect(day0.cycles.length).toBeGreaterThanOrEqual(1);
+            // No cycle overlaps any busy window.
+            for (const cycle of day0.cycles) {
+                const cycleStart = cycle.startTime;
+                const cycleEnd = cycle.startTime.add(cycle.durationMin, 'minute');
+                for (const window of busyWindows) {
+                    const overlaps = cycleStart.isBefore(window.end) && cycleEnd.isAfter(window.start);
+                    expect(overlaps).toBe(false);
+                }
+            }
+        });
+
+        it(`34. Easy case (3 zones with COMPACT profile, 22.5 mm depletion) — full refill for every zone; the retry does not over-shrink.`, () => {
+            const zones = [
+                makeZone('a', { currentDepletionMm: 22.5 }),
+                makeZone('b', { currentDepletionMm: 22.5 }),
+                makeZone('c', { currentDepletionMm: 22.5 }),
+            ];
+            const weather = gatedWeather(7);
+
+            const results = planAllZonesSequentially(zones, weather);
+
+            for (const [zoneId, result] of results) {
+                const day0 = result.entries.find(e => e.date.format('YYYY-MM-DD') === '2026-05-04');
+                expect(day0, `zone ${zoneId} missing day-0 entry`).toBeDefined();
+                const zone = zones.find(z => z.id === zoneId)!;
+                const fullRefillGross = day0!.depletionBeforeMm / zone.irrigationEfficiency;
+                // appliedDepthMm should match the full refill within rounding.
+                expect(Math.abs(day0!.appliedDepthMm - fullRefillGross)).toBeLessThanOrEqual(0.1);
+                expect(day0!.depletionAfterMm).toBe(0);
+            }
+            assertNoCrossZoneOverlap(results);
+            assertProjectedDepletionSane(results, zones);
+        });
+
+        it(`35. Past-window forward-shift respects cross-zone busy windows — pushed cycles don't overlap existing busy intervals.`, () => {
+            // Zone B's backward placement avoids zone A's busy windows; then
+            // the past-window forward shift could push B's cycles on top of
+            // A's windows. Pre-API-77 it did exactly that — now the shift
+            // dodges both pastWindow AND cross-zone busy windows.
+            const date = START; // 2026-05-04
+            const now = date.hour(2).minute(0); // 02:00 — between A's planted intervals
+            // Cross-zone busy windows: simulate zone A having already planted
+            // two windows that bracket `now`. The past-window shift will try
+            // to push B's cycles past 02:00; without the fix it lands on A.
+            const zoneABusyWindows: BusyWindow[] = [
+                { start: date.hour(2).minute(15), end: date.hour(2).minute(45) },
+                { start: date.hour(3).minute(0), end: date.hour(3).minute(30) },
+            ];
+            const pastWindow: BusyWindow = { start: dayjs(new Date(0)), end: now };
+            const busyWindows: BusyWindow[] = [pastWindow, ...zoneABusyWindows];
+
+            const zone = makeZone('b', { currentDepletionMm: 22.5 });
+            const weather = gatedWeather(7);
+
+            const { entries } = planZoneSchedule(zone, weather, busyWindows);
+
+            expect(entries.length).toBeGreaterThan(0);
+            const day0 = entries.find(e => e.date.format('YYYY-MM-DD') === '2026-05-04');
+            expect(day0).toBeDefined();
+            // Every placed cycle starts at-or-after now AND does not overlap
+            // any of A's busy windows.
+            for (const cycle of day0!.cycles) {
+                expect(cycle.startTime.valueOf()).toBeGreaterThanOrEqual(now.valueOf());
+                const cycleStart = cycle.startTime;
+                const cycleEnd = cycle.startTime.add(cycle.durationMin, 'minute');
+                for (const window of zoneABusyWindows) {
+                    const overlaps = cycleStart.isBefore(window.end) && cycleEnd.isAfter(window.start);
+                    expect(overlaps).toBe(false);
+                }
+            }
         });
     });
 });
