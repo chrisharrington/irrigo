@@ -268,7 +268,7 @@ function createDaemonReposStub(inputs?: DaemonStubInputs) {
         findById: async () => null,
         count: async () => counts,
         loadJoinedRowsForSummary: async () => [],
-        loadLatestScheduleEntries: async () => [],
+        loadLatestFires: async () => [],
         advanceDepletion: async (zoneId, depletionMm) => {
             depletionAdvances.push({ zoneId, depletionMm });
             for (const row of enabledZoneRows) {

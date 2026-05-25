@@ -141,21 +141,48 @@ function stubSummaryJoinDb(rows: SummaryJoinedRow[]): { db: Database; getSelectC
     return { db, whereCalls, getSelectColumns: () => selectColumns };
 }
 
-function stubLatestEntriesDb(rows: LatestZoneFire[]): { db: Database; onCalls: Array<ReadonlyArray<unknown>>; orderByCalls: Array<ReadonlyArray<unknown>> } {
+type StubLatestFiresHandles = {
+    db: Database;
+    onCalls: Array<ReadonlyArray<unknown>>;
+    fromCalls: Array<unknown>;
+    innerJoinCalls: Array<{ table: unknown; on: unknown }>;
+    whereCalls: Array<unknown>;
+    orderByCalls: Array<ReadonlyArray<unknown>>;
+};
+
+function stubLatestFiresDb(rows: LatestZoneFire[]): StubLatestFiresHandles {
     const onCalls: Array<ReadonlyArray<unknown>> = [];
+    const fromCalls: Array<unknown> = [];
+    const innerJoinCalls: Array<{ table: unknown; on: unknown }> = [];
+    const whereCalls: Array<unknown> = [];
     const orderByCalls: Array<ReadonlyArray<unknown>> = [];
 
     const runOrderBy = async (...exprs: ReadonlyArray<unknown>): Promise<LatestZoneFire[]> => {
         orderByCalls.push(exprs);
         return rows;
     };
+    const whereChain = { orderBy: runOrderBy };
+    const runWhere = (cond: unknown) => {
+        whereCalls.push(cond);
+        return whereChain;
+    };
+    const innerJoinChain = { where: runWhere };
+    const runInnerJoin = (table: unknown, on: unknown) => {
+        innerJoinCalls.push({ table, on });
+        return innerJoinChain;
+    };
+    const fromChain = { innerJoin: runInnerJoin };
+    const runFrom = (table: unknown) => {
+        fromCalls.push(table);
+        return fromChain;
+    };
     const runSelectDistinctOn = (on: ReadonlyArray<unknown>) => {
         onCalls.push(on);
-        return { from: () => ({ orderBy: runOrderBy }) };
+        return { from: runFrom };
     };
 
     const db = { selectDistinctOn: runSelectDistinctOn } as unknown as Database;
-    return { db, onCalls, orderByCalls };
+    return { db, onCalls, fromCalls, innerJoinCalls, whereCalls, orderByCalls };
 }
 
 function summaryRow(overrides?: {
@@ -437,29 +464,41 @@ describe('createZonesRepository.advanceDepletion', () => {
     });
 });
 
-describe('createZonesRepository.loadLatestScheduleEntries', () => {
+describe('createZonesRepository.loadLatestFires', () => {
     it('returns the rows produced by the distinct-on query', async () => {
         const entries: LatestZoneFire[] = [
-            { zoneId: 'zone-1', date: '2026-05-13', appliedDepthMm: 14 },
-            { zoneId: 'zone-2', date: '2026-05-12', appliedDepthMm: 9 },
+            { zoneId: 'zone-1', firedAt: new Date('2026-05-13T05:00:00.000Z'), appliedDepthMm: 14 },
+            { zoneId: 'zone-2', firedAt: new Date('2026-05-12T05:00:00.000Z'), appliedDepthMm: 9 },
         ];
-        const { db } = stubLatestEntriesDb(entries);
+        const { db } = stubLatestFiresDb(entries);
         const repo = createZonesRepository(db);
 
-        const result = await repo.loadLatestScheduleEntries();
+        const result = await repo.loadLatestFires();
 
         expect(result).toEqual(entries);
     });
 
-    it('groups the distinct-on result by zoneId and orders descending by date', async () => {
-        const { db, onCalls, orderByCalls } = stubLatestEntriesDb([]);
+    it('groups the distinct-on result by zoneId and orders descending by fired_at', async () => {
+        const { db, onCalls, orderByCalls } = stubLatestFiresDb([]);
         const repo = createZonesRepository(db);
 
-        await repo.loadLatestScheduleEntries();
+        await repo.loadLatestFires();
 
         expect(onCalls).toHaveLength(1);
         expect(onCalls[0]).toHaveLength(1);
         expect(orderByCalls).toHaveLength(1);
         expect(orderByCalls[0]).toHaveLength(2);
+    });
+
+    it('reads from irrigation_cycles joined to schedule_entries and filters by non-null fired_at', async () => {
+        const { db, fromCalls, innerJoinCalls, whereCalls } = stubLatestFiresDb([]);
+        const repo = createZonesRepository(db);
+
+        await repo.loadLatestFires();
+
+        expect(fromCalls).toHaveLength(1);
+        expect(innerJoinCalls).toHaveLength(1);
+        expect(innerJoinCalls[0]?.table).toBeDefined();
+        expect(whereCalls).toHaveLength(1);
     });
 });

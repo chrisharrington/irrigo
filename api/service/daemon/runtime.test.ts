@@ -119,7 +119,7 @@ function defaultRepos(scheduleEntries: ScheduleEntriesRepository, onAdvanceDeple
             findById: async () => null,
             count: async () => ({ total: 0, enabled: 0 }),
             loadJoinedRowsForSummary: async () => [],
-            loadLatestScheduleEntries: async () => [],
+            loadLatestFires: async () => [],
             advanceDepletion: async (zoneId, mm) => { onAdvanceDepletion?.(zoneId, mm); },
         },
         sites: { loadTimezone: async () => 'UTC' },

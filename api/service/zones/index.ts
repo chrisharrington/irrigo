@@ -1,4 +1,3 @@
-import dayjs from 'dayjs';
 import type { Database } from '@/db';
 import type { Zone } from '@/models';
 import type { LatestZoneFire, ZoneSummary } from '@/models/zone';
@@ -58,7 +57,7 @@ export async function getZoneSummaries(): Promise<ZoneSummary[]> {
     const r = getRepo();
     const [rows, latest] = await Promise.all([
         r.loadJoinedRowsForSummary(),
-        r.loadLatestScheduleEntries(),
+        r.loadLatestFires(),
     ]);
     const latestByZone = new Map<string, LatestZoneFire>(latest.map(entry => [entry.zoneId, entry]));
     const summaries = rows.map(row => mapJoinedRowToSummary(row, latestByZone.get(row.zone.id) ?? null));
@@ -96,7 +95,7 @@ export function mapJoinedRowToSummary(
         precipitationRateMmPerHr: row.zone.precipitationRateMmPerHr,
         currentDepletionMm: row.zone.currentDepletionMm,
         rawMm,
-        lastFiredAt: lastFire ? dayjs(lastFire.date).format('YYYY-MM-DD') : null,
+        lastFiredAt: lastFire ? lastFire.firedAt.toISOString() : null,
         lastAppliedMm: lastFire ? lastFire.appliedDepthMm : null,
         homeAssistantEntityId: row.zone.homeAssistantEntityId,
         patch: row.zone.patch,

@@ -889,7 +889,7 @@ describe('buildApp GET /zones', () => {
             precipitationRateMmPerHr: null,
             currentDepletionMm: 12.4,
             rawMm: 21,
-            lastFiredAt: '2026-05-13',
+            lastFiredAt: '2026-05-13T05:00:00.000Z',
             lastAppliedMm: 14,
             homeAssistantEntityId: 'switch.sprinkler_controller_north_zone',
             patch: 'a',
