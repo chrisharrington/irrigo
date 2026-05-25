@@ -137,11 +137,9 @@ function buildDto(rows: TonightJoinedRow[], siteTimezone: string): TonightDto {
     const allCycleEnds: Date[] = [];
     const zoneAccumulator = new Map<string, ZoneAccumulator>();
     let firstSunriseAt: Date | null = null;
-    let firstSunsetAt: Date | null = null;
 
     for (const row of rows) {
         if (firstSunriseAt === null && row.entry.sunriseAt !== null) firstSunriseAt = row.entry.sunriseAt;
-        if (firstSunsetAt === null && row.entry.sunsetAt !== null) firstSunsetAt = row.entry.sunsetAt;
 
         if (row.cycle === null) continue;
         cyclesFiring.push(row.cycle.firedAt !== null && row.cycle.closedAt === null);
@@ -178,7 +176,7 @@ function buildDto(rows: TonightJoinedRow[], siteTimezone: string): TonightDto {
         return a.name.localeCompare(b.name);
     });
 
-    const sunset = firstSunsetAt !== null ? formatSiteLocal(firstSunsetAt, siteTimezone) : null;
+    const sunset = null;
     const sunrise = firstSunriseAt !== null ? formatSiteLocal(firstSunriseAt, siteTimezone) : null;
 
     const dtoZones: TonightZone[] = zonesSorted.map(z => ({

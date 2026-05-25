@@ -7,7 +7,7 @@ import { grassTypes, irrigationCycles, scheduleEntries, schedules, sites, soilTy
 
 dayjs.extend(utc);
 dayjs.extend(timezone);
-import type { IrrigationScheduleEntry, Zone } from '@/models';
+import type { DailyWeather, IrrigationScheduleEntry, Zone } from '@/models';
 import type { FutureCyclePair, PersistedCycle } from '@/models/cycle';
 import type { ScheduleEntriesRepository } from '@/repositories/schedule-entries';
 import type { Schedule, SchedulesRepository } from '@/repositories/schedules';
@@ -15,6 +15,7 @@ import type { SitesRepository } from '@/repositories/sites';
 import type { WeatherStateRepository } from '@/repositories/weather-state';
 import type { ZoneJoinedRow, ZonesRepository } from '@/repositories/zones';
 import { joinedRowToZone } from '@/repositories/zones';
+import { planZoneSchedule } from '@/schedules/dynamic';
 import type { NotificationContext, NotificationEvent, Notifier } from '@/notifications';
 import { bootSystemService } from '@/service/system';
 import { bootDaemonService, computeNextRePlanAt, start } from '.';
@@ -222,12 +223,13 @@ type DaemonStubInputs = {
 
 function createDaemonReposStub(inputs?: DaemonStubInputs) {
     const cycleUpdates: CycleUpdate[] = [];
-    const zoneUpdates: Array<{ zoneId: string; currentDepletionMm: number }> = [];
+    const depletionAdvances: Array<{ zoneId: string; depletionMm: number }> = [];
     const inserts: InsertCall[] = [];
     const deletes: Array<{ table: unknown }> = [];
     const weatherStateUpserts: Array<Record<string, unknown>> = [];
     const alertTableUpdates: Array<{ set: Record<string, unknown>; cond: unknown }> = [];
     const schedulesTableUpdates: Array<{ set: Record<string, unknown> }> = [];
+    const todayArgs: Array<{ source: 'replaceForZone' | 'clearStaleSkipMarkers'; value: dayjs.Dayjs }> = [];
 
     let callOrder = 0;
     let firstClearStaleCallOrder: number | null = null;
@@ -267,6 +269,12 @@ function createDaemonReposStub(inputs?: DaemonStubInputs) {
         count: async () => counts,
         loadJoinedRowsForSummary: async () => [],
         loadLatestScheduleEntries: async () => [],
+        advanceDepletion: async (zoneId, depletionMm) => {
+            depletionAdvances.push({ zoneId, depletionMm });
+            for (const row of enabledZoneRows) {
+                if (row.zone.id === zoneId) row.zone.currentDepletionMm = depletionMm;
+            }
+        },
     };
 
     let weatherStateRow: Date | null = inputs?.lastSuccessfulFetchAt ?? null;
@@ -311,9 +319,10 @@ function createDaemonReposStub(inputs?: DaemonStubInputs) {
         disable: async () => null,
         skipActiveTonight: async () => null,
         resumeActiveTonight: async () => null,
-        clearStaleSkipMarkers: async () => {
+        clearStaleSkipMarkers: async (today) => {
             if (firstClearStaleCallOrder === null) firstClearStaleCallOrder = ++callOrder;
             schedulesTableUpdates.push({ set: { skippedNightDate: null } });
+            todayArgs.push({ source: 'clearStaleSkipMarkers', value: today });
         },
     };
 
@@ -323,7 +332,8 @@ function createDaemonReposStub(inputs?: DaemonStubInputs) {
             if (inputs?.inFlightCyclesError) throw inputs.inFlightCyclesError;
             return inputs?.inFlightCycles ?? [];
         },
-        replaceForZone: async (zoneId, entries, _today, projectedNextDepletionMm, scheduleId) => {
+        replaceForZone: async (zoneId, entries, today, scheduleId) => {
+            todayArgs.push({ source: 'replaceForZone', value: today });
             deletes.push({ table: scheduleEntries });
             const cycles: PersistedCycle[] = [];
             for (const entry of entries) {
@@ -338,7 +348,6 @@ function createDaemonReposStub(inputs?: DaemonStubInputs) {
                         depletionBeforeMm: entry.depletionBeforeMm,
                         depletionAfterMm: entry.depletionAfterMm,
                         sunriseAt: entry.sunriseAt?.toDate() ?? null,
-                        sunsetAt: entry.sunsetAt?.toDate() ?? null,
                     }],
                 });
                 if (entry.cycles.length === 0) continue;
@@ -358,11 +367,6 @@ function createDaemonReposStub(inputs?: DaemonStubInputs) {
                         entryDate,
                     });
                 }
-            }
-            zoneUpdates.push({ zoneId, currentDepletionMm: projectedNextDepletionMm });
-            // Reflect the write back into the stubbed enabledZones so the next load returns it.
-            for (const row of enabledZoneRows) {
-                if (row.zone.id === zoneId) row.zone.currentDepletionMm = projectedNextDepletionMm;
             }
             return { cycles };
         },
@@ -386,12 +390,13 @@ function createDaemonReposStub(inputs?: DaemonStubInputs) {
         repos: { zones: zonesRepo, sites: sitesRepo, schedules: schedulesRepo, scheduleEntries: scheduleEntriesRepo, weatherState: weatherStateRepo },
         alertsDb,
         cycleUpdates,
-        zoneUpdates,
+        depletionAdvances,
         inserts,
         deletes,
         weatherStateUpserts,
         alertTableUpdates,
         schedulesTableUpdates,
+        todayArgs,
         getOrdering: () => ({ clearStale: firstClearStaleCallOrder, activeScheduleRead: firstActiveScheduleReadOrder }),
     };
 }
@@ -817,32 +822,95 @@ describe('start', () => {
         expect(closes).toEqual([futureRow.zone.id]);
     });
 
-    it('persists projected depletion so the next rePlan reads the updated value, not the seed', async () => {
+    it('nightly tick advances currentDepletionMm; public rePlan() is idempotent (no depletion write)', async () => {
+        // API-71: operator replans must not mutate zone depletion; only the
+        // nightly scheduled tick (isScheduledTick=true) should call advanceDepletion.
+        // NOW = 2026-05-04T12:00:00Z; with rePlanHourLocal=20 + UTC the tick fires
+        // 8h later at 2026-05-04T20:00:00Z.
+        const enabledRow = buildJoinedRow({ zone: { id: 'zone-001', currentDepletionMm: 0 } });
+        const stub = createDaemonReposStub({ enabledZones: [enabledRow] });
+        bootDaemonService({ repos: stub.repos, alertsDb: stub.alertsDb });
+        const { clock, advanceTo } = createFakeClock(NOW);
+
+        await start({
+            clock,
+            rePlanHourLocal: 20,
+            siteTimezone: 'UTC',
+            runPlan: async () => ({ entries: [], projectedNextDepletionMm: 7.5 }),
+            openZone: async () => {},
+            closeZone: async () => {},
+        });
+
+        // Advance past the nightly re-plan tick (20:00 UTC, 8h from NOW=12:00).
+        await advanceTo(new Date('2026-05-04T20:00:01.000Z'));
+
+        expect(stub.depletionAdvances).toEqual([
+            { zoneId: 'zone-001', depletionMm: 7.5 },
+        ]);
+    });
+
+    it('two consecutive operator rePlan() calls produce no depletionAdvances (API-71 regression)', async () => {
         const enabledRow = buildJoinedRow({ zone: { id: 'zone-001', currentDepletionMm: 0 } });
         const stub = createDaemonReposStub({ enabledZones: [enabledRow] });
         bootDaemonService({ repos: stub.repos, alertsDb: stub.alertsDb });
         const { clock } = createFakeClock(NOW);
-        const seenDepletionsByCall: number[] = [];
+        const insertsAfterFirst: number[] = [];
 
         const control = await start({
             clock,
             rePlanHourLocal: 4,
-            runPlan: async zone => {
-                seenDepletionsByCall.push(zone.currentDepletionMm);
-                return { entries: [], projectedNextDepletionMm: 7.5 };
-            },
+            runPlan: async () => ({
+                entries: [buildEntry('2026-05-05', [{ startTime: '2026-05-05T05:00:00Z', durationMin: 20 }])],
+                projectedNextDepletionMm: 7.5,
+            }),
             openZone: async () => {},
             closeZone: async () => {},
         });
 
         await control.rePlan();
+        insertsAfterFirst.push(stub.inserts.filter(c => c.table === scheduleEntries).length);
+        const insertsSnapshot = stub.inserts.filter(c => c.table === scheduleEntries).map(i => i.rows[0]);
+
+        await control.rePlan();
+        const insertsAfterSecond = stub.inserts.filter(c => c.table === scheduleEntries);
+
+        // No depletion should have been written by either operator replan.
+        expect(stub.depletionAdvances).toHaveLength(0);
+        // Both replans should produce the same schedule entries (idempotent).
+        expect(insertsAfterSecond).toHaveLength(insertsAfterFirst[0]! * 2);
+        expect(insertsAfterSecond[0]?.rows[0]).toEqual(insertsSnapshot[0]);
+    });
+
+    it('resolves the replan day boundary against siteTimezone, not UTC (API-74)', async () => {
+        // 2026-05-05T02:30:00Z is still 2026-05-04 20:30 in America/Edmonton.
+        // Without the timezone fix the daemon would format `today` as
+        // '2026-05-05' and `replaceForZone` would issue `DELETE … WHERE
+        // date >= '2026-05-05'`, leaving the previous day's site-local rows
+        // orphaned in the DB.
+        const utcNow = new Date('2026-05-05T02:30:00.000Z');
+        const enabledRow = buildJoinedRow({ zone: { id: 'zone-001', siteId: 'site-001' } });
+        const stub = createDaemonReposStub({ enabledZones: [enabledRow] });
+        bootDaemonService({ repos: stub.repos, alertsDb: stub.alertsDb });
+        const { clock } = createFakeClock(utcNow);
+
+        const control = await start({
+            clock,
+            rePlanHourLocal: 20,
+            siteTimezone: 'America/Edmonton',
+            runPlan: async () => ({ entries: [], projectedNextDepletionMm: 0 }),
+            openZone: async () => {},
+            closeZone: async () => {},
+            getZoneState: async () => 'off',
+        });
+
         await control.rePlan();
 
-        expect(stub.zoneUpdates).toEqual([
-            { zoneId: 'zone-001', currentDepletionMm: 7.5 },
-            { zoneId: 'zone-001', currentDepletionMm: 7.5 },
-        ]);
-        expect(seenDepletionsByCall).toEqual([0, 7.5]);
+        const replaceForZoneToday = stub.todayArgs.find(t => t.source === 'replaceForZone');
+        const clearStaleToday = stub.todayArgs.find(t => t.source === 'clearStaleSkipMarkers');
+        expect(replaceForZoneToday).toBeDefined();
+        expect(clearStaleToday).toBeDefined();
+        expect(replaceForZoneToday!.value.format('YYYY-MM-DD')).toBe('2026-05-04');
+        expect(clearStaleToday!.value.format('YYYY-MM-DD')).toBe('2026-05-04');
     });
 
     it('does not emit schedule-begun or schedule-ended for boot-armed cycles', async () => {
@@ -1144,6 +1212,69 @@ describe('start', () => {
                 expect(opens).not.toContain('zone-plan');
                 const warnMessages = warnSpy.mock.calls.map(args => String((args as unknown[])[0]));
                 expect(warnMessages.some(m => m.includes('overlaps a busy window'))).toBe(true);
+            } finally {
+                warnSpy.mockRestore();
+            }
+        });
+
+        it(`every cycle returned by replaceForZone passes the daemon's busy-window overlap predicate (API-77)`, async () => {
+            // Integration: feed the *real* planner into runPlan and assert
+            // the daemon emits no "overlaps a busy window — not arming"
+            // warnings. Pre-API-77 the planner could shift past-due cycles
+            // on top of cross-zone busy windows; the daemon then refused to
+            // arm them and the warning was a routine event for multi-zone
+            // schedules. Post-fix the planner's output respects the daemon's
+            // overlap predicate by construction.
+            const warnSpy = spyOn(console, 'warn').mockImplementation(() => {});
+            try {
+                const enabledRows = [
+                    buildJoinedRow({ zone: { id: 'zone-A', name: 'Zone A', currentDepletionMm: 22.5 } }),
+                    buildJoinedRow({ zone: { id: 'zone-B', name: 'Zone B', currentDepletionMm: 22.5 } }),
+                    buildJoinedRow({ zone: { id: 'zone-C', name: 'Zone C', currentDepletionMm: 22.5 } }),
+                ];
+                const futureRow = buildFutureCycleRow({
+                    cycle: { id: 'cycle-inflight', startTime: new Date('2026-05-04T12:30:00.000Z'), durationMin: 60 },
+                    zone: { id: 'zone-inflight' },
+                });
+                const stub = createDaemonReposStub({
+                    enabledZones: enabledRows,
+                    futureCycles: [futureRow],
+                });
+                bootDaemonService({ repos: stub.repos, alertsDb: stub.alertsDb });
+                const { clock } = createFakeClock(NOW);
+
+                // Synthetic weather: 6:00 sunrise (360-min window).
+                const weather: DailyWeather[] = Array.from({ length: 7 }, (_, i) => {
+                    const date = dayjs('2026-05-04').add(i, 'day');
+                    return {
+                        date,
+                        sunrise: date.hour(6).minute(0).second(0),
+                        sunset: date.hour(20).minute(0).second(0),
+                        rainfallMm: 0,
+                        evapotranspirationMmPerDay: 2.0,
+                    };
+                });
+
+                const control = await start({
+                    clock,
+                    rePlanHourLocal: 4,
+                    runPlan: async (zone, opts) => {
+                        const busy = (opts?.busyWindows ?? []).map(w => ({
+                            start: dayjs(w.start),
+                            end: dayjs(w.end),
+                        }));
+                        return planZoneSchedule(zone, weather, busy);
+                    },
+                    getZoneState: async () => 'off',
+                    openZone: async () => {},
+                    closeZone: async () => {},
+                });
+
+                await control.rePlan();
+
+                const warnMessages = warnSpy.mock.calls.map(args => String((args as unknown[])[0]));
+                const overlapWarnings = warnMessages.filter(m => m.includes('overlaps a busy window'));
+                expect(overlapWarnings).toEqual([]);
             } finally {
                 warnSpy.mockRestore();
             }

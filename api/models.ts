@@ -142,11 +142,4 @@ export type IrrigationScheduleEntry = {
      * day/night shading without re-fetching weather.
      */
     sunriseAt?: dayjs.Dayjs;
-
-    /**
-     * Optional. Sunset of `date - 1` (the previous evening). The overnight
-     * irrigation block spans `[sunsetAt, sunriseAt]`. Undefined on the first
-     * weather day where the previous evening's sunset isn't known.
-     */
-    sunsetAt?: dayjs.Dayjs;
 }

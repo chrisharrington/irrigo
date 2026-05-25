@@ -2,7 +2,7 @@ import type { Alerter } from '@/alerts';
 import type { Zone } from '@/models';
 import type { PersistedCycle } from '@/models/cycle';
 import type { Notifier } from '@/notifications';
-import { getScheduleEntriesRepo } from './state';
+import { getScheduleEntriesRepo, getZonesRepo } from './state';
 
 /**
  * Opaque handle returned by `Clock.setTimeout`. The runtime doesn't introspect
@@ -234,6 +234,7 @@ async function runClose(inputs: RunCloseInputs): Promise<void> {
 
     const closedAt = clock.now();
     await getScheduleEntriesRepo().markCycleClosed(cycle.id, closedAt);
+    await getZonesRepo().advanceDepletion(zone.id, 0);
     registry.clearInFlight(cycle.id);
     console.log(`daemon: closed zone ${zone.id} for cycle ${cycle.id} at ${closedAt.toISOString()}.`);
 

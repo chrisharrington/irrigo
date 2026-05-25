@@ -17,8 +17,5 @@ export const scheduleEntries = pgTable('schedule_entries', {
     // rows (and rows from a planner that hasn't been re-run since this column
     // was added) read as null — the wire layer surfaces that as `null`.
     sunriseAt: timestamp('sunrise_at', { withTimezone: true }),
-    // Sunset of `date - 1` (the previous evening). The overnight irrigation
-    // block spans `[sunsetAt, sunriseAt]`. Same nullable rationale.
-    sunsetAt: timestamp('sunset_at', { withTimezone: true }),
     ...auditColumns,
 });

@@ -41,6 +41,59 @@ function planAllZonesSequentially(
     return results;
 }
 
+type TimedCycle = { startTime: Dayjs; durationMin: number };
+
+/**
+ * Asserts `cycle` sits strictly inside one of the soak gaps between
+ * consecutive cycles in `zoneCycles` — i.e. some i exists such that
+ * `cycle.start >= zoneCycles[i].end` and `cycle.end <= zoneCycles[i+1].start`.
+ * `zoneCycles` is sorted chronologically by start time.
+ *
+ * Returns the index `i` of the preceding zone cycle so callers can assert
+ * "different gaps for different cycles" (API-73).
+ */
+function assertCycleInsideSoakGap(cycle: TimedCycle, zoneCycles: ReadonlyArray<TimedCycle>): number {
+    const cycleStart = cycle.startTime;
+    const cycleEnd = cycle.startTime.add(cycle.durationMin, 'minute');
+    for (let i = 0; i < zoneCycles.length - 1; i++) {
+        const gapStart = zoneCycles[i]!.startTime.add(zoneCycles[i]!.durationMin, 'minute');
+        const gapEnd = zoneCycles[i + 1]!.startTime;
+        const fitsStart = !cycleStart.isBefore(gapStart);
+        const fitsEnd = !cycleEnd.isAfter(gapEnd);
+        if (fitsStart && fitsEnd) return i;
+    }
+    throw new Error(
+        `cycle [${cycleStart.toISOString()}, ${cycleEnd.toISOString()}] did not fit inside any soak gap of the supplied zone cycles.`,
+    );
+}
+
+/**
+ * Returns `max(end) - min(start)` in minutes across the supplied cycles.
+ * Used to compare A-solo block length vs combined multi-zone block length.
+ */
+function blockSpanMinutes(cycles: ReadonlyArray<TimedCycle>): number {
+    if (cycles.length === 0) return 0;
+    let minStart = cycles[0]!.startTime.valueOf();
+    let maxEnd = cycles[0]!.startTime.add(cycles[0]!.durationMin, 'minute').valueOf();
+    for (const c of cycles) {
+        const s = c.startTime.valueOf();
+        const e = c.startTime.add(c.durationMin, 'minute').valueOf();
+        if (s < minStart) minStart = s;
+        if (e > maxEnd) maxEnd = e;
+    }
+    return (maxEnd - minStart) / 60_000;
+}
+
+/**
+ * Collects the day-0 cycles for a single zone from a planning result, sorted
+ * chronologically by start time.
+ */
+function day0CyclesSorted(result: PlanZoneScheduleResult, dateStr: string): TimedCycle[] {
+    const day = result.entries.find(e => e.date.format('YYYY-MM-DD') === dateStr);
+    if (!day) return [];
+    return [...day.cycles].sort((a, b) => a.startTime.valueOf() - b.startTime.valueOf());
+}
+
 /**
  * Asserts no two cycles belonging to different zones overlap in time.
  * Same-zone cycle overlap is impossible by construction and skipped.
@@ -109,12 +162,9 @@ const START = dayjs('2026-05-04'); // Monday
 const COMPACT: Partial<Zone> = { precipitationRateMmPerHr: 30 };
 
 /**
- * Weather days with both `sunrise` (06:00) and `sunset` (20:00) populated so
- * `tryPlaceIrrigationForDay` uses the previous day's sunset as the
- * `earliestStart` floor on day 1 and later, giving zones a much wider
- * overnight placement window. Day 0 still has no `prevDaySunset` (the
- * weather array doesn't include a day -1), so day-0 placements fall back to
- * the midnight → sunrise truncate window.
+ * Weather days with both `sunrise` (06:00) and `sunset` (20:00) populated.
+ * The planner's overnight window is always [midnight, sunrise] (API-72);
+ * the `sunset` field is present in the data but no longer affects placement.
  */
 function gatedWeather(days: number, etPerDay = 2.0, rainfall?: ReadonlyArray<number>): DailyWeather[] {
     return Array.from({ length: days }, (_, i) => {
@@ -242,7 +292,9 @@ describe('planZoneSchedule — multi-zone matrix', () => {
                 makeZone('a', { currentDepletionMm: 11.25, rootDepthM: 0.15 }), // RAW 11.25
                 makeZone('b', { currentDepletionMm: 0, rootDepthM: 0.30 }),     // RAW 22.5
             ];
-            const weather = gatedWeather(14);
+            // 15 days so B (which needs ~14 days of ET to cross RAW) has a
+            // next-day anchor when it finally fires (API-76 drops the last day).
+            const weather = gatedWeather(15);
 
             const results = planAllZonesSequentially(zones, weather);
 
@@ -532,14 +584,7 @@ describe('planZoneSchedule — multi-zone matrix', () => {
     describe('Theme F — Past-window mechanics', () => {
         const pastWindow = (now: Dayjs): BusyWindow => ({ start: dayjs(new Date(0)), end: now });
 
-        it('21. Past window without endBySunrise — every zone\'s day-0 cycles shift to start at-or-after now.', () => {
-            // Note (known planner limitation): when multiple zones get the
-            // past-window forward shift, each zone's cycles are re-anchored
-            // independently against the pastWindow only — not against the
-            // already-shifted cross-zone cycles. Result: B's shifted cycles
-            // can collide with A's shifted cycles. Tracked separately as a
-            // planner follow-up; this scenario only asserts the "shifted to
-            // at-or-after now" invariant, not cross-zone non-overlap.
+        it(`21. Past window without endBySunrise — every zone's day-0 cycles shift to start at-or-after now AND don't overlap earlier zones' shifted cycles (API-77).`, () => {
             const zones = [
                 makeZone('a', { currentDepletionMm: 22.5 }),
                 makeZone('b', { currentDepletionMm: 22.5 }),
@@ -570,9 +615,19 @@ describe('planZoneSchedule — multi-zone matrix', () => {
                     expect(cycle.startTime.valueOf()).toBeGreaterThanOrEqual(now.valueOf());
                 }
             }
+            // The past-window forward shift now also dodges cross-zone busy
+            // windows (API-77) — shifted cycles must not collide with cycles
+            // already planted by an earlier zone in the per-zone loop.
+            assertNoCrossZoneOverlap(results);
         });
 
-        it('22. Past window WITH endBySunrise — day-0 cycles dropped for every zone.', () => {
+        it('22. Past window WITH endBySunrise — day-0 cycles still land overnight by construction (API-76).', () => {
+            // Pre-API-76 the planner placed day-0 cycles in [Sun 00:00, Sun
+            // sunrise] (already past) and the forward-shift + endBySunrise gate
+            // dropped them. With the anchor shift cycles cleanly run [Mon 00:00,
+            // Mon sunrise] — already overnight, no shift needed — so the
+            // endBySunrise restriction is automatically satisfied and day 0
+            // continues to produce an entry.
             const zones = [
                 makeZone('a', { currentDepletionMm: 22.5 }),
                 makeZone('b', { currentDepletionMm: 22.5 }),
@@ -603,7 +658,12 @@ describe('planZoneSchedule — multi-zone matrix', () => {
 
             for (const result of results.values()) {
                 const day0 = result.entries.find(e => e.date.format('YYYY-MM-DD') === '2026-05-04');
-                expect(day0).toBeUndefined();
+                expect(day0).toBeDefined();
+                const sunrise = day0!.sunriseAt!;
+                for (const cycle of day0!.cycles) {
+                    const cycleEnd = cycle.startTime.add(cycle.durationMin, 'minute');
+                    expect(cycleEnd.valueOf()).toBeLessThanOrEqual(sunrise.valueOf() + 1000);
+                }
             }
         });
     });
@@ -646,7 +706,7 @@ describe('planZoneSchedule — multi-zone matrix', () => {
             assertNoCrossZoneOverlap(results);
         });
 
-        it('25. Different per-zone soak times — long soaks are not violated by other zones\' cycles.', () => {
+        it(`25. Different per-zone soak times — long soaks are not violated by other zones' cycles.`, () => {
             // Three zones with shallow roots so all three fit overnight even
             // with the more-cycles-per-zone profile B carries:
             //   A: default soil (infiltration 25 → 15-min soak).
@@ -677,6 +737,291 @@ describe('planZoneSchedule — multi-zone matrix', () => {
                 for (let i = 0; i < sorted.length - 1; i++) {
                     const gapMin = sorted[i + 1]!.startTime.diff(sorted[i]!.startTime.add(sorted[i]!.durationMin, 'minute'), 'minute');
                     expect(gapMin).toBeGreaterThanOrEqual(35);
+                }
+            }
+        });
+    });
+
+    describe('Theme H — Multi-zone interleaving (API-73)', () => {
+        // Zone A's soil: 8 mm/hr infiltration → 35-min soak between A cycles.
+        // With COMPACT precipitation (30 mm/hr) and rootDepth 0.3 + depletion
+        // 22.5, A splits into 4 cycles × ~14 min each and leaves three 35-min
+        // soak gaps wide enough for a default-loam B cycle to slot inside.
+        const LOW_INF_SOIL = { name: 'LowInf', availableWaterHoldingCapacityMmPerM: 150, infiltrationRateMmPerHr: 8 };
+
+        it(`26. B's single cycle slots into one of A's soak gaps when there's room.`, () => {
+            const a = makeZone('a', { currentDepletionMm: 22.5, soil: LOW_INF_SOIL });
+            // B: default loam (15-min soak) + shallow root → single ~28-min cycle.
+            const b = makeZone('b', { currentDepletionMm: 11.25, rootDepthM: 0.15 });
+            const weather = gatedWeather(7);
+
+            const results = planAllZonesSequentially([a, b], weather);
+
+            const aDay0 = day0CyclesSorted(results.get('a')!, '2026-05-04');
+            const bDay0 = day0CyclesSorted(results.get('b')!, '2026-05-04');
+            expect(aDay0.length).toBeGreaterThanOrEqual(2); // need at least one soak gap
+            expect(bDay0).toHaveLength(1);
+
+            // The single B cycle lands strictly inside one of A's intra-zone soak gaps.
+            const gapIndex = assertCycleInsideSoakGap(bDay0[0]!, aDay0);
+            expect(gapIndex).toBeGreaterThanOrEqual(0);
+            assertNoCrossZoneOverlap(results);
+            assertProjectedDepletionSane(results, [a, b]);
+        });
+
+        it(`27. Each of B's two cycles slots into a different A soak gap.`, () => {
+            const a = makeZone('a', { currentDepletionMm: 22.5, soil: LOW_INF_SOIL });
+            // B: default loam, default root, depletion 22.5 → 2 cycles × ~28 min,
+            // each narrow enough (28 min < 35 min) to fit inside A's 35-min gaps.
+            const b = makeZone('b', { currentDepletionMm: 22.5 });
+            const weather = gatedWeather(7);
+
+            const results = planAllZonesSequentially([a, b], weather);
+
+            const aDay0 = day0CyclesSorted(results.get('a')!, '2026-05-04');
+            const bDay0 = day0CyclesSorted(results.get('b')!, '2026-05-04');
+            expect(aDay0.length).toBeGreaterThanOrEqual(3); // need ≥ 2 soak gaps
+            expect(bDay0).toHaveLength(2);
+
+            // Both of B's cycles fit inside some soak gap of A — different gaps.
+            const firstGap = assertCycleInsideSoakGap(bDay0[0]!, aDay0);
+            const secondGap = assertCycleInsideSoakGap(bDay0[1]!, aDay0);
+            expect(firstGap).not.toBe(secondGap);
+            assertNoCrossZoneOverlap(results);
+            assertProjectedDepletionSane(results, [a, b]);
+        });
+
+        it('28. Multi-zone block span equals A-solo span when B fits entirely inside A gaps.', () => {
+            // A alone vs A + B sequentially: when every B cycle slots into an
+            // existing A soak gap, B contributes zero added overhead — the
+            // combined block must end at the same earliest start and the same
+            // latest end as A on its own. This is the "compress the overnight
+            // schedule" invariant the ticket is asking us to lock in.
+            const a = makeZone('a', { currentDepletionMm: 22.5, soil: LOW_INF_SOIL });
+            const b = makeZone('b', { currentDepletionMm: 22.5 });
+            const weather = gatedWeather(7);
+
+            const aSolo = planAllZonesSequentially([a], weather);
+            const aSoloDay0 = day0CyclesSorted(aSolo.get('a')!, '2026-05-04');
+            const aSoloSpan = blockSpanMinutes(aSoloDay0);
+
+            const combined = planAllZonesSequentially([a, b], weather);
+            const combinedDay0: TimedCycle[] = [
+                ...day0CyclesSorted(combined.get('a')!, '2026-05-04'),
+                ...day0CyclesSorted(combined.get('b')!, '2026-05-04'),
+            ];
+            const combinedSpan = blockSpanMinutes(combinedDay0);
+
+            expect(combinedSpan).toBe(aSoloSpan);
+            assertNoCrossZoneOverlap(combined);
+        });
+    });
+
+    describe('Theme I — Partial refill when full-refill exceeds the overnight window (API-75)', () => {
+        // Production-shaped zone: clay-loam soil (5 mm/hr infiltration → 45-min
+        // soak, 165 AWHC/m), default root 0.3 m, low precipitation (18.75 mm/hr).
+        // Full-refill runtime at TAW depletion (49.5 mm) is ~14 h — well past
+        // the 360-min midnight-to-sunrise window. Pre-API-75 this deferred the
+        // night forever; now the planner clamps to a partial refill and carries
+        // the residual into the next allowed night.
+        const CLAY_LOAM_SLOW = { name: 'ClayLoamSlow', availableWaterHoldingCapacityMmPerM: 165, infiltrationRateMmPerHr: 5 };
+        const PARTIAL_REFILL_ZONE: Partial<Zone> = {
+            soil: CLAY_LOAM_SLOW,
+            rootDepthM: 0.3,
+            allowableDepletionFraction: 0.5,
+            irrigationEfficiency: 0.8,
+            precipitationRateMmPerHr: 18.75,
+        };
+
+        it('29. Single zone with deep deficit: cycles fit the window; entry reflects a partial refill.', () => {
+            const zone = makeZone('a', { ...PARTIAL_REFILL_ZONE, currentDepletionMm: 49.5 });
+            const weather = gatedWeather(7);
+
+            const { entries } = planZoneSchedule(zone, weather);
+
+            expect(entries.length).toBeGreaterThan(0);
+            const day0 = entries[0]!;
+            // All cycles fit inside [midnight, sunrise].
+            const midnight = day0.date.startOf('day');
+            const sunrise = day0.sunriseAt!;
+            for (const cycle of day0.cycles) {
+                expect(cycle.startTime.valueOf()).toBeGreaterThanOrEqual(midnight.valueOf());
+                const cycleEnd = cycle.startTime.add(cycle.durationMin, 'minute');
+                expect(cycleEnd.valueOf()).toBeLessThanOrEqual(sunrise.valueOf() + 1000);
+            }
+            // Clamp activated: applied gross is less than full-refill gross
+            // (depletion / efficiency) and depletionAfter is the residual.
+            const fullRefillGross = day0.depletionBeforeMm / zone.irrigationEfficiency;
+            expect(day0.appliedDepthMm).toBeLessThan(fullRefillGross);
+            expect(day0.depletionAfterMm).toBeGreaterThan(0);
+            const expectedAfter = day0.depletionBeforeMm - day0.appliedDepthMm * zone.irrigationEfficiency;
+            expect(day0.depletionAfterMm).toBeCloseTo(expectedAfter, 0);
+        });
+
+        it('30. Follow-on night picks up the residual.', () => {
+            const zone = makeZone('a', { ...PARTIAL_REFILL_ZONE, currentDepletionMm: 49.5 });
+            const weather = gatedWeather(7);
+
+            const { entries } = planZoneSchedule(zone, weather);
+
+            // The deficit doesn't clear in one night — the planner emits a
+            // follow-on entry on day 1 to keep irrigating.
+            expect(entries.length).toBeGreaterThanOrEqual(2);
+            const day0 = entries[0]!;
+            const day1 = entries[1]!;
+            // Day 1's depletionBefore picks up the residual from day 0 plus
+            // ~1 day of ET; it must NOT reset to the seed value or to 0.
+            expect(day1.depletionBeforeMm).toBeGreaterThan(0);
+            expect(day1.depletionBeforeMm).toBeLessThan(day0.depletionBeforeMm);
+        });
+
+        it('31. Fits-in-one-night zones remain unchanged: no clamp, full refill.', () => {
+            // Default loam + COMPACT precip — the standard multi-zone profile.
+            // Full-refill runtime (~60 min) fits well within the 360-min window.
+            const zone = makeZone('a', { currentDepletionMm: 22.5 });
+            const weather = gatedWeather(7);
+
+            const { entries } = planZoneSchedule(zone, weather);
+
+            expect(entries.length).toBeGreaterThan(0);
+            const day0 = entries[0]!;
+            // Full refill: applied gross ≈ depletionBefore / efficiency (within
+            // 1-decimal rounding) and the residual depletion is zero.
+            const fullRefillGross = day0.depletionBeforeMm / zone.irrigationEfficiency;
+            expect(Math.abs(day0.appliedDepthMm - fullRefillGross)).toBeLessThanOrEqual(0.1);
+            expect(day0.depletionAfterMm).toBe(0);
+        });
+    });
+
+    describe('Theme J — Busy-window-aware clamp (API-77)', () => {
+        // Production-shaped "East" zone: clay soil just under the 5 mm/hr
+        // soak boundary (infiltration 4.8 mm/hr → 60-min soak), low precip
+        // (12 mm/hr). At 49.5 mm depletion the closed-form picks 5×24-min
+        // cycles whose 360-min span exactly fills the 360-min window — a
+        // single zone fits, but 3 sequential zones can't all fit 5 cycles
+        // each via interleaving (B's 5th cycle would land before midnight).
+        // Pre-API-77 the placer returned null and the night deferred entirely.
+        const CLAY_SLOW = { name: 'ClaySlow', availableWaterHoldingCapacityMmPerM: 165, infiltrationRateMmPerHr: 4.8 };
+        const EAST_LIKE_ZONE: Partial<Zone> = {
+            soil: CLAY_SLOW,
+            rootDepthM: 0.3,
+            allowableDepletionFraction: 0.5,
+            irrigationEfficiency: 0.8,
+            precipitationRateMmPerHr: 12,
+        };
+
+        it(`32. 3 zones × 49.5 mm depletion (East-like profile) — every zone gets at least one cycle on day 0; later zones' plans shrink rather than deferring.`, () => {
+            const zones = [
+                makeZone('a', { ...EAST_LIKE_ZONE, currentDepletionMm: 49.5 }),
+                makeZone('b', { ...EAST_LIKE_ZONE, currentDepletionMm: 49.5 }),
+                makeZone('c', { ...EAST_LIKE_ZONE, currentDepletionMm: 49.5 }),
+            ];
+            const weather = gatedWeather(7);
+
+            const results = planAllZonesSequentially(zones, weather);
+
+            // Each zone fires on day 0 — none defer to null. This is the
+            // central acceptance criterion: pre-API-77 the placer returned
+            // null for zone B (and C) and the entry was dropped.
+            const day0a = day0CyclesSorted(results.get('a')!, '2026-05-04');
+            const day0b = day0CyclesSorted(results.get('b')!, '2026-05-04');
+            const day0c = day0CyclesSorted(results.get('c')!, '2026-05-04');
+            expect(day0a.length).toBeGreaterThanOrEqual(1);
+            expect(day0b.length).toBeGreaterThanOrEqual(1);
+            expect(day0c.length).toBeGreaterThanOrEqual(1);
+            // No cross-zone overlap across the night.
+            assertNoCrossZoneOverlap(results);
+            assertProjectedDepletionSane(results, zones);
+            // Later zones shrink to fit; total cycles non-increasing across A→B→C.
+            expect(day0b.length).toBeLessThanOrEqual(day0a.length);
+            expect(day0c.length).toBeLessThanOrEqual(day0b.length);
+        });
+
+        it(`33. Synthetic cross-zone busy windows occupying most of the night — planner still emits a non-null plan and avoids the busy intervals.`, () => {
+            // Pre-plant two busy windows covering ~70% of the 360-min night
+            // (00:00 — 02:00 and 03:00 — 05:00). Zone A's closed-form would
+            // place 5 East-like cycles; the iterative retry must shrink N.
+            const date = START; // 2026-05-04
+            const busyWindows: BusyWindow[] = [
+                { start: date.hour(0).minute(0), end: date.hour(2).minute(0) },
+                { start: date.hour(3).minute(0), end: date.hour(5).minute(0) },
+            ];
+            const zone = makeZone('a', { ...EAST_LIKE_ZONE, currentDepletionMm: 49.5 });
+            const weather = gatedWeather(7);
+
+            const { entries } = planZoneSchedule(zone, weather, busyWindows);
+
+            expect(entries.length).toBeGreaterThan(0);
+            const day0 = entries[0]!;
+            expect(day0.cycles.length).toBeGreaterThanOrEqual(1);
+            // No cycle overlaps any busy window.
+            for (const cycle of day0.cycles) {
+                const cycleStart = cycle.startTime;
+                const cycleEnd = cycle.startTime.add(cycle.durationMin, 'minute');
+                for (const window of busyWindows) {
+                    const overlaps = cycleStart.isBefore(window.end) && cycleEnd.isAfter(window.start);
+                    expect(overlaps).toBe(false);
+                }
+            }
+        });
+
+        it(`34. Easy case (3 zones with COMPACT profile, 22.5 mm depletion) — full refill for every zone; the retry does not over-shrink.`, () => {
+            const zones = [
+                makeZone('a', { currentDepletionMm: 22.5 }),
+                makeZone('b', { currentDepletionMm: 22.5 }),
+                makeZone('c', { currentDepletionMm: 22.5 }),
+            ];
+            const weather = gatedWeather(7);
+
+            const results = planAllZonesSequentially(zones, weather);
+
+            for (const [zoneId, result] of results) {
+                const day0 = result.entries.find(e => e.date.format('YYYY-MM-DD') === '2026-05-04');
+                expect(day0, `zone ${zoneId} missing day-0 entry`).toBeDefined();
+                const zone = zones.find(z => z.id === zoneId)!;
+                const fullRefillGross = day0!.depletionBeforeMm / zone.irrigationEfficiency;
+                // appliedDepthMm should match the full refill within rounding.
+                expect(Math.abs(day0!.appliedDepthMm - fullRefillGross)).toBeLessThanOrEqual(0.1);
+                expect(day0!.depletionAfterMm).toBe(0);
+            }
+            assertNoCrossZoneOverlap(results);
+            assertProjectedDepletionSane(results, zones);
+        });
+
+        it(`35. Past-window forward-shift respects cross-zone busy windows — pushed cycles don't overlap existing busy intervals.`, () => {
+            // Zone B's backward placement avoids zone A's busy windows; then
+            // the past-window forward shift could push B's cycles on top of
+            // A's windows. Pre-API-77 it did exactly that — now the shift
+            // dodges both pastWindow AND cross-zone busy windows.
+            const date = START; // 2026-05-04
+            const now = date.hour(2).minute(0); // 02:00 — between A's planted intervals
+            // Cross-zone busy windows: simulate zone A having already planted
+            // two windows that bracket `now`. The past-window shift will try
+            // to push B's cycles past 02:00; without the fix it lands on A.
+            const zoneABusyWindows: BusyWindow[] = [
+                { start: date.hour(2).minute(15), end: date.hour(2).minute(45) },
+                { start: date.hour(3).minute(0), end: date.hour(3).minute(30) },
+            ];
+            const pastWindow: BusyWindow = { start: dayjs(new Date(0)), end: now };
+            const busyWindows: BusyWindow[] = [pastWindow, ...zoneABusyWindows];
+
+            const zone = makeZone('b', { currentDepletionMm: 22.5 });
+            const weather = gatedWeather(7);
+
+            const { entries } = planZoneSchedule(zone, weather, busyWindows);
+
+            expect(entries.length).toBeGreaterThan(0);
+            const day0 = entries.find(e => e.date.format('YYYY-MM-DD') === '2026-05-04');
+            expect(day0).toBeDefined();
+            // Every placed cycle starts at-or-after now AND does not overlap
+            // any of A's busy windows.
+            for (const cycle of day0!.cycles) {
+                expect(cycle.startTime.valueOf()).toBeGreaterThanOrEqual(now.valueOf());
+                const cycleStart = cycle.startTime;
+                const cycleEnd = cycle.startTime.add(cycle.durationMin, 'minute');
+                for (const window of zoneABusyWindows) {
+                    const overlaps = cycleStart.isBefore(window.end) && cycleEnd.isAfter(window.start);
+                    expect(overlaps).toBe(false);
                 }
             }
         });
