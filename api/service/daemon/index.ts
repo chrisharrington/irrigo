@@ -189,7 +189,13 @@ export async function start(options?: DaemonOptions): Promise<DaemonControl> {
             return;
         }
 
-        const today = dayjs(clock.now());
+        // Resolve `today` against the site's IANA timezone so the date cutoff
+        // matches the calendar the planner is using. With the container TZ
+        // unset, a bare `dayjs(now)` formats in UTC — after 18:00 MDT the UTC
+        // calendar rolls forward and `replaceForZone` deletes rows whose
+        // `date >= ${UTC-tomorrow}`, leaving the (still site-local-today) rows
+        // orphaned in the DB. See API-74.
+        const today = dayjs(clock.now()).tz(siteTimezone);
         await schedulesRepo.clearStaleSkipMarkers(today);
 
         const enabledZones = await zonesRepo.loadEnabled();

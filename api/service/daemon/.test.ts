@@ -228,6 +228,7 @@ function createDaemonReposStub(inputs?: DaemonStubInputs) {
     const weatherStateUpserts: Array<Record<string, unknown>> = [];
     const alertTableUpdates: Array<{ set: Record<string, unknown>; cond: unknown }> = [];
     const schedulesTableUpdates: Array<{ set: Record<string, unknown> }> = [];
+    const todayArgs: Array<{ source: 'replaceForZone' | 'clearStaleSkipMarkers'; value: dayjs.Dayjs }> = [];
 
     let callOrder = 0;
     let firstClearStaleCallOrder: number | null = null;
@@ -317,9 +318,10 @@ function createDaemonReposStub(inputs?: DaemonStubInputs) {
         disable: async () => null,
         skipActiveTonight: async () => null,
         resumeActiveTonight: async () => null,
-        clearStaleSkipMarkers: async () => {
+        clearStaleSkipMarkers: async (today) => {
             if (firstClearStaleCallOrder === null) firstClearStaleCallOrder = ++callOrder;
             schedulesTableUpdates.push({ set: { skippedNightDate: null } });
+            todayArgs.push({ source: 'clearStaleSkipMarkers', value: today });
         },
     };
 
@@ -329,7 +331,8 @@ function createDaemonReposStub(inputs?: DaemonStubInputs) {
             if (inputs?.inFlightCyclesError) throw inputs.inFlightCyclesError;
             return inputs?.inFlightCycles ?? [];
         },
-        replaceForZone: async (zoneId, entries, _today, scheduleId) => {
+        replaceForZone: async (zoneId, entries, today, scheduleId) => {
+            todayArgs.push({ source: 'replaceForZone', value: today });
             deletes.push({ table: scheduleEntries });
             const cycles: PersistedCycle[] = [];
             for (const entry of entries) {
@@ -392,6 +395,7 @@ function createDaemonReposStub(inputs?: DaemonStubInputs) {
         weatherStateUpserts,
         alertTableUpdates,
         schedulesTableUpdates,
+        todayArgs,
         getOrdering: () => ({ clearStale: firstClearStaleCallOrder, activeScheduleRead: firstActiveScheduleReadOrder }),
     };
 }
@@ -874,6 +878,38 @@ describe('start', () => {
         // Both replans should produce the same schedule entries (idempotent).
         expect(insertsAfterSecond).toHaveLength(insertsAfterFirst[0]! * 2);
         expect(insertsAfterSecond[0]?.rows[0]).toEqual(insertsSnapshot[0]);
+    });
+
+    it('resolves the replan day boundary against siteTimezone, not UTC (API-74)', async () => {
+        // 2026-05-05T02:30:00Z is still 2026-05-04 20:30 in America/Edmonton.
+        // Without the timezone fix the daemon would format `today` as
+        // '2026-05-05' and `replaceForZone` would issue `DELETE … WHERE
+        // date >= '2026-05-05'`, leaving the previous day's site-local rows
+        // orphaned in the DB.
+        const utcNow = new Date('2026-05-05T02:30:00.000Z');
+        const enabledRow = buildJoinedRow({ zone: { id: 'zone-001', siteId: 'site-001' } });
+        const stub = createDaemonReposStub({ enabledZones: [enabledRow] });
+        bootDaemonService({ repos: stub.repos, alertsDb: stub.alertsDb });
+        const { clock } = createFakeClock(utcNow);
+
+        const control = await start({
+            clock,
+            rePlanHourLocal: 20,
+            siteTimezone: 'America/Edmonton',
+            runPlan: async () => ({ entries: [], projectedNextDepletionMm: 0 }),
+            openZone: async () => {},
+            closeZone: async () => {},
+            getZoneState: async () => 'off',
+        });
+
+        await control.rePlan();
+
+        const replaceForZoneToday = stub.todayArgs.find(t => t.source === 'replaceForZone');
+        const clearStaleToday = stub.todayArgs.find(t => t.source === 'clearStaleSkipMarkers');
+        expect(replaceForZoneToday).toBeDefined();
+        expect(clearStaleToday).toBeDefined();
+        expect(replaceForZoneToday!.value.format('YYYY-MM-DD')).toBe('2026-05-04');
+        expect(clearStaleToday!.value.format('YYYY-MM-DD')).toBe('2026-05-04');
     });
 
     it('does not emit schedule-begun or schedule-ended for boot-armed cycles', async () => {
