@@ -1,14 +1,17 @@
-import { StyleSheet, View, type StyleProp, type ViewStyle } from 'react-native';
+import { StyleSheet, type StyleProp, type ViewStyle } from 'react-native';
 import type { ReactNode } from 'react';
 
+import { TileGradient } from '@/components/tile-gradient';
 import config from '@/tailwind.config';
 
 const colors = config.theme.extend.colors;
 const shadows = config.theme.extend.boxShadow;
 
 /**
- * Visual variant selecting the card's background, padding, radius, and base
+ * Visual variant selecting the card's gradient, padding, radius, and base
  * shadow. RN port of `.card-surface` / `.card-elev` in the design CSS.
+ * `TileGradient` paints the variant's subtle green-tinted gradient in place
+ * of the design source's flat fill (APP-60).
  */
 export type CardVariant = 'surface' | 'elevated';
 
@@ -27,7 +30,6 @@ export type CardProps = {
 };
 
 type VariantStyle = {
-    backgroundColor: string;
     padding: number;
     borderRadius: number;
     boxShadow?: string;
@@ -35,12 +37,10 @@ type VariantStyle = {
 
 const VARIANT_STYLE: Readonly<Record<CardVariant, VariantStyle>> = {
     surface: {
-        backgroundColor: colors.surface,
         padding: 16,
         borderRadius: 4,
     },
     elevated: {
-        backgroundColor: colors.elevated,
         padding: 20,
         borderRadius: 4,
         boxShadow: shadows['2'],
@@ -68,13 +68,16 @@ export function Card({ variant = 'surface', glow = false, style, children }: Car
 
     const containerStyle: ViewStyle = {
         ...styles.container,
-        backgroundColor: variantStyle.backgroundColor,
         padding: variantStyle.padding,
         borderRadius: variantStyle.borderRadius,
         ...(boxShadow ? { boxShadow } : {}),
     };
 
-    return <View style={[containerStyle, style]}>{children}</View>;
+    return (
+        <TileGradient variant={variant} style={[containerStyle, style]}>
+            {children}
+        </TileGradient>
+    );
 }
 
 const styles = StyleSheet.create({
