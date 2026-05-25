@@ -28,6 +28,10 @@ export type NextRunZone = {
  * to `/next-run` — see follow-up API ticket). `startTime` / `endsAt` are
  * ISO-8601 UTC instants (or `null`). `axisStart` / `axisEnd` / `sunset` /
  * `sunrise` are site-local `HH:MM` strings.
+ *
+ * `timezone` is the site's IANA timezone (e.g. `'America/Edmonton'`) — the
+ * client uses it to format `startTime` / `endsAt` in site-local time rather
+ * than relying on a build-time env var (APP-54).
  */
 export type NextRunDto = {
     state: NextRunState;
@@ -37,6 +41,7 @@ export type NextRunDto = {
     axisEnd: string | null;
     sunset: string | null;
     sunrise: string | null;
+    timezone: string;
     zoneOrder: string[];
     totalCycles: number;
     zones: NextRunZone[];

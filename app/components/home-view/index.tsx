@@ -12,7 +12,6 @@ import { useNextRun } from '@/hooks/next-run';
 import { useSchedules } from '@/hooks/schedules';
 import { useSystem } from '@/hooks/system';
 import { useZones } from '@/hooks/zones';
-import { getSiteTimezone } from '@/lib/site-timezone';
 import type { ZoneSummary } from '@/api/types/zones';
 import config from '@/tailwind.config';
 
@@ -35,7 +34,6 @@ export function HomeView() {
 
     const irrigationEnabled = system.data?.irrigationEnabled ?? true;
     const activeSchedule = schedules.data?.find(item => item.isActive) ?? null;
-    const siteTimezone = getSiteTimezone();
 
     const handleZonePress = (zone: ZoneSummary): void => {
         router.push(`/zone/${zone.slug}` as never);
@@ -59,7 +57,9 @@ export function HomeView() {
                     ) : nextRun.isError || nextRun.data == null ? (
                         <PlaceholderCard label='Failed to load next run.' tone='error' />
                     ) : (
-                        <NextRunHero nextRun={nextRun.data} siteTimezone={siteTimezone} />
+                        // siteTimezone comes from the API response — single
+                        // source of truth, no env-var dependency (APP-54).
+                        <NextRunHero nextRun={nextRun.data} siteTimezone={nextRun.data.timezone} />
                     )}
 
                     <View style={styles.zonesHeading}>

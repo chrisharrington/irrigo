@@ -115,6 +115,31 @@ describe('getTonightSummary', () => {
         bootTonightWith([]);
     });
 
+    describe('timezone (APP-54)', () => {
+        it('always includes the resolved site timezone on the DTO — across skipped, idle, and scheduled paths', async () => {
+            // Use a non-UTC timezone to prove the field carries the configured
+            // value rather than a hard-coded default.
+            bootSites('America/Edmonton');
+
+            // Skipped-manual via kill switch.
+            bootSystem(false);
+            expect((await getTonightSummary(NOW)).timezone).toBe('America/Edmonton');
+
+            // Idle (no rows).
+            bootSystem(true);
+            bootTonightWith([]);
+            expect((await getTonightSummary(NOW)).timezone).toBe('America/Edmonton');
+
+            // Scheduled (a tonight row exists).
+            bootTonightWith([{
+                entry: buildEntry(),
+                cycle: buildCycle({ startTime: new Date('2026-05-21T03:00:00.000Z'), durationMin: 30 }),
+                zone: buildZone(),
+            }]);
+            expect((await getTonightSummary(NOW)).timezone).toBe('America/Edmonton');
+        });
+    });
+
     describe('skipped-manual', () => {
         it('returns state: skipped-manual with empty zones when the system kill switch is off', async () => {
             bootSystem(false);

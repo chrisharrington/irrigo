@@ -63,13 +63,13 @@ export async function getTonightSummary(now: Date): Promise<TonightDto> {
 
     const system = await getSystemState();
     if (!system.irrigationEnabled) {
-        return emptyDto('skipped-manual');
+        return emptyDto('skipped-manual', siteTimezone);
     }
 
     const activeSchedules = await loadActiveSchedulesBySite();
     for (const sched of activeSchedules.values()) {
         if (sched.skippedNightDate === todaySiteLocal) {
-            return emptyDto('skipped-manual');
+            return emptyDto('skipped-manual', siteTimezone);
         }
     }
 
@@ -86,14 +86,14 @@ export async function getTonightSummary(now: Date): Promise<TonightDto> {
 
     const tonightDate = pickTonightDate(byDate, now);
     if (tonightDate === null) {
-        return emptyDto('idle');
+        return emptyDto('idle', siteTimezone);
     }
 
     const tonightRows = byDate.get(tonightDate) ?? [];
     return buildDto(tonightRows, siteTimezone);
 }
 
-function emptyDto(state: TonightState): TonightDto {
+function emptyDto(state: TonightState, siteTimezone: string): TonightDto {
     return {
         state,
         startTime: null,
@@ -102,6 +102,7 @@ function emptyDto(state: TonightState): TonightDto {
         axisEnd: null,
         sunset: null,
         sunrise: null,
+        timezone: siteTimezone,
         zoneOrder: [],
         totalCycles: 0,
         zones: [],
@@ -160,7 +161,7 @@ function buildDto(rows: TonightJoinedRow[], siteTimezone: string): TonightDto {
     if (allCycleStarts.length === 0) {
         // Edge case: entries exist for the date but no cycles (e.g. day was
         // restricted post-planning). Treat as idle — there's nothing to render.
-        return emptyDto('idle');
+        return emptyDto('idle', siteTimezone);
     }
 
     const state: TonightState = cyclesFiring.some(x => x) ? 'firing' : 'scheduled';
@@ -197,6 +198,7 @@ function buildDto(rows: TonightJoinedRow[], siteTimezone: string): TonightDto {
         axisEnd: sunrise ?? formatSiteLocal(endsAt, siteTimezone),
         sunset,
         sunrise,
+        timezone: siteTimezone,
         zoneOrder: zonesSorted.map(z => z.name),
         totalCycles: allCycleStarts.length,
         zones: dtoZones,

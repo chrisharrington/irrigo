@@ -41,6 +41,10 @@ export type TonightZone = {
  * aren't yet persisted on the underlying entries. `sunset` / `sunrise` are
  * site-local `HH:MM` strings (or `null` during the bootstrap window before
  * the planner has populated the columns).
+ *
+ * `timezone` is the IANA name of the site the response is anchored to (e.g.
+ * `'America/Edmonton'`). The client uses it to format `startTime` / `endsAt`
+ * in site-local time instead of depending on a build-time env var (APP-54).
  */
 export type TonightDto = {
     state: TonightState;
@@ -50,6 +54,7 @@ export type TonightDto = {
     axisEnd: string | null;
     sunset: string | null;
     sunrise: string | null;
+    timezone: string;
     zoneOrder: string[];
     totalCycles: number;
     zones: TonightZone[];
