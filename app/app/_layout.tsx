@@ -43,10 +43,12 @@ const ROUTE_FOR_NAV_ID: Record<NavItemId, string> = {
 };
 
 function pathnameToActiveId(pathname: string): NavItemId {
-    if (pathname.startsWith('/zone')) return 'zones';
-    if (pathname.startsWith('/schedules')) return 'schedules';
-    if (pathname.startsWith('/activity')) return 'activity';
-    return 'home';
+    // Strip trailing 's' off each plural id so `/zone/<slug>` resolves to
+    // the same tab as `/zones` (no separate /zone/* schedules / activity
+    // detail routes exist, but the form holds for them too).
+    return (Object.keys(ROUTE_FOR_NAV_ID) as NavItemId[]).find(
+        id => id !== 'home' && pathname.startsWith('/' + id.replace(/s$/, '')),
+    ) ?? 'home';
 }
 
 export default function RootLayout() {
