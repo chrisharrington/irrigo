@@ -129,7 +129,12 @@ function stubCountDb(rows: ReadonlyArray<{ total: number; enabled: number }>): D
     } as unknown as Database;
 }
 
-function stubSummaryJoinDb(rows: SummaryJoinedRow[]): { db: Database; getSelectColumns: () => unknown; whereCalls: WhereCall[] } {
+function stubSummaryJoinDb(rows: SummaryJoinedRow[]): {
+    db: Database;
+    getSelectColumns: () => unknown;
+    whereCalls: WhereCall[];
+    orderByCalls: OrderByCall[];
+} {
     const whereCalls: WhereCall[] = [];
     const orderByCalls: OrderByCall[] = [];
     let selectColumns: unknown;
@@ -138,7 +143,7 @@ function stubSummaryJoinDb(rows: SummaryJoinedRow[]): { db: Database; getSelectC
         return { from: () => buildJoinChainStub(whereCalls, orderByCalls, rows) };
     };
     const db = { select: runSelect } as unknown as Database;
-    return { db, whereCalls, getSelectColumns: () => selectColumns };
+    return { db, whereCalls, orderByCalls, getSelectColumns: () => selectColumns };
 }
 
 type StubLatestFiresHandles = {
@@ -421,6 +426,16 @@ describe('createZonesRepository.loadJoinedRowsForSummary', () => {
         expect(cols['zone']).toBe(zones);
         expect(cols['grassType']).toBe(grassTypes);
         expect(cols['soilType']).toBe(soilTypes);
+    });
+
+    it('appends .orderBy(zones.name) so the API list is alphabetised.', async () => {
+        const { db, orderByCalls } = stubSummaryJoinDb([summaryRow()]);
+        const repo = createZonesRepository(db);
+
+        await repo.loadJoinedRowsForSummary();
+
+        expect(orderByCalls).toHaveLength(1);
+        expect(orderByCalls[0]).toContain(zones.name);
     });
 });
 

@@ -154,6 +154,17 @@ describe('HomeView', () => {
         expect(screen.getByLabelText('Open South')).toBeOnTheScreen();
     });
 
+    it('renders the soil-moisture legend above the zone tiles (APP-45).', async () => {
+        setupSuccessfulFetch();
+        render(<HomeView />, { wrapper: buildApiWrapper().wrapper });
+
+        await waitFor(() => expect(screen.getByLabelText('Open North')).toBeOnTheScreen());
+        expect(screen.getByLabelText('Soil moisture legend')).toBeOnTheScreen();
+        expect(screen.getByText('On track')).toBeOnTheScreen();
+        expect(screen.getByText('Approaching limit')).toBeOnTheScreen();
+        expect(screen.getByText('Limit exceeded')).toBeOnTheScreen();
+    });
+
     it('renders the zones-section meta with the total area.', async () => {
         setupSuccessfulFetch();
         render(<HomeView />, { wrapper: buildApiWrapper().wrapper });

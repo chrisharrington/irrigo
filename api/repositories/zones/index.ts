@@ -128,12 +128,17 @@ export function createZonesRepository(db: Database): ZonesRepository {
         },
 
         loadJoinedRowsForSummary: async () => {
+            // Alphabetical-by-name order so the mobile app's zone list is
+            // stable and easy to scan. Independent of `loadEnabled`'s
+            // id-ordering, which is load-bearing for planner determinism
+            // (API-69) and intentionally not alphabetical.
             return db
                 .select({ zone: zones, grassType: grassTypes, soilType: soilTypes })
                 .from(zones)
                 .innerJoin(grassTypes, eq(zones.grassTypeId, grassTypes.id))
                 .innerJoin(soilTypes, eq(zones.soilTypeId, soilTypes.id))
-                .where(sql`true`);
+                .where(sql`true`)
+                .orderBy(zones.name);
         },
 
         loadLatestFires: async () => {
