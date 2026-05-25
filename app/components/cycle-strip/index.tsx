@@ -134,7 +134,10 @@ export function pctOfSunEvent(startMin: number, totalMin: number, hhmm: string):
     let bestDistance = Infinity;
     for (const candidate of candidates) {
         const pct = (candidate - startMin) / totalMin;
-        const distance = pct < 0 ? -pct : pct > 1 ? pct - 1 : 0;
+        const distance =
+            pct < 0 ? -pct
+            : pct > 1 ? pct - 1
+            : 0;
         if (distance < bestDistance) {
             best = candidate;
             bestDistance = distance;
@@ -171,7 +174,11 @@ export function buildHourTicks({
     startMin,
     totalMin,
     stepH,
-}: { startMin: number; totalMin: number; stepH: number }): ReadonlyArray<HourTick> {
+}: {
+    startMin: number;
+    totalMin: number;
+    stepH: number;
+}): ReadonlyArray<HourTick> {
     const ticks: HourTick[] = [];
     const firstTick = Math.ceil(startMin / 60) * 60;
     for (let m = firstTick; m <= startMin + totalMin; m += stepH * 60) {
@@ -232,7 +239,12 @@ export function CycleStrip({
 
             <View style={styles.axis}>
                 {ticks.map((tick, i) => (
-                    <AxisTickLabel key={`${tick.hour}-${tick.leftPct}`} tick={tick} isFirst={i === 0} isLast={i === ticks.length - 1} />
+                    <AxisTickLabel
+                        key={`${tick.hour}-${tick.leftPct}`}
+                        tick={tick}
+                        isFirst={i === 0}
+                        isLast={i === ticks.length - 1}
+                    />
                 ))}
             </View>
 
@@ -244,9 +256,6 @@ export function CycleStrip({
                     />
                 ))}
 
-                <SunLine leftPct={sunsetPct} />
-                <SunLine leftPct={sunrisePct} />
-
                 <View style={{ gap: laneGap }}>
                     {night.zones.map(zone => (
                         <View
@@ -254,12 +263,7 @@ export function CycleStrip({
                             style={{ position: 'relative', height: laneHeight }}
                             accessibilityLabel={`${zone.name}: ${zone.cycles.length} cycles, ${Math.round(totalCycleMin(zone))} minutes`}
                         >
-                            <View
-                                style={[
-                                    styles.laneWash,
-                                    { backgroundColor: zone.color },
-                                ]}
-                            />
+                            <View style={[styles.laneWash, { backgroundColor: zone.color }]} />
                             {zone.cycles.map(cycle => (
                                 <View
                                     key={`${cycle.start}-${cycle.durMin}`}
@@ -294,11 +298,10 @@ function totalCycleMin(zone: CycleStripZone): number {
 function AxisTickLabel({ tick, isFirst, isLast }: { tick: HourTick; isFirst: boolean; isLast: boolean }) {
     // Anchor the first and last tick labels to their respective edges to
     // avoid clipping off the chart; everything in between is centred.
-    const transformStyle: StyleProp<ViewStyle> = isFirst
-        ? { transform: [{ translateX: 0 }] }
-        : isLast
-            ? undefined
-            : { transform: [{ translateX: -0.5 }] };
+    const transformStyle: StyleProp<ViewStyle> =
+        isFirst ? { transform: [{ translateX: 0 }] }
+        : isLast ? undefined
+        : { transform: [{ translateX: -0.5 }] };
 
     return (
         <View style={[styles.tickWrap, { left: `${tick.leftPct}%` }, transformStyle]}>
@@ -308,14 +311,6 @@ function AxisTickLabel({ tick, isFirst, isLast }: { tick: HourTick; isFirst: boo
             </Text>
         </View>
     );
-}
-
-function SunLine({ leftPct }: { leftPct: number }) {
-    // Drawing a vertical line outside the plot area is meaningless — skip
-    // the line for out-of-axis sun events (typically sunset that occurs
-    // before the night's axis start).
-    if (leftPct < 0 || leftPct > 100) return null;
-    return <View style={[styles.sunLine, { left: `${leftPct}%` }]} />;
 }
 
 function SunLabel({ leftPct, kind, time }: { leftPct: number; kind: 'set' | 'rise'; time: string }) {
@@ -328,9 +323,7 @@ function SunLabel({ leftPct, kind, time }: { leftPct: number; kind: 'set' | 'ris
     // never falls off the end of the chart.
     const alignRight = clampedPct > 50;
     const labelText = `${kind === 'set' ? 'sunset' : 'sunrise'} ${time}`;
-    const positionStyle: ViewStyle = alignRight
-        ? { right: `${100 - clampedPct}%` }
-        : { left: `${clampedPct}%` };
+    const positionStyle: ViewStyle = alignRight ? { right: `${100 - clampedPct}%` } : { left: `${clampedPct}%` };
 
     return (
         <View style={[styles.sunLabelWrap, positionStyle]} accessibilityLabel={labelText}>
@@ -422,6 +415,7 @@ const styles = StyleSheet.create({
     },
     sunLabelRow: {
         position: 'relative',
+        flex: 1,
         height: 16,
         marginTop: 6,
     },
