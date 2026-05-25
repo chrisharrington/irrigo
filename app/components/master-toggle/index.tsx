@@ -65,7 +65,7 @@ export function MasterToggle({ accessibilityLabel = DEFAULT_LABEL }: MasterToggl
                     {mutationErrorSub
                         ?? (on
                             ? 'Scheduling & manual runs allowed'
-                            : 'Master kill switch · all runs blocked')}
+                            : 'Scheduling & manual runs blocked')}
                 </Text>
             </View>
 
