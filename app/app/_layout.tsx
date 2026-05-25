@@ -1,7 +1,7 @@
 import { DarkTheme, ThemeProvider, type Theme } from '@react-navigation/native';
 import { Stack } from 'expo-router';
-import { StatusBar } from 'expo-status-bar';
 import * as SplashScreen from 'expo-splash-screen';
+import { StatusBar } from 'expo-status-bar';
 import 'react-native-reanimated';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
@@ -37,7 +37,7 @@ export default function RootLayout() {
             <FontLoader>
                 <SafeAreaProvider>
                     <ThemeProvider value={irrigoDarkTheme}>
-                        <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: 'transparent' } }}>
+                        <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: '#000000' } }}>
                             <Stack.Screen name='modal' options={{ presentation: 'modal', title: 'Modal' }} />
                         </Stack>
                         <NotificationsBridge />
