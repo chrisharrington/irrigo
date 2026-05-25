@@ -4,6 +4,7 @@ import { StyleSheet, Text, View } from 'react-native';
 import type { NextRunDto, NextRunState } from '@/api/types/next-run';
 import { Badge, type BadgeTone } from '@/components/badge';
 import { CycleStrip, type CycleStripNight } from '@/components/cycle-strip';
+import { TileGradient } from '@/components/tile-gradient';
 import { FontFamily } from '@/constants/fonts';
 import { formatNextRunDate, formatTimeOfDay } from '@/lib/relative-time';
 import { getSiteTimezone } from '@/lib/site-timezone';
@@ -58,11 +59,11 @@ export function NextRunHero({ nextRun, siteTimezone, now }: NextRunHeroProps) {
 
     if (isIdle || nextRun.startTime === null) {
         return (
-            <View style={[styles.card, styles.cardEmpty]} accessibilityLabel='No runs queued'>
+            <TileGradient style={[styles.card, styles.cardEmpty]} accessibilityLabel='No runs queued'>
                 <Text style={[styles.eyebrow, { color: colors['fg-muted'] }]}>Next run</Text>
                 <Text style={styles.emptyTitle}>No runs queued.</Text>
                 <Text style={styles.emptySub}>{subtitleForIdle(nextRun.state)}</Text>
-            </View>
+            </TileGradient>
         );
     }
 
@@ -71,7 +72,7 @@ export function NextRunHero({ nextRun, siteTimezone, now }: NextRunHeroProps) {
     const badgeLabel = badgeLabelForState(nextRun.state);
 
     return (
-        <View style={[styles.card, styles.cardActive]} accessibilityLabel={`Next run at ${timeOfDay}`}>
+        <TileGradient style={[styles.card, styles.cardActive]} accessibilityLabel={`Next run at ${timeOfDay}`}>
             <View style={styles.headerRow}>
                 <View style={styles.headerText}>
                     <Text style={[styles.eyebrow, { color: colors.accent }]}>Next run</Text>
@@ -87,7 +88,7 @@ export function NextRunHero({ nextRun, siteTimezone, now }: NextRunHeroProps) {
                     <CycleStrip night={cycleStripNight} variant='compact' />
                 </View>
             )}
-        </View>
+        </TileGradient>
     );
 }
 
@@ -121,7 +122,6 @@ function subtitleForIdle(state: NextRunState): string {
 
 const styles = StyleSheet.create({
     card: {
-        backgroundColor: colors.elevated,
         borderWidth: 1,
         borderRadius: 4,
         padding: 18,

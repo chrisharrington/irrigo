@@ -17,4 +17,4 @@ node_modules
 .env.local
 
 # Output of build-apk.sh — debug APK is ~200MB, never commit.
-irrigo.apk
+irrigo-*.apk

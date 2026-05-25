@@ -2,6 +2,7 @@ import { StyleSheet, Text, View } from 'react-native';
 
 import { FontFamily } from '@/constants/fonts';
 import { Drop, Pause } from '@/components/icons';
+import { TileGradient } from '@/components/tile-gradient';
 import { Toggle } from '@/components/toggle';
 import { useSetSystemEnabled, useSystem } from '@/hooks/system';
 import config from '@/tailwind.config';
@@ -44,7 +45,7 @@ export function MasterToggle({ accessibilityLabel = DEFAULT_LABEL }: MasterToggl
         : undefined;
 
     return (
-        <View
+        <TileGradient
             accessibilityLabel={accessibilityLabel}
             style={[styles.card, { borderColor: palette.border }]}
         >
@@ -76,7 +77,7 @@ export function MasterToggle({ accessibilityLabel = DEFAULT_LABEL }: MasterToggl
                 disabled={setEnabled.isPending}
                 accessibilityLabel={on ? 'Disable irrigation' : 'Enable irrigation'}
             />
-        </View>
+        </TileGradient>
     );
 }
 
@@ -100,7 +101,7 @@ const OFF_PALETTE: Palette = {
 
 function PendingCard({ accessibilityLabel }: { accessibilityLabel: string }) {
     return (
-        <View
+        <TileGradient
             accessibilityLabel={accessibilityLabel}
             style={[styles.card, { borderColor: colors.border }]}
         >
@@ -113,13 +114,13 @@ function PendingCard({ accessibilityLabel }: { accessibilityLabel: string }) {
                 <Text style={styles.title}>System state</Text>
                 <Text style={styles.sub}>Fetching irrigation status…</Text>
             </View>
-        </View>
+        </TileGradient>
     );
 }
 
 function ErrorCard({ accessibilityLabel }: { accessibilityLabel: string }) {
     return (
-        <View
+        <TileGradient
             accessibilityLabel={accessibilityLabel}
             style={[styles.card, { borderColor: colors['warn-border'] }]}
         >
@@ -132,7 +133,7 @@ function ErrorCard({ accessibilityLabel }: { accessibilityLabel: string }) {
                 <Text style={styles.title}>Status unknown</Text>
                 <Text style={styles.sub}>{ERROR_QUERY_SUB}</Text>
             </View>
-        </View>
+        </TileGradient>
     );
 }
 
@@ -142,7 +143,6 @@ const styles = StyleSheet.create({
         alignItems: 'center',
         gap: 14,
         padding: 14,
-        backgroundColor: colors.elevated,
         borderWidth: 1,
         borderRadius: 4,
     },

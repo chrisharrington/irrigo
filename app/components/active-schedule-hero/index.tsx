@@ -4,6 +4,7 @@ import { StyleSheet, Text, View } from 'react-native';
 import { Button } from '@/components/button';
 import { DayStrip } from '@/components/day-strip';
 import { Refresh } from '@/components/icons';
+import { TileGradient } from '@/components/tile-gradient';
 import { FontFamily } from '@/constants/fonts';
 import { daysArrayFromAllowed, formatDaysCsv, formatTimeWindow } from '@/lib/schedule-format';
 import type { ScheduleListItem } from '@/api/types/schedules';
@@ -59,7 +60,7 @@ export function ActiveScheduleHero({
     const endBySunrise = schedule.endBySunrise === true;
 
     return (
-        <View style={styles.card}>
+        <TileGradient style={styles.card}>
             <View style={styles.headerRow}>
                 <View style={styles.runningPill}>
                     <View style={styles.runningDot} />
@@ -138,7 +139,7 @@ export function ActiveScheduleHero({
                     </Button>
                 </View>
             </View>
-        </View>
+        </TileGradient>
     );
 }
 
@@ -166,7 +167,6 @@ function RuleRow({
 
 const styles = StyleSheet.create({
     card: {
-        backgroundColor: colors.elevated,
         borderWidth: 1,
         borderColor: colors['accent-border'],
         borderRadius: 4,
