@@ -1,6 +1,6 @@
+import { LinearGradient } from 'expo-linear-gradient';
 import type { ReactNode } from 'react';
 import type { StyleProp, ViewStyle } from 'react-native';
-import { LinearGradient } from 'expo-linear-gradient';
 
 /**
  * Visual variant selecting the gradient's colour pair. `'elevated'` matches
@@ -15,7 +15,7 @@ export type TileGradientVariant = 'elevated' | 'surface';
  * reads as a subtle tint of the same surface, not a separate hue. APP-60.
  */
 export const TILE_GRADIENT_COLORS: Readonly<Record<TileGradientVariant, readonly [string, string]>> = {
-    elevated: ['#1B231F', '#1D2820'],
+    elevated: ['#101412', '#161e18'],
     surface: ['#0E1412', '#0F1612'],
 };
 
