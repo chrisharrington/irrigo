@@ -1,7 +1,8 @@
 /**
- * Generates the Expo app icon set from the BrandGlyph SVG. One-off-ish:
- * regenerate with `bun --cwd=./app run icons` whenever the brand mark
- * changes. Outputs PNGs into `assets/images/`.
+ * Generates the Expo app icon set from the "radar dots" mark
+ * (`L02_Spray` in `app/design/logos/logos.jsx`). One-off-ish: regenerate
+ * with `bun --cwd=./app run icons` whenever the brand mark changes.
+ * Outputs PNGs into `assets/images/`.
  *
  * Always invoked from the `app/` cwd (see the `icons` script in
  * package.json), so paths resolve relative to `process.cwd()`.
@@ -11,7 +12,7 @@ import { mkdir } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
 import sharp from 'sharp';
 
-import { renderBrandGlyphSvg } from './render-brand-glyph-svg';
+import { renderRadarDotsSvg } from './render-radar-dots-svg';
 
 // Canvas dark from `app/tailwind.config.ts` → `ink-50`. APP-38 pins the
 // adaptive-icon background to this value.
@@ -31,7 +32,7 @@ async function main(): Promise<void> {
 
     // iOS full-bleed: canvas-dark background + glyph at ~62% (safe inside the
     // rounded-corner mask iOS applies at render time).
-    await writePng('icon.png', renderBrandGlyphSvg({
+    await writePng('icon.png', renderRadarDotsSvg({
         size: SIZE,
         background: CANVAS_DARK,
         padding: 0.38,
@@ -39,14 +40,14 @@ async function main(): Promise<void> {
 
     // Android adaptive foreground: transparent, glyph at ~55% (well inside the
     // 66dp safe zone Android crops to under various launcher masks).
-    await writePng('android-icon-foreground.png', renderBrandGlyphSvg({
+    await writePng('android-icon-foreground.png', renderRadarDotsSvg({
         size: SIZE,
         background: null,
         padding: 0.45,
     }));
 
     // Android themed-icon monochrome: white-on-transparent silhouette.
-    await writePng('android-icon-monochrome.png', renderBrandGlyphSvg({
+    await writePng('android-icon-monochrome.png', renderRadarDotsSvg({
         size: SIZE,
         background: null,
         padding: 0.45,
@@ -55,7 +56,7 @@ async function main(): Promise<void> {
 
     // Splash icon: transparent, glyph at ~80% (the splash plugin scales it
     // down at runtime via `imageWidth: 200`).
-    await writePng('splash-icon.png', renderBrandGlyphSvg({
+    await writePng('splash-icon.png', renderRadarDotsSvg({
         size: SIZE,
         background: null,
         padding: 0.20,
