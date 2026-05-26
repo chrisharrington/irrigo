@@ -83,7 +83,10 @@ function AppShell() {
     return (
         <View style={{ flex: 1 }}>
             <View style={{ paddingTop: insets.top, backgroundColor: '#000000' }}>
-                <Header onMenuPress={() => setDrawerOpen(true)} />
+                <Header
+                    onMenuPress={() => setDrawerOpen(true)}
+                    onAlertsPress={() => console.warn('alerts route not wired yet (APP-62).')}
+                />
             </View>
             <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: '#000000' } }}>
                 <Stack.Screen name='modal' options={{ presentation: 'modal', title: 'Modal' }} />
