@@ -14,7 +14,7 @@ export type BrandGlyphProps = {
 
 const SOIL_FILL = '#1B231F';
 const SOIL_STROKE = '#344239';
-const ACCENT = '#6FE39B';
+const ACCENT = '#5ece48';
 
 /**
  * The Irrigo brand mark — a dashed sprinkler arc spraying down to a droplet

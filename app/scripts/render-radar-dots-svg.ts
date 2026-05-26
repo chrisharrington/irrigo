@@ -9,7 +9,7 @@
  * dragging in Bun-only APIs or filesystem effects.
  */
 
-const ACCENT = '#6FE39B';
+const ACCENT = '#5ece48';
 
 // 64-unit viewBox + center-bottom anchor exactly as the design source
 // specifies (`anchor` at `x=30 y=48` 4×4; arc origin `(32, 50)`).

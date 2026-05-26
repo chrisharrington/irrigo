@@ -6,8 +6,8 @@ describe('paletteForZone', () => {
     });
 
     it('returns the accent green for the first zone.', () => {
-        expect(paletteForZone(0).color).toBe('#6FE39B');
-        expect(paletteForZone(0).glow).toBe('rgba(111, 227, 155, 0.4)');
+        expect(paletteForZone(0).color).toBe('#5ece48');
+        expect(paletteForZone(0).glow).toBe('rgba(94, 206, 72, 0.4)');
     });
 
     it('returns the info blue for the second zone.', () => {

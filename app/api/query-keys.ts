@@ -32,4 +32,8 @@ export const keys = {
         all: () => ['activity'] as const,
         list: (params: { zoneId?: string }) => ['activity', 'list', params] as const,
     },
+    health: {
+        all: () => ['health'] as const,
+        status: () => ['health', 'status'] as const,
+    },
 } as const;

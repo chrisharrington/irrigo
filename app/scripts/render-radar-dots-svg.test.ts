@@ -61,7 +61,7 @@ describe('renderRadarDotsSvg', () => {
         const svg = renderRadarDotsSvg({ size: 1024, background: null, padding: 0.45, color: '#FFFFFF' });
 
         // The design-source accent must not appear when an override is set.
-        expect(svg).not.toContain('#6FE39B');
+        expect(svg).not.toContain('#5ece48');
         // The override colour shows up on the anchor rect plus every dot.
         const occurrences = svg.match(/#FFFFFF/g) ?? [];
         expect(occurrences.length).toBe(EXPECTED_DOT_COUNT + 1);

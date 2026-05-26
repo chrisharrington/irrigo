@@ -13,7 +13,7 @@ const input = tv({
     },
     variants: {
         focused: {
-            true: { base: 'border-accent bg-bg shadow-[0_0_0_4px_rgba(111,227,155,0.06)]' },
+            true: { base: 'border-accent bg-bg shadow-[0_0_0_4px_rgba(94,206,72,0.06)]' },
             false: { base: 'bg-surface border-border' },
         },
         invalid: {

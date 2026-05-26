@@ -11,7 +11,7 @@ export type TileGradientVariant = 'elevated' | 'surface';
 
 /**
  * Opaque [top, bottom] colour pairs per variant. The bottom stop is the
- * base card colour nudged ~3% toward `grass-700` (#2C8F5A) so the gradient
+ * base card colour nudged ~3% toward `grass-700` (#2C7E1F) so the gradient
  * reads as a subtle tint of the same surface, not a separate hue. APP-60.
  */
 export const TILE_GRADIENT_COLORS: Readonly<Record<TileGradientVariant, readonly [string, string]>> = {
