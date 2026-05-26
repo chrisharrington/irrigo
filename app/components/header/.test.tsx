@@ -1,9 +1,12 @@
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react-native';
+import { fireEvent, render, screen } from '@testing-library/react-native';
 
+import type { AlertDto } from '@/api/types/alerts';
 import { buildApiWrapper, jsonResponse } from '@/api/test-utils';
 import { keys } from '@/api/query-keys';
+import config from '@/tailwind.config';
 import { Header } from '.';
 
+const colors = config.theme.extend.colors;
 const mockFetch = jest.fn();
 
 beforeEach(() => {
@@ -12,25 +15,50 @@ beforeEach(() => {
     process.env.EXPO_PUBLIC_API_BASE_URL = 'http://test.local:9753';
 });
 
-describe('Header', () => {
-    it('renders menu, brand, and re-plan controls.', () => {
-        const { wrapper, client } = buildApiWrapper();
-        client.setQueryData(keys.system.state(), { irrigationEnabled: true, since: 'x' });
+function buildAlert(overrides?: Partial<AlertDto>): AlertDto {
+    return {
+        id: 'a-1',
+        class: 'weather-stale',
+        tone: 'warn',
+        title: 'Weather API stale',
+        sub: null,
+        when: '2026-05-24T11:00:00.000Z',
+        zoneId: null,
+        ack: false,
+        ...overrides,
+    };
+}
 
-        render(<Header onMenuPress={jest.fn()} />, { wrapper });
+function seedSystem(client: ReturnType<typeof buildApiWrapper>['client'], irrigationOn: boolean) {
+    client.setQueryData(keys.system.state(), { irrigationEnabled: irrigationOn, since: 'x' });
+}
+
+function seedAlerts(client: ReturnType<typeof buildApiWrapper>['client'], alerts: ReadonlyArray<AlertDto>) {
+    client.setQueryData(keys.alerts.list(), alerts);
+}
+
+describe('Header', () => {
+    it('renders menu, brand, and bell — refresh is no longer in the tree (APP-62).', () => {
+        const { wrapper, client } = buildApiWrapper();
+        seedSystem(client, true);
+        seedAlerts(client, []);
+
+        render(<Header onMenuPress={jest.fn()} onAlertsPress={jest.fn()} />, { wrapper });
 
         expect(screen.getByLabelText('Open menu')).toBeOnTheScreen();
         expect(screen.getByLabelText('Irrigo')).toBeOnTheScreen();
         expect(screen.getByText('Irrigo')).toBeOnTheScreen();
-        expect(screen.getByLabelText('Re-plan')).toBeOnTheScreen();
+        expect(screen.getByLabelText('Alerts, no unread')).toBeOnTheScreen();
+        expect(screen.queryByLabelText('Re-plan')).toBeNull();
     });
 
     it('calls onMenuPress when the user taps the menu button while irrigation is on.', () => {
         const onMenuPress = jest.fn();
         const { wrapper, client } = buildApiWrapper();
-        client.setQueryData(keys.system.state(), { irrigationEnabled: true, since: 'x' });
+        seedSystem(client, true);
+        seedAlerts(client, []);
 
-        render(<Header onMenuPress={onMenuPress} />, { wrapper });
+        render(<Header onMenuPress={onMenuPress} onAlertsPress={jest.fn()} />, { wrapper });
         fireEvent.press(screen.getByLabelText('Open menu'));
 
         expect(onMenuPress).toHaveBeenCalledTimes(1);
@@ -39,9 +67,10 @@ describe('Header', () => {
     it('disables the menu button and ignores presses when irrigation is off.', () => {
         const onMenuPress = jest.fn();
         const { wrapper, client } = buildApiWrapper();
-        client.setQueryData(keys.system.state(), { irrigationEnabled: false, since: 'x' });
+        seedSystem(client, false);
+        seedAlerts(client, []);
 
-        render(<Header onMenuPress={onMenuPress} />, { wrapper });
+        render(<Header onMenuPress={onMenuPress} onAlertsPress={jest.fn()} />, { wrapper });
         const menu = screen.getByLabelText('Open menu');
         fireEvent.press(menu);
 
@@ -49,85 +78,130 @@ describe('Header', () => {
         expect(menu.props.accessibilityState).toMatchObject({ disabled: true });
     });
 
-    it('posts to /replan when the user taps the refresh button while irrigation is on.', async () => {
-        // First resolved value covers the POST /replan; subsequent
-        // mockResolvedValue covers the background GET /system refetch that
-        // `useReplan.onSuccess` triggers by invalidating the system query.
-        mockFetch.mockResolvedValueOnce(
-            jsonResponse({ status: 'replanned', lastRePlanAt: '2026-05-23T03:00:00.000Z' }),
+    it('shows no badge text when the alerts cache is empty (APP-62).', () => {
+        const { wrapper, client } = buildApiWrapper();
+        seedSystem(client, true);
+        seedAlerts(client, []);
+
+        render(<Header onMenuPress={jest.fn()} onAlertsPress={jest.fn()} />, { wrapper });
+
+        expect(screen.getByLabelText('Alerts, no unread')).toBeOnTheScreen();
+        // No digit text rendered for 0.
+        expect(screen.queryByText(/^\d+$/)).toBeNull();
+        expect(screen.queryByText('9+')).toBeNull();
+    });
+
+    it('renders an integer badge with the accent tone for info-only unacked alerts (APP-62).', () => {
+        const { wrapper, client } = buildApiWrapper();
+        seedSystem(client, true);
+        // The wire type only allows tone "warn" | "danger"; "info" isn't in
+        // the union. The fallback severity ('info' → accent colour) is
+        // exercised when the alerts array is non-empty AND has no warn /
+        // danger entries — practically that means the cache holds zero
+        // items but `useAlerts` data is treated as "unknown tone". Cover
+        // that path by injecting a synthetic entry shaped like an AlertDto
+        // with a non-warn/non-danger tone via a cast.
+        const accentAlerts = [
+            buildAlert({ id: 'a-1', tone: 'warn' as never }),
+            buildAlert({ id: 'a-2', tone: 'warn' as never }),
+            buildAlert({ id: 'a-3', tone: 'warn' as never }),
+        ];
+        // Replace the warn tone with a "neutral" string the highest-
+        // severity helper falls through on. Cast back to AlertDto[] so the
+        // cache write typechecks.
+        const neutralAlerts = accentAlerts.map(a => ({ ...a, tone: 'neutral' as unknown as 'warn' }));
+        seedAlerts(client, neutralAlerts as AlertDto[]);
+
+        render(<Header onMenuPress={jest.fn()} onAlertsPress={jest.fn()} />, { wrapper });
+
+        expect(screen.getByLabelText('Alerts, 3 unread')).toBeOnTheScreen();
+        expect(screen.getByText('3')).toBeOnTheScreen();
+        const badge = screen.getByLabelText('Unread count 3');
+        expect(badge.props.style).toEqual(
+            expect.arrayContaining([expect.objectContaining({ backgroundColor: colors.accent })]),
         );
-        mockFetch.mockResolvedValue(jsonResponse({ irrigationEnabled: true, since: 'x' }));
-
-        const { wrapper, client } = buildApiWrapper();
-        client.setQueryData(keys.system.state(), { irrigationEnabled: true, since: 'x' });
-
-        render(<Header onMenuPress={jest.fn()} />, { wrapper });
-
-        await act(async () => {
-            fireEvent.press(screen.getByLabelText('Re-plan'));
-        });
-
-        await waitFor(() => {
-            const replanCalls = mockFetch.mock.calls.filter(([url]) => String(url).endsWith('/replan'));
-            expect(replanCalls).toHaveLength(1);
-        });
-        const replanCall = mockFetch.mock.calls.find(([url]) => String(url).endsWith('/replan'));
-        expect((replanCall as [string, RequestInit])[1].method).toBe('POST');
     });
 
-    it('disables the refresh button and does not POST /replan when irrigation is off.', () => {
-        // Seed the system cache. The header still mounts `useSystem`, which
-        // will refetch (the seeded entry is immediately stale under the
-        // default `staleTime: 0`), so we cover that background GET too —
-        // the test asserts no `/replan` POST, not zero fetches overall.
-        mockFetch.mockResolvedValue(jsonResponse({ irrigationEnabled: false, since: 'x' }));
-
+    it('caps the badge text at "9+" when there are more than nine unacked alerts (APP-62).', () => {
         const { wrapper, client } = buildApiWrapper();
-        client.setQueryData(keys.system.state(), { irrigationEnabled: false, since: 'x' });
+        seedSystem(client, true);
+        seedAlerts(client, Array.from({ length: 12 }, (_, i) => buildAlert({ id: `a-${i}` })));
 
-        render(<Header onMenuPress={jest.fn()} />, { wrapper });
-        const refresh = screen.getByLabelText('Re-plan');
-        fireEvent.press(refresh);
+        render(<Header onMenuPress={jest.fn()} onAlertsPress={jest.fn()} />, { wrapper });
 
-        const replanCalls = mockFetch.mock.calls.filter(([url]) => String(url).endsWith('/replan'));
-        expect(replanCalls).toHaveLength(0);
-        expect(refresh.props.accessibilityState).toMatchObject({ disabled: true });
+        expect(screen.getByText('9+')).toBeOnTheScreen();
+        expect(screen.getByLabelText('Alerts, 12 unread')).toBeOnTheScreen();
     });
 
-    it('keeps the refresh button disabled while a re-plan request is in flight.', async () => {
-        // Hold the POST /replan promise open so the mutation stays pending
-        // long enough to observe the disabled state.
-        let resolveReplan: (response: Response) => void = () => {};
-        const replanPromise = new Promise<Response>(resolve => {
-            resolveReplan = resolve;
-        });
-        mockFetch.mockReturnValueOnce(replanPromise);
-        mockFetch.mockResolvedValue(jsonResponse({ irrigationEnabled: true, since: 'x' }));
-
+    it('uses the warn tint when at least one unacked alert is warn-tone (APP-62).', () => {
         const { wrapper, client } = buildApiWrapper();
-        client.setQueryData(keys.system.state(), { irrigationEnabled: true, since: 'x' });
+        seedSystem(client, true);
+        seedAlerts(client, [
+            buildAlert({ id: 'a-1', tone: 'warn' }),
+            buildAlert({ id: 'a-2', tone: 'warn' }),
+        ]);
 
-        render(<Header onMenuPress={jest.fn()} />, { wrapper });
-        fireEvent.press(screen.getByLabelText('Re-plan'));
+        render(<Header onMenuPress={jest.fn()} onAlertsPress={jest.fn()} />, { wrapper });
 
-        await waitFor(() => {
-            expect(screen.getByLabelText('Re-plan').props.accessibilityState).toMatchObject({ disabled: true });
-        });
-
-        // Release the held promise so the mutation settles and React Query
-        // doesn't log "unhandled promise" warnings after the test ends.
-        await act(async () => {
-            resolveReplan(jsonResponse({ status: 'replanned', lastRePlanAt: 'x' }));
-            await replanPromise;
-        });
+        const badge = screen.getByLabelText('Unread count 2');
+        expect(badge.props.style).toEqual(
+            expect.arrayContaining([expect.objectContaining({ backgroundColor: colors.warn })]),
+        );
     });
 
-    it('treats an unresolved system query as off so both icon buttons stay disabled.', () => {
+    it('uses the danger tint when any unacked alert is danger-tone, regardless of others (APP-62).', () => {
+        const { wrapper, client } = buildApiWrapper();
+        seedSystem(client, true);
+        seedAlerts(client, [
+            buildAlert({ id: 'a-1', tone: 'warn' }),
+            buildAlert({ id: 'a-2', tone: 'danger' }),
+            buildAlert({ id: 'a-3', tone: 'warn' }),
+        ]);
+
+        render(<Header onMenuPress={jest.fn()} onAlertsPress={jest.fn()} />, { wrapper });
+
+        const badge = screen.getByLabelText('Unread count 3');
+        expect(badge.props.style).toEqual(
+            expect.arrayContaining([expect.objectContaining({ backgroundColor: colors.danger })]),
+        );
+    });
+
+    it('fires onAlertsPress when the user taps the bell while irrigation is on (APP-62).', () => {
+        const onAlertsPress = jest.fn();
+        const { wrapper, client } = buildApiWrapper();
+        seedSystem(client, true);
+        seedAlerts(client, [buildAlert()]);
+
+        render(<Header onMenuPress={jest.fn()} onAlertsPress={onAlertsPress} />, { wrapper });
+        fireEvent.press(screen.getByLabelText('Alerts, 1 unread'));
+
+        expect(onAlertsPress).toHaveBeenCalledTimes(1);
+    });
+
+    it('disables the bell and does not fire onAlertsPress when irrigation is off (APP-62).', () => {
+        // Stub the fetch the disabled-system render still triggers (useAlerts
+        // polls), so React Query doesn't hit an undefined response object.
+        mockFetch.mockResolvedValue(jsonResponse([]));
+
+        const onAlertsPress = jest.fn();
+        const { wrapper, client } = buildApiWrapper();
+        seedSystem(client, false);
+        seedAlerts(client, []);
+
+        render(<Header onMenuPress={jest.fn()} onAlertsPress={onAlertsPress} />, { wrapper });
+        const bell = screen.getByLabelText('Alerts, no unread');
+        fireEvent.press(bell);
+
+        expect(onAlertsPress).not.toHaveBeenCalled();
+        expect(bell.props.accessibilityState).toMatchObject({ disabled: true });
+    });
+
+    it('treats an unresolved system query as off so both icon buttons stay disabled (APP-62).', () => {
         const { wrapper } = buildApiWrapper();
 
-        render(<Header onMenuPress={jest.fn()} />, { wrapper });
+        render(<Header onMenuPress={jest.fn()} onAlertsPress={jest.fn()} />, { wrapper });
 
         expect(screen.getByLabelText('Open menu').props.accessibilityState).toMatchObject({ disabled: true });
-        expect(screen.getByLabelText('Re-plan').props.accessibilityState).toMatchObject({ disabled: true });
+        expect(screen.getByLabelText('Alerts, no unread').props.accessibilityState).toMatchObject({ disabled: true });
     });
 });

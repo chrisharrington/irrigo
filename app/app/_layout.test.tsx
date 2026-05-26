@@ -58,12 +58,15 @@ jest.mock('@/components/splash-gate', () => {
 jest.mock('@/components/header', () => {
     const { Pressable, Text, View } = require('react-native');
     return {
-        Header: (props: { onMenuPress: () => void }) => {
+        Header: (props: { onMenuPress: () => void; onAlertsPress: () => void }) => {
             mockHeaderProps(props);
             return (
                 <View accessibilityLabel='App header'>
                     <Pressable accessibilityLabel='Open menu' onPress={props.onMenuPress}>
                         <Text>menu</Text>
+                    </Pressable>
+                    <Pressable accessibilityLabel='Alerts' onPress={props.onAlertsPress}>
+                        <Text>alerts</Text>
                     </Pressable>
                 </View>
             );
