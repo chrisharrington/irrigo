@@ -1,5 +1,7 @@
+import { useMemo } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 
+import type { AlertDto } from '@/api/types/alerts';
 import { BrandGlyph } from '@/components/brand-glyph';
 import { Button } from '@/components/button';
 import { Bell, Menu } from '@/components/icons';
@@ -8,9 +10,14 @@ import { useAlerts } from '@/hooks/alerts';
 import { useSystem } from '@/hooks/system';
 import { SEVERITY_COLOR, highestSeverity } from '@/lib/alert-severity';
 import config from '@/tailwind.config';
-import { useMemo } from 'react';
 
 const colors = config.theme.extend.colors;
+
+// Module-level sentinel used as the fallback when `useAlerts().data` is
+// undefined. Using a stable reference (instead of an inline `?? []`) keeps
+// the downstream `useMemo` cache hot — a fresh `[]` each render busts every
+// dependency array that closes over `alerts`.
+const EMPTY_ALERTS: readonly AlertDto[] = [];
 
 /**
  * Props for the Irrigo app header.
@@ -54,7 +61,7 @@ export function Header({ onMenuPress, onAlertsPress }: HeaderProps) {
     const { data: alertsData } = useAlerts();
     const irrigationOn = system?.irrigationEnabled === true;
 
-    const alerts = alertsData ?? [];
+    const alerts = alertsData ?? EMPTY_ALERTS;
     const count = alerts.length;
     const display = count > 9 ? '9+' : String(count);
     const severity = useMemo(() => highestSeverity(alerts), [alerts]);
