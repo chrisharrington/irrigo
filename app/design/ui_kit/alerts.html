@@ -1,0 +1,79 @@
+<!doctype html>
+<html><head>
+<meta charset="utf-8">
+<title>Irrigo — Alerts surface</title>
+<link rel="stylesheet" href="../colors_and_type.css">
+<link rel="stylesheet" href="../components.css">
+<style>
+  html, body { margin: 0; padding: 0; background: var(--bg); min-height: 100vh; }
+</style>
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+</head>
+<body>
+<div id="root"></div>
+
+<script type="text/babel" src="design-canvas.jsx"></script>
+<script type="text/babel" src="ios-frame.jsx"></script>
+<script type="text/babel" src="Alerts.jsx"></script>
+<script type="text/babel">
+  function phone(view) {
+    return (
+      <IOSDevice width={402} height={874} dark={true}>
+        {view}
+      </IOSDevice>
+    );
+  }
+
+  function App() {
+    return (
+      <DesignCanvas title="Irrigo · Alerts">
+        <DCSection
+          id="bell"
+          title="Header bell — count & severity"
+          subtitle="Replaces the refresh icon top-right. Badge hides at zero, caps at 9+. Color tracks worst-severity unread item: red if any danger, amber if warn-only, green if info-only.">
+          <DCArtboard id="zero" label="No unread — badge hidden" width={460} height={140}>
+            <div style={{ padding: 16, background: 'var(--bg)', height: '100%' }}>
+              <HeaderRow count={0} severity="info" label="Quiet" sub="Bell stays neutral, no badge."/>
+            </div>
+          </DCArtboard>
+          <DCArtboard id="info" label="3 info — green badge" width={460} height={140}>
+            <div style={{ padding: 16, background: 'var(--bg)', height: '100%' }}>
+              <HeaderRow count={3} severity="info" label="Info" sub="Plan re-evaluated, manual runs, profile switches."/>
+            </div>
+          </DCArtboard>
+          <DCArtboard id="warn" label="2 warn — amber badge" width={460} height={140}>
+            <div style={{ padding: 16, background: 'var(--bg)', height: '100%' }}>
+              <HeaderRow count={2} severity="warn" label="Degraded" sub="Forecast stale or run cut short."/>
+            </div>
+          </DCArtboard>
+          <DCArtboard id="danger" label="4 with danger — red badge" width={460} height={140}>
+            <div style={{ padding: 16, background: 'var(--bg)', height: '100%' }}>
+              <HeaderRow count={4} severity="danger" label="Critical" sub="At least one unread item is danger-class."/>
+            </div>
+          </DCArtboard>
+          <DCArtboard id="many" label="9+ overflow" width={460} height={140}>
+            <div style={{ padding: 16, background: 'var(--bg)', height: '100%' }}>
+              <HeaderRow count={14} severity="danger" label="Backlog" sub="Counter caps at 9+ — exact number lives on the alerts page."/>
+            </div>
+          </DCArtboard>
+        </DCSection>
+
+        <DCSection
+          id="page"
+          title="Alerts page"
+          subtitle="Opened by tapping the bell. Filter chips on top, grouped by recency. Tone strip on the left, kind+time at the head of each row, unread items get a brighter title and a dot beside the timestamp.">
+          <DCArtboard id="populated" label="Populated — all alerts" width={460} height={930}>
+            {phone(<AlertsView/>)}
+          </DCArtboard>
+          <DCArtboard id="empty" label="Empty state — system healthy" width={460} height={930}>
+            {phone(<AlertsView empty/>)}
+          </DCArtboard>
+        </DCSection>
+      </DesignCanvas>
+    );
+  }
+  ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+</script>
+</body></html>

@@ -1,0 +1,78 @@
+<!doctype html>
+<html><head>
+<meta charset="utf-8">
+<title>Irrigo — Error states</title>
+<link rel="stylesheet" href="../colors_and_type.css">
+<link rel="stylesheet" href="../components.css">
+<style>
+  html, body { margin: 0; padding: 0; background: var(--bg); min-height: 100vh; }
+</style>
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+</head>
+<body>
+
+<template id="__bundler_thumbnail" data-bg-color="#06090A">
+  <svg viewBox="0 0 1200 800" xmlns="http://www.w3.org/2000/svg">
+    <defs>
+      <radialGradient id="vig" cx="80%" cy="10%" r="55%">
+        <stop offset="0%" stop-color="#FF6B7B" stop-opacity="0.35"/>
+        <stop offset="100%" stop-color="#FF6B7B" stop-opacity="0"/>
+      </radialGradient>
+    </defs>
+    <rect width="1200" height="800" fill="#06090A"/>
+    <rect width="1200" height="800" fill="url(#vig)"/>
+
+    <!-- Brand glyph, desaturated -->
+    <g transform="translate(540 200)" opacity="0.4">
+      <ellipse cx="60" cy="92" rx="46" ry="9" fill="#1B231F" stroke="#344239" stroke-width="2"/>
+      <path d="M5 66 A 46 43 0 0 1 115 66" stroke="#8A9690" stroke-width="3.5" stroke-linecap="round" fill="none" stroke-dasharray="3.5 6"/>
+      <path d="M60 66 L 60 86" stroke="#8A9690" stroke-width="3.5" stroke-linecap="round"/>
+      <path d="M60 32 C 51 43, 51 54, 60 57 C 69 54, 69 43, 60 32 Z" fill="#8A9690"/>
+    </g>
+
+    <!-- Eyebrow dot -->
+    <circle cx="430" cy="430" r="6" fill="#FF6B7B"/>
+    <text x="450" y="437" font-family="Geist, sans-serif" font-size="20" font-weight="500" fill="#FF6B7B" letter-spacing="3.6">CONNECTION LOST</text>
+
+    <!-- Headline -->
+    <text x="430" y="520" font-family="Bricolage Grotesque, sans-serif" font-size="64" font-weight="700" fill="#ECF1ED" letter-spacing="-1.6">Controller</text>
+    <text x="430" y="586" font-family="Bricolage Grotesque, sans-serif" font-size="64" font-weight="700" fill="#ECF1ED" letter-spacing="-1.6">unreachable</text>
+  </svg>
+</template>
+
+<div id="root"></div>
+
+<script type="text/babel" src="design-canvas.jsx"></script>
+<script type="text/babel" src="ios-frame.jsx"></script>
+<script type="text/babel" src="Error.jsx"></script>
+<script type="text/babel">
+  function phone(scenario, state) {
+    return (
+      <IOSDevice width={402} height={874} dark={true}>
+        <ErrorView scenario={scenario} state={state}/>
+      </IOSDevice>
+    );
+  }
+
+  function App() {
+    return (
+      <DesignCanvas title="Irrigo · App-load error">
+        <DCSection
+          id="states"
+          title="Controller unreachable"
+          subtitle="Manual retry only. Idle waits for the operator; retrying shows a single spinner line and turns the button into Cancel.">
+          <DCArtboard id="idle" label="Idle" width={460} height={930}>
+            {phone('controller', 'idle')}
+          </DCArtboard>
+          <DCArtboard id="retrying" label="Retrying" width={460} height={930}>
+            {phone('controller', 'retrying')}
+          </DCArtboard>
+        </DCSection>
+      </DesignCanvas>
+    );
+  }
+  ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+</script>
+</body></html>
