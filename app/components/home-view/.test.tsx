@@ -1,4 +1,5 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react-native';
+import { RefreshControl } from 'react-native';
 
 jest.mock('expo-router', () => ({
     useRouter: () => ({ push: mockPush }),
@@ -345,6 +346,14 @@ describe('HomeView', () => {
         render(<HomeView />, { wrapper: buildApiWrapper().wrapper });
 
         await waitFor(() => expect(mockHideAsync).toHaveBeenCalledTimes(1));
+    });
+
+    it('mounts a RefreshControl so pull-to-refresh stays wired in (APP-40).', () => {
+        mockFetch.mockImplementation(() => new Promise(() => {}));
+
+        render(<HomeView />, { wrapper: buildApiWrapper().wrapper });
+
+        expect(screen.UNSAFE_getByType(RefreshControl)).toBeTruthy();
     });
 
     it('drops the splash via the 30-second backstop if the API never responds (APP-51).', () => {
