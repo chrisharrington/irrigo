@@ -36,6 +36,14 @@
           "resizeMode": "contain",
           "backgroundColor": "#06090A"
         }
+      ],
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "networkSecurityConfig": "./network-security-config.xml"
+          }
+        }
       ]
     ],
     "experiments": {

@@ -1,8 +1,13 @@
 #!/usr/bin/env bash
 #
-# Serve irrigo.apk over the LAN and print a scannable QR pointing at it. Scan
-# with the phone camera, Chrome downloads the APK, tap to install. The server
-# exits after one successful download — re-run for another install.
+# Serve the most recent irrigo APK over the LAN and print a scannable QR
+# pointing at it. Scan with the phone camera, Chrome downloads the APK, tap
+# to install. The server exits after one successful download — re-run for
+# another install.
+#
+# Usage:
+#   ./serve-apk.sh              # serve the newest debug APK (default)
+#   ./serve-apk.sh --release    # serve the newest release APK
 #
 # Override the port if 8000 is busy:  PORT=8765 ./serve-apk.sh
 
@@ -12,11 +17,29 @@ cd "$(dirname "$0")"
 
 PORT="${PORT:-8000}"
 
-# build-apk.sh writes ./irrigo-YYYYMMDD-HHMMSS.apk and deletes older matches,
-# so the newest entry by mtime is the freshly built APK.
-APK=$(ls -1t irrigo-*.apk 2>/dev/null | head -n1 || true)
+BUILD_TYPE='debug'
+for arg in "$@"; do
+    case "$arg" in
+        -r|--release) BUILD_TYPE='release' ;;
+        -d|--debug)   BUILD_TYPE='debug' ;;
+        -h|--help)
+            sed -n '2,12p' "$0" | sed 's/^# \{0,1\}//'
+            exit 0
+            ;;
+        *)
+            echo "error: unknown argument: $arg" >&2
+            echo "usage: $0 [--release|--debug]" >&2
+            exit 1
+            ;;
+    esac
+done
+
+# build-apk.sh writes ./irrigo-<type>-YYYYMMDD-HHMMSS.apk and deletes older
+# matches of the same type, so the newest entry by mtime is the freshly
+# built APK for that build type.
+APK=$(ls -1t "irrigo-${BUILD_TYPE}-"*.apk 2>/dev/null | head -n1 || true)
 if [[ -z "${APK:-}" || ! -f "$APK" ]]; then
-    echo 'error: no irrigo-*.apk found at repo root. Run ./build-apk.sh first.' >&2
+    echo "error: no irrigo-${BUILD_TYPE}-*.apk found at repo root. Run ./build-apk.sh${BUILD_TYPE:+ --$BUILD_TYPE} first." >&2
     exit 1
 fi
 APK="./$APK"
@@ -35,7 +58,11 @@ echo "Serving $APK at $URL"
 echo 'Scan the QR with your phone camera. Server exits after one download.'
 echo
 
-bunx qrcode-terminal "$URL"
+# qrcode-terminal's CLI has no small-mode flag — small rendering is only
+# exposed via the library API. The package is installed under
+# app/node_modules (transitive), so invoke the library through `bun -e`
+# from that directory.
+(cd app && URL="$URL" bun -e 'require("qrcode-terminal").generate(process.env.URL, { small: true });')
 
 APK="$APK" APK_NAME="$APK_NAME" PORT="$PORT" LAN_IP="$LAN_IP" bun -e '
 const file = Bun.file(process.env.APK);
