@@ -58,3 +58,23 @@ describe('app.json icon configuration', () => {
         }
     });
 });
+
+describe('app.json splash configuration', () => {
+    it('paints the splash on the canvas-dark token in every appearance state (APP-53).', () => {
+        // Setting `backgroundColor` to the dark token at the top level (no
+        // `dark` override) ensures the iOS launchscreen never momentarily
+        // flashes white before the OS settles on dark mode.
+        expect(findSplashPlugin().backgroundColor).toBe('#06090A');
+    });
+
+    it('omits the light/dark override now that the base colour is dark (APP-53).', () => {
+        expect(findSplashPlugin().dark).toBeUndefined();
+    });
+
+    it('renders the radar-mark splash image at 200dp via contain resize.', () => {
+        const plugin = findSplashPlugin();
+        expect(plugin.image).toBe('./assets/images/splash-icon.png');
+        expect(plugin.imageWidth).toBe(200);
+        expect(plugin.resizeMode).toBe('contain');
+    });
+});
