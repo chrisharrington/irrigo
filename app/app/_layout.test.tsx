@@ -51,6 +51,16 @@ jest.mock('@/components/splash-gate', () => {
     };
 });
 
+// Same pattern for ReachabilityGate — without this mock the layout test
+// would have to seed a `/health` fetch just to clear the gate's pending
+// state. The gate's own behaviour is covered under
+// @/components/reachability-gate.
+jest.mock('@/components/reachability-gate', () => {
+    return {
+        ReachabilityGate: ({ children }: { children: React.ReactNode }) => children,
+    };
+});
+
 // Stand-ins for Header and NavDrawer keep this layout test focused on
 // wiring (does the layout render them? does it pass the right props?)
 // without dragging in React Query plumbing that the components themselves

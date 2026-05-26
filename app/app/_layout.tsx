@@ -11,6 +11,7 @@ import { ApiProvider } from '@/api/provider';
 import { Header } from '@/components/header';
 import { NavDrawer, type NavItemId } from '@/components/nav-drawer';
 import { NotificationsBridge } from '@/components/notifications-bridge';
+import { ReachabilityGate } from '@/components/reachability-gate';
 import { SplashGate } from '@/components/splash-gate';
 import { StatusBarBackdrop } from '@/components/status-bar-backdrop';
 import '../global.css';
@@ -55,14 +56,16 @@ export default function RootLayout() {
     return (
         <ApiProvider>
             <SplashGate>
-                <SafeAreaProvider>
-                    <ThemeProvider value={irrigoDarkTheme}>
-                        <AppShell />
-                        <NotificationsBridge />
-                        <StatusBarBackdrop />
-                        <StatusBar style='light' />
-                    </ThemeProvider>
-                </SafeAreaProvider>
+                <ReachabilityGate>
+                    <SafeAreaProvider>
+                        <ThemeProvider value={irrigoDarkTheme}>
+                            <AppShell />
+                            <NotificationsBridge />
+                            <StatusBarBackdrop />
+                            <StatusBar style='light' />
+                        </ThemeProvider>
+                    </SafeAreaProvider>
+                </ReachabilityGate>
             </SplashGate>
         </ApiProvider>
     );
