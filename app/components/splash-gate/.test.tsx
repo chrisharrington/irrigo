@@ -24,6 +24,20 @@ jest.mock('@/hooks/schedules', () => ({ useSchedules: () => mockUseSchedules() }
 
 import { SplashGate } from '.';
 
+// SplashGate defers hideAsync into the next animation frame so React's
+// commit lands first. Most tests just need the call to have happened, so
+// we synchronously flush the rAF callback before asserting.
+const originalRAF = globalThis.requestAnimationFrame;
+beforeAll(() => {
+    globalThis.requestAnimationFrame = ((cb: FrameRequestCallback) => {
+        cb(0);
+        return 0;
+    }) as typeof globalThis.requestAnimationFrame;
+});
+afterAll(() => {
+    globalThis.requestAnimationFrame = originalRAF;
+});
+
 const ready = { isPending: false };
 const pending = { isPending: true };
 
@@ -105,7 +119,26 @@ describe('SplashGate', () => {
         expect(mockHideAsync).toHaveBeenCalledTimes(1);
     });
 
-    it('calls hideAsync after the 5-second backstop timer even if data is still pending.', () => {
+    it('does not call hideAsync at the old 5-second backstop point (data should still get a chance).', () => {
+        jest.useFakeTimers();
+        try {
+            seedHooks({ system: pending, nextRun: pending, zones: pending, schedules: pending });
+
+            render(<SplashGate><Text>x</Text></SplashGate>);
+
+            // The old backstop was 5s and routinely fired before the home-screen
+            // API calls finished. The current value (30s) gives them headroom.
+            act(() => {
+                jest.advanceTimersByTime(5_000);
+            });
+
+            expect(mockHideAsync).not.toHaveBeenCalled();
+        } finally {
+            jest.useRealTimers();
+        }
+    });
+
+    it('calls hideAsync after the 30-second backstop timer even if data is still pending.', () => {
         jest.useFakeTimers();
         try {
             seedHooks({ system: pending, nextRun: pending, zones: pending, schedules: pending });
@@ -115,7 +148,7 @@ describe('SplashGate', () => {
             expect(mockHideAsync).not.toHaveBeenCalled();
 
             act(() => {
-                jest.advanceTimersByTime(5000);
+                jest.advanceTimersByTime(30_000);
             });
 
             expect(mockHideAsync).toHaveBeenCalledTimes(1);

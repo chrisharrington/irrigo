@@ -40,18 +40,21 @@ const BRAND_FONTS = {
     GeistMono_600SemiBold,
 };
 
-// Backstop: drop the splash unconditionally after this long, even if a data
-// hook is still pending. Prevents the splash from holding forever if the
-// API is unreachable on cold start.
-const BACKSTOP_MS = 5000;
+// Safety-net backstop: drop the splash unconditionally after this long,
+// even if a data hook is still pending. 30s gives cold-start API calls
+// over wifi plenty of headroom — anything beyond that, something is wrong
+// and the user is better off seeing the home screen's own error placeholders
+// than a frozen splash. Previously 5s, which routinely tripped before the
+// home data finished loading (APP-51 comment thread).
+const BACKSTOP_MS = 30_000;
 
 /**
  * Splash-screen gate that owns "everything the native splash waits for" on
  * cold start. Loads the Irrigo brand fonts and primes the four home-screen
  * data hooks (`useSystem`, `useNextRun`, `useZones`, `useSchedules`) in
- * parallel; only once fonts AND every hook have resolved (or errored) does
- * it call `SplashScreen.hideAsync()`. A 5-second backstop timer drops the
- * splash regardless if a query hangs.
+ * parallel; only once fonts AND every hook have produced data (or errored
+ * terminally) does it call `SplashScreen.hideAsync()`. A 30-second backstop
+ * timer drops the splash regardless if a query hangs.
  *
  * Children render unconditionally — the native splash covers them until
  * `hideAsync` fires, so when the splash drops the user sees a populated
@@ -73,22 +76,47 @@ export function SplashGate({ children }: PropsWithChildren) {
     }, []);
 
     const fontsReady = loaded || error !== null;
-    const dataReady = !system.isPending && !nextRun.isPending && !zones.isPending && !schedules.isPending;
+    // Each query is "settled" when it has data OR has finished its retry
+    // chain with a terminal error. `isPending` is true through retries (no
+    // data yet, still fetching) and only flips to false when one of those
+    // outcomes lands, so `!isPending` captures both.
+    const settled = (q: { isPending: boolean }) => !q.isPending;
+    const dataReady = settled(system) && settled(nextRun) && settled(zones) && settled(schedules);
     const ready = (fontsReady && dataReady) || timedOut;
 
     useEffect(() => {
         if (!ready || hidden.current) return;
         hidden.current = true;
+
         if (error !== null) {
             console.warn('splash: brand fonts failed to load; rendering with system fallbacks.', error);
         }
         if (timedOut && !(fontsReady && dataReady)) {
-            console.warn('splash: backstop timer fired before fonts/data resolved; dropping anyway.');
+            console.warn('splash: backstop timer fired before fonts/data resolved; dropping anyway.', {
+                fontsReady,
+                dataReady,
+                queries: {
+                    system: !system.isPending,
+                    nextRun: !nextRun.isPending,
+                    zones: !zones.isPending,
+                    schedules: !schedules.isPending,
+                },
+            });
+        } else {
+            console.log('splash: fonts + home data ready; dropping splash.');
         }
-        SplashScreen.hideAsync().catch(err => {
-            console.warn('splash: SplashScreen.hideAsync failed; swallowing.', err);
+
+        // Defer the hide call by one frame so React's commit lands and
+        // HomeView paints with real data BEFORE the native splash starts
+        // its hide animation. Without this defer the user can briefly see
+        // unrendered chrome between the splash drop and the data-bound
+        // HomeView paint.
+        requestAnimationFrame(() => {
+            SplashScreen.hideAsync().catch(err => {
+                console.warn('splash: SplashScreen.hideAsync failed; swallowing.', err);
+            });
         });
-    }, [ready, error, timedOut, fontsReady, dataReady]);
+    }, [ready, error, timedOut, fontsReady, dataReady, system.isPending, nextRun.isPending, zones.isPending, schedules.isPending]);
 
     return <>{children}</>;
 }
