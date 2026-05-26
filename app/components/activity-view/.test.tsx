@@ -1,4 +1,5 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react-native';
+import { RefreshControl } from 'react-native';
 
 jest.mock('react-native-safe-area-context', () => ({
     useSafeAreaInsets: () => ({ top: 44, bottom: 0, left: 0, right: 0 }),
@@ -276,6 +277,15 @@ describe('ActivityView', () => {
             expect(lastCall).toBeDefined();
             expect(lastCall?.searchParams.has('zoneId')).toBe(false);
         });
+    });
+
+    it('mounts a RefreshControl so pull-to-refresh stays wired in (APP-40).', () => {
+        const { wrapper } = buildApiWrapper();
+        mockFetch.mockImplementation(() => new Promise(() => {}));
+
+        render(<ActivityView />, { wrapper });
+
+        expect(screen.UNSAFE_getByType(RefreshControl)).toBeTruthy();
     });
 
     it('updates the eyebrow suffix to the zone name when a zone is selected (APP-61).', async () => {

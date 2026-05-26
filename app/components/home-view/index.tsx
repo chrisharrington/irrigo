@@ -1,6 +1,6 @@
 import { useEffect, useRef } from 'react';
 import { useRouter } from 'expo-router';
-import { ScrollView, StyleSheet, Text, View } from 'react-native';
+import { StyleSheet, Text, View } from 'react-native';
 import * as SplashScreen from 'expo-splash-screen';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -9,6 +9,7 @@ import { ActiveScheduleChip } from '@/components/active-schedule-chip';
 import { DepletionLegend } from '@/components/depletion-legend';
 import { MasterToggle } from '@/components/master-toggle';
 import { NextRunHero } from '@/components/next-run-hero';
+import { RefreshableScrollView } from '@/components/refreshable-scroll-view';
 import { SystemDisabledWrapper } from '@/components/system-disabled-wrapper';
 import { ZoneTile } from '@/components/zone-tile';
 import { FontFamily } from '@/constants/fonts';
@@ -55,7 +56,7 @@ export function HomeView() {
     };
 
     return (
-        <ScrollView
+        <RefreshableScrollView
             style={styles.scroll}
             contentContainerStyle={[styles.content, { paddingTop: 16, paddingBottom: insets.bottom + 32 }]}
         >
@@ -103,7 +104,7 @@ export function HomeView() {
                     )}
                 </View>
             </SystemDisabledWrapper>
-        </ScrollView>
+        </RefreshableScrollView>
     );
 }
 

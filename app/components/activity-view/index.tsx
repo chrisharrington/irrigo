@@ -1,8 +1,9 @@
 import { useState } from 'react';
-import { ScrollView, StyleSheet, Text, View } from 'react-native';
+import { StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { FireLog } from '@/components/fire-log';
+import { RefreshableScrollView } from '@/components/refreshable-scroll-view';
 import { ZoneFilterChipStrip } from '@/components/zone-filter-chip-strip';
 import { FontFamily } from '@/constants/fonts';
 import { useActivity } from '@/hooks/activity';
@@ -42,7 +43,7 @@ export function ActivityView() {
     const eyebrowSuffix = selectedZoneName ?? ALL_ZONES_LABEL;
 
     return (
-        <ScrollView
+        <RefreshableScrollView
             style={styles.scroll}
             contentContainerStyle={[styles.content, { paddingTop: 16, paddingBottom: insets.bottom + 32 }]}
         >
@@ -64,7 +65,7 @@ export function ActivityView() {
                     <PlaceholderCard label='No runs yet.' />
                 :   <FireLog rows={rows} siteTimezone={siteTimezone} />}
             </View>
-        </ScrollView>
+        </RefreshableScrollView>
     );
 }
 
