@@ -41,6 +41,16 @@ jest.mock('expo-router', () => {
     };
 });
 
+// SplashGate kicks off four data-hook queries on mount. Stand it in as a
+// passthrough so the layout test doesn't need to seed `/system`, `/tonight`,
+// `/zones`, and `/schedules` fetches just to render the chrome. The gate's
+// own behaviour is covered under @/components/splash-gate.
+jest.mock('@/components/splash-gate', () => {
+    return {
+        SplashGate: ({ children }: { children: React.ReactNode }) => children,
+    };
+});
+
 // Stand-ins for Header and NavDrawer keep this layout test focused on
 // wiring (does the layout render them? does it pass the right props?)
 // without dragging in React Query plumbing that the components themselves
