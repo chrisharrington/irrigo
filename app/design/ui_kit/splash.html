@@ -1,0 +1,132 @@
+<!doctype html>
+<html><head>
+<meta charset="utf-8">
+<title>Irrigo — Splash & app icons</title>
+<link rel="stylesheet" href="../colors_and_type.css">
+<link rel="stylesheet" href="../components.css">
+<style>
+  html, body { margin: 0; padding: 0; background: var(--bg); min-height: 100vh; }
+</style>
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+</head>
+<body>
+<div id="root"></div>
+
+<script type="text/babel" src="design-canvas.jsx"></script>
+<script type="text/babel" src="ios-frame.jsx"></script>
+<script type="text/babel" src="Splash.jsx"></script>
+<script type="text/babel">
+  function phone(children) {
+    return (
+      <IOSDevice width={402} height={874} dark={true}>
+        {children}
+      </IOSDevice>
+    );
+  }
+
+  function App() {
+    return (
+      <DesignCanvas title="Irrigo · Splash & app icons">
+        <DCSection
+          id="splash"
+          title="Splash screen"
+          subtitle="Black canvas, faint green wash at the corners. Radar-dots mark over the Irrigo wordmark with a small spinner beneath while the app boots.">
+          <DCArtboard id="splash-icon" label="Splash" width={460} height={930}>
+            {phone(<SplashScreen/>)}
+          </DCArtboard>
+        </DCSection>
+
+        <DCSection
+          id="icons-ios"
+          title="iOS app icons"
+          subtitle="Squircle masks, ~22.37% corner radius. The 1024 hero is the App Store submission; smaller renders are the home-screen / Spotlight / notification sizes the OS slices from it.">
+          <DCArtboard id="icon-1024" label="1024 · App Store" width={460} height={460}>
+            <div style={{ width: '100%', height: '100%', background: 'var(--surface)', display: 'grid', placeItems: 'center', padding: 24 }}>
+              <AppIconTile size={360} radius="ios"/>
+            </div>
+          </DCArtboard>
+          <DCArtboard id="icon-180" label="180 · Home screen @3x" width={300} height={300}>
+            <div style={{ width: '100%', height: '100%', background: 'var(--surface)', display: 'grid', placeItems: 'center' }}>
+              <AppIconTile size={180} radius="ios"/>
+            </div>
+          </DCArtboard>
+          <DCArtboard id="icon-120" label="120 · Home screen @2x" width={220} height={220}>
+            <div style={{ width: '100%', height: '100%', background: 'var(--surface)', display: 'grid', placeItems: 'center' }}>
+              <AppIconTile size={120} radius="ios"/>
+            </div>
+          </DCArtboard>
+          <DCArtboard id="icon-87" label="87 · Settings @3x" width={180} height={180}>
+            <div style={{ width: '100%', height: '100%', background: 'var(--surface)', display: 'grid', placeItems: 'center' }}>
+              <AppIconTile size={87} radius="ios"/>
+            </div>
+          </DCArtboard>
+          <DCArtboard id="icon-60" label="60 · Notification @3x" width={140} height={140}>
+            <div style={{ width: '100%', height: '100%', background: 'var(--surface)', display: 'grid', placeItems: 'center' }}>
+              <AppIconTile size={60} radius="ios"/>
+            </div>
+          </DCArtboard>
+        </DCSection>
+
+        <DCSection
+          id="icons-android"
+          title="Android & adaptive"
+          subtitle="Android Adaptive icons are rendered behind a system-supplied mask. We show the round + squircle variants the OS picks between, plus the standard 512 launcher size.">
+          <DCArtboard id="icon-512" label="512 · Play launcher" width={460} height={460}>
+            <div style={{ width: '100%', height: '100%', background: 'var(--surface)', display: 'grid', placeItems: 'center', padding: 24 }}>
+              <AppIconTile size={360} radius="round"/>
+            </div>
+          </DCArtboard>
+          <DCArtboard id="icon-adaptive-round" label="Adaptive · round mask" width={300} height={300}>
+            <div style={{ width: '100%', height: '100%', background: 'var(--surface)', display: 'grid', placeItems: 'center' }}>
+              <AppIconTile size={180} radius="circle"/>
+            </div>
+          </DCArtboard>
+          <DCArtboard id="icon-adaptive-square" label="Adaptive · squircle mask" width={300} height={300}>
+            <div style={{ width: '100%', height: '100%', background: 'var(--surface)', display: 'grid', placeItems: 'center' }}>
+              <AppIconTile size={180} radius="round"/>
+            </div>
+          </DCArtboard>
+        </DCSection>
+
+        <DCSection
+          id="icons-favicon"
+          title="Favicon & small renders"
+          subtitle="Below ~64px the glow drops out (it eats the silhouette) and dot weight bumps so the radar pattern still reads at favicon scale.">
+          <DCArtboard id="icon-64" label="64 · Touch icon" width={180} height={180}>
+            <div style={{ width: '100%', height: '100%', background: 'var(--surface)', display: 'grid', placeItems: 'center' }}>
+              <AppIconTile size={64} radius="ios"/>
+            </div>
+          </DCArtboard>
+          <DCArtboard id="icon-48" label="48 · Android web" width={180} height={180}>
+            <div style={{ width: '100%', height: '100%', background: 'var(--surface)', display: 'grid', placeItems: 'center' }}>
+              <AppIconTile size={48} radius="round"/>
+            </div>
+          </DCArtboard>
+          <DCArtboard id="icon-32" label="32 · Favicon" width={180} height={180}>
+            <div style={{ width: '100%', height: '100%', background: 'var(--surface)', display: 'grid', placeItems: 'center' }}>
+              <AppIconTile size={32} radius="ios"/>
+            </div>
+          </DCArtboard>
+          <DCArtboard id="icon-16" label="16 · Tab" width={180} height={180}>
+            <div style={{ width: '100%', height: '100%', background: 'var(--surface)', display: 'grid', placeItems: 'center' }}>
+              <AppIconTile size={16} radius="ios"/>
+            </div>
+          </DCArtboard>
+        </DCSection>
+
+        <DCSection
+          id="context"
+          title="In context"
+          subtitle="The 60pt home-screen rendering, sat between believable neighbors. This is the size most users encounter day-to-day.">
+          <DCArtboard id="home-screen" label="iOS home screen" width={460} height={930}>
+            {phone(<HomeScreenContext/>)}
+          </DCArtboard>
+        </DCSection>
+      </DesignCanvas>
+    );
+  }
+  ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+</script>
+</body></html>
