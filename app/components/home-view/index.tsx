@@ -1,5 +1,7 @@
+import { useEffect, useRef } from 'react';
 import { useRouter } from 'expo-router';
 import { ScrollView, StyleSheet, Text, View } from 'react-native';
+import * as SplashScreen from 'expo-splash-screen';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import type { ZoneSummary } from '@/api/types/zones';
@@ -18,6 +20,12 @@ import config from '@/tailwind.config';
 
 const colors = config.theme.extend.colors;
 
+// Safety-net backstop: drop the splash unconditionally after this long,
+// even if a query is still pending. Anything beyond this and something is
+// genuinely wrong (API totally hung) — the user is better off seeing the
+// home screen's own error placeholders than a frozen splash. APP-51.
+const SPLASH_BACKSTOP_MS = 30_000;
+
 /**
  * Smart container for the Home screen. Composes the master kill switch
  * with the next-run hero, the zone tiles, and the active-schedule chip
@@ -32,6 +40,8 @@ export function HomeView() {
     const nextRun = useNextRun();
     const zones = useZones();
     const schedules = useSchedules();
+
+    useHideSplashOnReady({ system, nextRun, zones, schedules });
 
     const irrigationEnabled = system.data?.irrigationEnabled ?? true;
     const activeSchedule = schedules.data?.find(item => item.isActive) ?? null;
@@ -95,6 +105,62 @@ export function HomeView() {
             </SystemDisabledWrapper>
         </ScrollView>
     );
+}
+
+/**
+ * Drops the native splash screen once the four home-screen queries have
+ * settled (each one either has data or has finished its retry chain with
+ * an error). A 30-second backstop fires `hideAsync` unconditionally if
+ * something hangs, so a broken API can't leave the user staring at the
+ * splash forever. APP-51.
+ */
+function useHideSplashOnReady(queries: {
+    system: { isPending: boolean };
+    nextRun: { isPending: boolean };
+    zones: { isPending: boolean };
+    schedules: { isPending: boolean };
+}): void {
+    const hidden = useRef<boolean>(false);
+
+    const { system, nextRun, zones, schedules } = queries;
+    const allSettled = !system.isPending && !nextRun.isPending && !zones.isPending && !schedules.isPending;
+
+    useEffect(() => {
+        if (hidden.current || !allSettled) return;
+        hidden.current = true;
+        console.log('splash: home data settled; dropping splash.');
+        // Defer to the next frame so React's commit lands and the screen
+        // paints with real data BEFORE the native splash starts its hide
+        // animation. Without this, the user can briefly see unrendered
+        // chrome between the splash drop and the data-bound HomeView paint.
+        requestAnimationFrame(() => {
+            SplashScreen.hideAsync().catch(err => {
+                console.warn('splash: SplashScreen.hideAsync failed; swallowing.', err);
+            });
+        });
+    }, [allSettled]);
+
+    useEffect(() => {
+        const id = setTimeout(() => {
+            if (hidden.current) return;
+            hidden.current = true;
+            console.warn('splash: backstop timer fired before home data settled; dropping anyway.', {
+                queries: {
+                    system: !system.isPending,
+                    nextRun: !nextRun.isPending,
+                    zones: !zones.isPending,
+                    schedules: !schedules.isPending,
+                },
+            });
+            SplashScreen.hideAsync().catch(err => {
+                console.warn('splash: SplashScreen.hideAsync failed; swallowing.', err);
+            });
+        }, SPLASH_BACKSTOP_MS);
+        return () => clearTimeout(id);
+        // The backstop is started once on mount; the in-effect read of the
+        // `isPending` flags is for the diagnostic payload only.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
 }
 
 function totalArea(zones: ReadonlyArray<ZoneSummary>): number {

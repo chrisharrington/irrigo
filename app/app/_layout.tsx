@@ -8,17 +8,17 @@ import 'react-native-reanimated';
 import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { ApiProvider } from '@/api/provider';
-import { FontLoader } from '@/components/font-loader';
 import { Header } from '@/components/header';
 import { NavDrawer, type NavItemId } from '@/components/nav-drawer';
 import { NotificationsBridge } from '@/components/notifications-bridge';
+import { SplashGate } from '@/components/splash-gate';
 import { StatusBarBackdrop } from '@/components/status-bar-backdrop';
 import '../global.css';
 
-// Hold the native splash from auto-hiding so FontLoader can keep it visible
-// until the brand fonts are ready. Per Expo SDK 54 docs, this must be called
-// at module scope (not inside a component) so it executes before any tree
-// renders. The promise is intentionally not awaited.
+// Hold the native splash from auto-hiding so SplashGate can keep it visible
+// until fonts AND the home-screen data hooks have resolved. Per Expo SDK 54
+// docs, this must be called at module scope (not inside a component) so it
+// executes before any tree renders. The promise is intentionally not awaited.
 SplashScreen.preventAutoHideAsync().catch(err => {
     console.warn('splash: preventAutoHideAsync failed; the splash may close before fonts load.', err);
 });
@@ -54,7 +54,7 @@ function pathnameToActiveId(pathname: string): NavItemId {
 export default function RootLayout() {
     return (
         <ApiProvider>
-            <FontLoader>
+            <SplashGate>
                 <SafeAreaProvider>
                     <ThemeProvider value={irrigoDarkTheme}>
                         <AppShell />
@@ -63,7 +63,7 @@ export default function RootLayout() {
                         <StatusBar style='light' />
                     </ThemeProvider>
                 </SafeAreaProvider>
-            </FontLoader>
+            </SplashGate>
         </ApiProvider>
     );
 }

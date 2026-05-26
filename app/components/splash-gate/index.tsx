@@ -1,6 +1,5 @@
 import { useEffect, type PropsWithChildren } from 'react';
 import { useFonts } from 'expo-font';
-import * as SplashScreen from 'expo-splash-screen';
 import {
     BricolageGrotesque_400Regular,
     BricolageGrotesque_500Medium,
@@ -36,25 +35,27 @@ const BRAND_FONTS = {
 };
 
 /**
- * Splash-screen-gated wrapper that loads the Irrigo brand fonts (Bricolage
- * Grotesque, Geist, Geist Mono) before rendering its children. Returns `null`
- * while fonts are loading so the native splash configured in `app.json`
- * stays visible. Once fonts finish loading — or fail — the splash is hidden
- * and children render. A font load failure is logged at `warn` and does not
- * lock the UI, since rendering with system fallbacks is still better than a
- * blank screen.
+ * Font-loading gate. Holds the children render until the Irrigo brand fonts
+ * are registered, so nothing paints with system fallbacks while the splash
+ * is up. Returns `null` until fonts are loaded — `preventAutoHideAsync()`
+ * at the layout module scope keeps the native splash visible while we wait.
+ *
+ * The splash is hidden by `HomeView` once the home-screen data hooks have
+ * resolved (APP-51): the screen that depends on the data also owns the
+ * decision to drop the splash.
+ *
+ * Font failures are logged at warn and treated as "ready enough" — system
+ * fallback rendering is preferable to a frozen splash.
  */
-export function FontLoader({ children }: PropsWithChildren) {
+export function SplashGate({ children }: PropsWithChildren) {
     const [loaded, error] = useFonts(BRAND_FONTS);
 
     useEffect(() => {
-        if (!loaded && !error) return;
-        if (error) console.warn('fonts: failed to load brand fonts; rendering with system fallbacks.', error);
-        SplashScreen.hideAsync().catch(err => {
-            console.warn('fonts: SplashScreen.hideAsync failed; swallowing.', err);
-        });
-    }, [loaded, error]);
+        if (error !== null) {
+            console.warn('splash: brand fonts failed to load; rendering with system fallbacks.', error);
+        }
+    }, [error]);
 
-    if (!loaded && !error) return null;
+    if (!loaded && error === null) return null;
     return <>{children}</>;
 }

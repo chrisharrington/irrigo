@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react-native';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react-native';
 
 jest.mock('expo-router', () => ({
     useRouter: () => ({ push: mockPush }),
@@ -6,6 +6,11 @@ jest.mock('expo-router', () => ({
 
 jest.mock('react-native-safe-area-context', () => ({
     useSafeAreaInsets: () => ({ top: 44, bottom: 0, left: 0, right: 0 }),
+}));
+
+jest.mock('expo-splash-screen', () => ({
+    hideAsync: () => mockHideAsync(),
+    preventAutoHideAsync: jest.fn(() => Promise.resolve()),
 }));
 
 import { buildApiWrapper, jsonResponse } from '@/api/test-utils';
@@ -17,6 +22,7 @@ import { HomeView } from '.';
 
 const mockPush = jest.fn();
 const mockFetch = jest.fn();
+const mockHideAsync = jest.fn(() => Promise.resolve());
 
 const NOW = new Date('2026-05-24T15:00:00.000Z');
 const SAMPLE_SYSTEM = { irrigationEnabled: true, since: '2026-05-23T00:00:00.000Z' };
@@ -107,6 +113,7 @@ beforeEach(() => {
     (global as { fetch: typeof fetch }).fetch = mockFetch as unknown as typeof fetch;
     mockFetch.mockReset();
     mockPush.mockReset();
+    mockHideAsync.mockClear();
     process.env.EXPO_PUBLIC_API_BASE_URL = 'http://test.local:9753';
 });
 
@@ -304,5 +311,63 @@ describe('HomeView', () => {
             );
             expect(dimmed.length).toBeGreaterThan(0);
         });
+    });
+
+    it('does not drop the splash while any of the four home queries is still pending (APP-51).', () => {
+        mockFetch.mockImplementation(() => new Promise(() => {})); // never resolves
+
+        render(<HomeView />, { wrapper: buildApiWrapper().wrapper });
+
+        expect(mockHideAsync).not.toHaveBeenCalled();
+    });
+
+    it('drops the splash exactly once the four home queries settle (APP-51).', async () => {
+        setupSuccessfulFetch();
+
+        render(<HomeView />, { wrapper: buildApiWrapper().wrapper });
+
+        await waitFor(() => expect(mockHideAsync).toHaveBeenCalledTimes(1));
+    });
+
+    it('drops the splash when a query resolves to an error rather than holding forever (APP-51).', async () => {
+        // /tonight errors; the other three succeed. The home view's error
+        // placeholder handles the visible state — we just need the splash
+        // to drop rather than block on the failed query.
+        mockFetch.mockImplementation(async (input: RequestInfo) => {
+            const url = typeof input === 'string' ? input : input.url;
+            if (url.endsWith('/system')) return jsonResponse(SAMPLE_SYSTEM);
+            if (url.endsWith('/tonight')) return jsonResponse({ error: 'boom' }, 500);
+            if (url.endsWith('/zones')) return jsonResponse({ zones: SAMPLE_ZONES });
+            if (url.endsWith('/schedules')) return jsonResponse([ACTIVE_SCHEDULE]);
+            return jsonResponse({ error: 'unhandled' }, 500);
+        });
+
+        render(<HomeView />, { wrapper: buildApiWrapper().wrapper });
+
+        await waitFor(() => expect(mockHideAsync).toHaveBeenCalledTimes(1));
+    });
+
+    it('drops the splash via the 30-second backstop if the API never responds (APP-51).', () => {
+        jest.useFakeTimers();
+        try {
+            // Use a non-fake-timer-aware QueryClient: queries never resolve
+            // because fetch never settles, so dataReady stays false. The
+            // backstop is the only escape.
+            mockFetch.mockImplementation(() => new Promise(() => {}));
+            const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+
+            render(<HomeView />, { wrapper: buildApiWrapper().wrapper });
+            expect(mockHideAsync).not.toHaveBeenCalled();
+
+            act(() => {
+                jest.advanceTimersByTime(30_000);
+            });
+
+            expect(mockHideAsync).toHaveBeenCalledTimes(1);
+            expect(warnSpy.mock.calls.some(call => String(call[0]).includes('backstop'))).toBe(true);
+            warnSpy.mockRestore();
+        } finally {
+            jest.useRealTimers();
+        }
     });
 });
