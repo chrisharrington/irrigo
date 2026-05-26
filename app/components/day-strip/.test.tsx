@@ -45,8 +45,8 @@ describe('DayStrip', () => {
         const monStyle = StyleSheet.flatten(screen.getByLabelText('Monday: active').props.style) as FlatStyle;
         const tueStyle = StyleSheet.flatten(screen.getByLabelText('Tuesday: inactive').props.style) as FlatStyle;
 
-        expect(monStyle.backgroundColor).toBe('rgba(111, 227, 155, 0.06)');
-        expect(monStyle.borderColor).toBe('rgba(111, 227, 155, 0.4)');
+        expect(monStyle.backgroundColor).toBe('rgba(94, 206, 72, 0.06)');
+        expect(monStyle.borderColor).toBe('rgba(94, 206, 72, 0.4)');
         expect(tueStyle.backgroundColor).toBe('#0E1412');
         expect(tueStyle.borderColor).toBe('#232E29');
     });

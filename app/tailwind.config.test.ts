@@ -41,14 +41,14 @@ describe('tailwind.config.js — Irrigo design tokens', () => {
         });
 
         it('exposes the grass ramp plus glow rgba accents.', () => {
-            expect(colors['grass-500']).toBe('#6FE39B');
-            expect(colors['grass-700']).toBe('#2C8F5A');
-            expect(colors['grass-glow']).toBe('rgba(111, 227, 155, 0.18)');
+            expect(colors['grass-500']).toBe('#5ece48');
+            expect(colors['grass-700']).toBe('#2C7E1F');
+            expect(colors['grass-glow']).toBe('rgba(94, 206, 72, 0.18)');
         });
 
         it('exposes the soft-glow tints used by canvas, modal, and info surfaces.', () => {
-            expect(colors['grass-glow-2']).toBe('rgba(111, 227, 155, 0.06)');
-            expect(colors['grass-glow-3']).toBe('rgba(111, 227, 155, 0.07)');
+            expect(colors['grass-glow-2']).toBe('rgba(94, 206, 72, 0.06)');
+            expect(colors['grass-glow-3']).toBe('rgba(94, 206, 72, 0.07)');
             expect(colors['water-glow']).toBe('rgba(124, 212, 251, 0.04)');
         });
 
@@ -64,15 +64,15 @@ describe('tailwind.config.js — Irrigo design tokens', () => {
             expect(colors.surface).toBe('#0E1412');
             expect(colors.fg).toBe('#ECF1ED');
             expect(colors['fg-soft']).toBe('#C7CFC9');
-            expect(colors.accent).toBe('#6FE39B');
-            expect(colors['accent-press']).toBe('#4FCB7E');
+            expect(colors.accent).toBe('#5ece48');
+            expect(colors['accent-press']).toBe('#4DB339');
         });
 
         it('exposes warn / danger / info semantics plus on-accent for green buttons.', () => {
             expect(colors.warn).toBe('#FFBE6B');
             expect(colors.danger).toBe('#FF6B7B');
             expect(colors.info).toBe('#7CD4FB');
-            expect(colors['on-accent']).toBe('#052013');
+            expect(colors['on-accent']).toBe('#0B1D07');
         });
 
         it('exposes the modal / sheet scrim at the design-spec alpha.', () => {
@@ -80,8 +80,8 @@ describe('tailwind.config.js — Irrigo design tokens', () => {
         });
 
         it('exposes tinted border / fill aliases (0.4 / 0.06 alpha) per semantic tone for tag-style chrome.', () => {
-            expect(colors['accent-border']).toBe('rgba(111, 227, 155, 0.4)');
-            expect(colors['accent-tint']).toBe('rgba(111, 227, 155, 0.06)');
+            expect(colors['accent-border']).toBe('rgba(94, 206, 72, 0.4)');
+            expect(colors['accent-tint']).toBe('rgba(94, 206, 72, 0.06)');
             expect(colors['warn-border']).toBe('rgba(255, 190, 107, 0.4)');
             expect(colors['warn-tint']).toBe('rgba(255, 190, 107, 0.06)');
             expect(colors['danger-border']).toBe('rgba(255, 107, 123, 0.4)');
@@ -91,7 +91,7 @@ describe('tailwind.config.js — Irrigo design tokens', () => {
         });
 
         it('exposes the seven-stop depletion ramp end-to-end.', () => {
-            expect(colors['depletion-0']).toBe('#6FE39B');
+            expect(colors['depletion-0']).toBe('#5ece48');
             expect(colors['depletion-3']).toBe('#E9C96D');
             expect(colors['depletion-6']).toBe('#FF6B7B');
         });
@@ -132,8 +132,8 @@ describe('tailwind.config.js — Irrigo design tokens', () => {
         });
 
         it('exposes glow-accent with the grass-tinted inset ring and outer glow.', () => {
-            expect(shadows['glow-accent']).toContain('rgba(111, 227, 155, 0.28)');
-            expect(shadows['glow-accent']).toContain('rgba(111, 227, 155, 0.18)');
+            expect(shadows['glow-accent']).toContain('rgba(94, 206, 72, 0.28)');
+            expect(shadows['glow-accent']).toContain('rgba(94, 206, 72, 0.18)');
         });
     });
 

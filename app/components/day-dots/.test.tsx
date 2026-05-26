@@ -40,11 +40,11 @@ describe('DayDots', () => {
 
         // Sun-first: Sun=off, Mon=on, Tue=off, Wed=on, Thu=off, Fri=on, Sat=off.
         expect(fills[0]).toBe('#232E29');
-        expect(fills[1]).toBe('#6FE39B');
+        expect(fills[1]).toBe('#5ece48');
         expect(fills[2]).toBe('#232E29');
-        expect(fills[3]).toBe('#6FE39B');
+        expect(fills[3]).toBe('#5ece48');
         expect(fills[4]).toBe('#232E29');
-        expect(fills[5]).toBe('#6FE39B');
+        expect(fills[5]).toBe('#5ece48');
         expect(fills[6]).toBe('#232E29');
     });
 

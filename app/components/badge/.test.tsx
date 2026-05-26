@@ -7,7 +7,7 @@ const TONE_EXPECTATIONS: Readonly<Record<BadgeTone, { text: string; border: stri
     // Neutral is the one case where the dot deliberately stays muted while
     // the label text reads fg-soft — every other tone matches dot to text.
     neutral: { text: '#C7CFC9', border: '#232E29', dot: '#8A9690' },
-    active: { text: '#6FE39B', border: 'rgba(111, 227, 155, 0.4)', dot: '#6FE39B' },
+    active: { text: '#5ece48', border: 'rgba(94, 206, 72, 0.4)', dot: '#5ece48' },
     warn: { text: '#FFBE6B', border: 'rgba(255, 190, 107, 0.4)', dot: '#FFBE6B' },
     danger: { text: '#FF6B7B', border: 'rgba(255, 107, 123, 0.4)', dot: '#FF6B7B' },
     info: { text: '#7CD4FB', border: 'rgba(124, 212, 251, 0.4)', dot: '#7CD4FB' },
@@ -68,7 +68,7 @@ describe('Badge', () => {
 
         const activeDot = findDotSibling(activeRoot)[0];
         const activeDotStyle = StyleSheet.flatten(activeDot?.props.style) as { boxShadow?: string };
-        expect(activeDotStyle.boxShadow).toContain('#6FE39B');
+        expect(activeDotStyle.boxShadow).toContain('#5ece48');
 
         rerender(<Badge tone='neutral'>Idle</Badge>);
         const neutralDot = findDotSibling(activeRoot)[0];

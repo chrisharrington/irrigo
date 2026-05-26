@@ -19,7 +19,7 @@ describe('DepletionLegend', () => {
         const swatches = ['ok', 'warn', 'danger'] as const;
         // Same hexes as `Battery`'s TONE_COLOR map (`accent`, `warn`, `danger`).
         const expected: Record<typeof swatches[number], string> = {
-            ok: '#6FE39B',
+            ok: '#5ece48',
             warn: '#FFBE6B',
             danger: '#FF6B7B',
         };

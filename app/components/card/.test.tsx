@@ -71,7 +71,7 @@ describe('Card', () => {
 
         const style = StyleSheet.flatten(root.props.style) as FlatStyle;
 
-        expect(style.boxShadow).toContain('rgba(111, 227, 155, 0.28)');
+        expect(style.boxShadow).toContain('rgba(94, 206, 72, 0.28)');
         expect(style.boxShadow).toContain('inset');
     });
 
@@ -87,7 +87,7 @@ describe('Card', () => {
         // Both the shadow-2 ambient drop and the glow-accent ring must be in
         // the composed boxShadow string.
         expect(style.boxShadow).toContain('rgba(0, 0, 0, 0.45)');
-        expect(style.boxShadow).toContain('rgba(111, 227, 155, 0.28)');
+        expect(style.boxShadow).toContain('rgba(94, 206, 72, 0.28)');
     });
 
     it('merges the caller-provided style override onto the container.', () => {

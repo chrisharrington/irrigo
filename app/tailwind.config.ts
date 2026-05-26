@@ -4,10 +4,7 @@ import plugin from 'tailwindcss/plugin';
 import nativewindPreset from 'nativewind/preset';
 
 export default {
-    content: [
-        './app/**/*.{js,jsx,ts,tsx}',
-        './components/**/*.{js,jsx,ts,tsx}',
-    ],
+    content: ['./app/**/*.{js,jsx,ts,tsx}', './components/**/*.{js,jsx,ts,tsx}'],
     presets: [nativewindPreset],
     theme: {
         extend: {
@@ -31,15 +28,15 @@ export default {
                 'chalk-800': '#3A4641',
 
                 // Grass ramp (raw) + glow.
-                'grass-300': '#B7F0CB',
-                'grass-400': '#8FEAB1',
-                'grass-500': '#6FE39B',
-                'grass-600': '#4FCB7E',
-                'grass-700': '#2C8F5A',
-                'grass-900': '#0F2A1C',
-                'grass-glow': 'rgba(111, 227, 155, 0.18)',
-                'grass-glow-2': 'rgba(111, 227, 155, 0.06)',
-                'grass-glow-3': 'rgba(111, 227, 155, 0.07)',
+                'grass-300': '#C0F1B6',
+                'grass-400': '#A0E891',
+                'grass-500': '#5ece48',
+                'grass-600': '#4DB339',
+                'grass-700': '#2C7E1F',
+                'grass-900': '#13290F',
+                'grass-glow': 'rgba(94, 206, 72, 0.18)',
+                'grass-glow-2': 'rgba(94, 206, 72, 0.06)',
+                'grass-glow-3': 'rgba(94, 206, 72, 0.07)',
 
                 // Accent supplemental.
                 'water-500': '#7CD4FB',
@@ -65,12 +62,12 @@ export default {
                 'fg-muted': '#8A9690',
                 'fg-dim': '#5A6862',
                 'fg-faint': '#3A4641',
-                accent: '#6FE39B',
-                'accent-press': '#4FCB7E',
-                'accent-deep': '#2C8F5A',
-                'accent-glow': 'rgba(111, 227, 155, 0.18)',
-                'accent-border': 'rgba(111, 227, 155, 0.4)',
-                'accent-tint': 'rgba(111, 227, 155, 0.06)',
+                accent: '#5ece48',
+                'accent-press': '#4DB339',
+                'accent-deep': '#2C7E1F',
+                'accent-glow': 'rgba(94, 206, 72, 0.18)',
+                'accent-border': 'rgba(94, 206, 72, 0.4)',
+                'accent-tint': 'rgba(94, 206, 72, 0.06)',
                 info: '#7CD4FB',
                 'info-border': 'rgba(124, 212, 251, 0.4)',
                 'info-tint': 'rgba(124, 212, 251, 0.06)',
@@ -80,11 +77,11 @@ export default {
                 danger: '#FF6B7B',
                 'danger-border': 'rgba(255, 107, 123, 0.4)',
                 'danger-tint': 'rgba(255, 107, 123, 0.06)',
-                'on-accent': '#052013',
+                'on-accent': '#0B1D07',
                 scrim: 'rgba(2, 4, 3, 0.66)',
 
                 // Depletion ramp (saturated → past RAW).
-                'depletion-0': '#6FE39B',
+                'depletion-0': '#5ece48',
                 'depletion-1': '#9CE093',
                 'depletion-2': '#C8DD7B',
                 'depletion-3': '#E9C96D',
@@ -118,7 +115,7 @@ export default {
                 1: '0 1px 0 0 rgba(255, 255, 255, 0.03) inset, 0 1px 2px rgba(0, 0, 0, 0.4)',
                 2: '0 1px 0 0 rgba(255, 255, 255, 0.04) inset, 0 4px 14px rgba(0, 0, 0, 0.45), 0 1px 2px rgba(0, 0, 0, 0.3)',
                 3: '0 1px 0 0 rgba(255, 255, 255, 0.05) inset, 0 20px 48px rgba(0, 0, 0, 0.6), 0 4px 10px rgba(0, 0, 0, 0.4)',
-                'glow-accent': '0 0 0 1px rgba(111, 227, 155, 0.28) inset, 0 0 24px -4px rgba(111, 227, 155, 0.18)',
+                'glow-accent': '0 0 0 1px rgba(94, 206, 72, 0.28) inset, 0 0 24px -4px rgba(94, 206, 72, 0.18)',
             },
             fontFamily: {
                 // Bricolage Grotesque — display weights, loaded by FontLoader.

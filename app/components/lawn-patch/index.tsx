@@ -14,13 +14,13 @@ export type LawnPatchProps = {
     slug?: LawnPatchSlug;
     /** Optional. Pixel size for the rendered square. Defaults to 28. */
     size?: number;
-    /** Optional. Stroke + fill colour (filled at 22% alpha, stroked at full). Defaults to the grass accent (#6FE39B). */
+    /** Optional. Stroke + fill colour (filled at 22% alpha, stroked at full). Defaults to the grass accent (#5ece48). */
     tone?: string;
     /** Optional. Accessibility label for screen readers. Defaults to `Lawn patch`. */
     accessibilityLabel?: string;
 };
 
-const ACCENT = '#6FE39B';
+const ACCENT = '#5ece48';
 
 export const OUTLINE_PATH: Readonly<Record<LawnPatchSlug, string>> = {
     a: 'M4 8 C 6 4, 14 4, 18 8 C 22 6, 28 10, 28 16 C 28 22, 22 28, 16 28 C 8 28, 3 22, 4 16 C 4 12, 3 10, 4 8 Z',
