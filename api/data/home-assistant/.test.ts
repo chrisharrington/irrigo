@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, mock, spyOn } from 'bun:test';
 import { createTestZone } from '@/mock/zone';
-import { closeZone, getZoneState, openZone } from '.';
+import { closeZone, getZoneActuationHistory, getZoneState, openZone, pairOnOffTransitions } from '.';
 import { HttpResponseError, computeBackoffMs, retry } from './retry';
 
 const mockFetch = mock(() => Promise.resolve({} as Response));
@@ -321,6 +321,212 @@ describe('Home Assistant client', () => {
             expect((init.headers as Record<string, string>)['Authorization']).toBe(`Bearer ${HA_TOKEN}`);
             expect(init.body).toBeUndefined();
         });
+    });
+
+    describe('getZoneActuationHistory', () => {
+        const SINCE = new Date('2026-05-24T04:00:00.000Z');
+        const UNTIL = new Date('2026-05-24T08:00:00.000Z');
+
+        const historyResponse = (entries: ReadonlyArray<{ state: string; last_changed: string }>) => ({
+            ok: true,
+            status: 200,
+            statusText: 'OK',
+            json: async () => [entries],
+        }) as unknown as Response;
+
+        it('GETs /api/history/period/<since> with filter_entity_id, end_time, and minimal_response', async () => {
+            mockFetch.mockResolvedValueOnce(historyResponse([]));
+            const zone = createTestZone({ homeAssistantEntityId: ENTITY_ID });
+
+            await getZoneActuationHistory(zone, SINCE, UNTIL);
+
+            expect(mockFetch).toHaveBeenCalledTimes(1);
+            const [calledUrl, init] = mockFetch.mock.calls[0] as [string, RequestInit];
+            const parsed = new URL(calledUrl);
+            expect(parsed.pathname).toBe(`/api/history/period/${SINCE.toISOString()}`);
+            expect(parsed.searchParams.get('filter_entity_id')).toBe(ENTITY_ID);
+            expect(parsed.searchParams.get('end_time')).toBe(UNTIL.toISOString());
+            expect(parsed.searchParams.has('minimal_response')).toBe(true);
+            expect(init.method).toBe('GET');
+            expect((init.headers as Record<string, string>)['Authorization']).toBe(`Bearer ${HA_TOKEN}`);
+        });
+
+        it('returns an empty array when zone has no homeAssistantEntityId and does not call fetch', async () => {
+            const zone = createTestZone({ homeAssistantEntityId: undefined });
+
+            const result = await getZoneActuationHistory(zone, SINCE, UNTIL);
+
+            expect(result).toEqual([]);
+            expect(mockFetch).not.toHaveBeenCalled();
+        });
+
+        it('returns an empty array on 404 (entity unknown to HA) without throwing', async () => {
+            mockFetch.mockResolvedValueOnce({
+                ok: false,
+                status: 404,
+                statusText: 'Not Found',
+            } as Response);
+            const zone = createTestZone({ homeAssistantEntityId: ENTITY_ID });
+
+            const result = await getZoneActuationHistory(zone, SINCE, UNTIL);
+
+            expect(result).toEqual([]);
+        });
+
+        it('throws after retry exhaustion on persistent 5xx', async () => {
+            mockFetch.mockResolvedValue({
+                ok: false,
+                status: 503,
+                statusText: 'Service Unavailable',
+            } as Response);
+            const zone = createTestZone({ homeAssistantEntityId: ENTITY_ID });
+
+            await expect(getZoneActuationHistory(zone, SINCE, UNTIL))
+                .rejects.toThrow(/history_period on switch\.sonoff_4chpro_relay_1 failed: 503/);
+        });
+
+        it('parses a clean on→off pair from the HA response', async () => {
+            mockFetch.mockResolvedValueOnce(historyResponse([
+                { state: 'on', last_changed: '2026-05-24T04:30:00.000Z' },
+                { state: 'off', last_changed: '2026-05-24T04:45:00.000Z' },
+            ]));
+            const zone = createTestZone({ homeAssistantEntityId: ENTITY_ID });
+
+            const result = await getZoneActuationHistory(zone, SINCE, UNTIL);
+
+            expect(result).toHaveLength(1);
+            expect(result[0]?.onAt.toISOString()).toBe('2026-05-24T04:30:00.000Z');
+            expect(result[0]?.offAt.toISOString()).toBe('2026-05-24T04:45:00.000Z');
+        });
+
+        it('drops malformed rows (missing state or last_changed)', async () => {
+            mockFetch.mockResolvedValueOnce({
+                ok: true,
+                status: 200,
+                statusText: 'OK',
+                json: async () => [[
+                    { state: 'on', last_changed: '2026-05-24T04:30:00.000Z' },
+                    { last_changed: '2026-05-24T04:35:00.000Z' }, // missing state
+                    { state: 'off' }, // missing last_changed
+                    { state: 'off', last_changed: '2026-05-24T04:45:00.000Z' },
+                ]],
+            } as unknown as Response);
+            const zone = createTestZone({ homeAssistantEntityId: ENTITY_ID });
+
+            const result = await getZoneActuationHistory(zone, SINCE, UNTIL);
+
+            expect(result).toHaveLength(1);
+            expect(result[0]?.onAt.toISOString()).toBe('2026-05-24T04:30:00.000Z');
+            expect(result[0]?.offAt.toISOString()).toBe('2026-05-24T04:45:00.000Z');
+        });
+    });
+});
+
+describe('pairOnOffTransitions', () => {
+    const WINDOW_START = new Date('2026-05-24T04:00:00.000Z');
+    const WINDOW_END = new Date('2026-05-24T08:00:00.000Z');
+
+    it('returns an empty array for empty input', () => {
+        const result = pairOnOffTransitions([], WINDOW_START, WINDOW_END);
+        expect(result).toEqual([]);
+    });
+
+    it('pairs clean on→off transitions', () => {
+        const states = [
+            { state: 'on', lastChanged: new Date('2026-05-24T04:30:00.000Z') },
+            { state: 'off', lastChanged: new Date('2026-05-24T04:45:00.000Z') },
+            { state: 'on', lastChanged: new Date('2026-05-24T05:30:00.000Z') },
+            { state: 'off', lastChanged: new Date('2026-05-24T05:45:00.000Z') },
+        ];
+
+        const result = pairOnOffTransitions(states, WINDOW_START, WINDOW_END);
+
+        expect(result).toHaveLength(2);
+        expect(result[0]?.onAt.toISOString()).toBe('2026-05-24T04:30:00.000Z');
+        expect(result[0]?.offAt.toISOString()).toBe('2026-05-24T04:45:00.000Z');
+        expect(result[1]?.onAt.toISOString()).toBe('2026-05-24T05:30:00.000Z');
+        expect(result[1]?.offAt.toISOString()).toBe('2026-05-24T05:45:00.000Z');
+    });
+
+    it('filters unavailable, unknown, and other non-binary states', () => {
+        const states = [
+            { state: 'on', lastChanged: new Date('2026-05-24T04:30:00.000Z') },
+            { state: 'unavailable', lastChanged: new Date('2026-05-24T04:35:00.000Z') },
+            { state: 'on', lastChanged: new Date('2026-05-24T04:40:00.000Z') },
+            { state: 'off', lastChanged: new Date('2026-05-24T04:45:00.000Z') },
+            { state: 'unknown', lastChanged: new Date('2026-05-24T04:46:00.000Z') },
+        ];
+
+        const result = pairOnOffTransitions(states, WINDOW_START, WINDOW_END);
+
+        // unavailable/unknown filtered; consecutive `on` rows deduped to the first.
+        expect(result).toHaveLength(1);
+        expect(result[0]?.onAt.toISOString()).toBe('2026-05-24T04:30:00.000Z');
+        expect(result[0]?.offAt.toISOString()).toBe('2026-05-24T04:45:00.000Z');
+    });
+
+    it('closes a trailing on with no following off at windowEnd', () => {
+        const states = [
+            { state: 'on', lastChanged: new Date('2026-05-24T07:30:00.000Z') },
+        ];
+
+        const result = pairOnOffTransitions(states, WINDOW_START, WINDOW_END);
+
+        expect(result).toHaveLength(1);
+        expect(result[0]?.onAt.toISOString()).toBe('2026-05-24T07:30:00.000Z');
+        expect(result[0]?.offAt).toEqual(WINDOW_END);
+    });
+
+    it('clamps a leading on whose lastChanged predates windowStart', () => {
+        const states = [
+            // Entity went on before the window started; HA returns the prior
+            // transition as the first row.
+            { state: 'on', lastChanged: new Date('2026-05-24T03:55:00.000Z') },
+            { state: 'off', lastChanged: new Date('2026-05-24T04:30:00.000Z') },
+        ];
+
+        const result = pairOnOffTransitions(states, WINDOW_START, WINDOW_END);
+
+        expect(result).toHaveLength(1);
+        expect(result[0]?.onAt).toEqual(WINDOW_START);
+        expect(result[0]?.offAt.toISOString()).toBe('2026-05-24T04:30:00.000Z');
+    });
+
+    it('clamps an off whose lastChanged exceeds windowEnd', () => {
+        const states = [
+            { state: 'on', lastChanged: new Date('2026-05-24T07:30:00.000Z') },
+            { state: 'off', lastChanged: new Date('2026-05-24T09:00:00.000Z') },
+        ];
+
+        const result = pairOnOffTransitions(states, WINDOW_START, WINDOW_END);
+
+        expect(result).toHaveLength(1);
+        expect(result[0]?.onAt.toISOString()).toBe('2026-05-24T07:30:00.000Z');
+        expect(result[0]?.offAt).toEqual(WINDOW_END);
+    });
+
+    it('ignores a leading off with no preceding on (entity was off when window opened)', () => {
+        const states = [
+            { state: 'off', lastChanged: new Date('2026-05-24T04:30:00.000Z') },
+            { state: 'on', lastChanged: new Date('2026-05-24T05:00:00.000Z') },
+            { state: 'off', lastChanged: new Date('2026-05-24T05:15:00.000Z') },
+        ];
+
+        const result = pairOnOffTransitions(states, WINDOW_START, WINDOW_END);
+
+        expect(result).toHaveLength(1);
+        expect(result[0]?.onAt.toISOString()).toBe('2026-05-24T05:00:00.000Z');
+        expect(result[0]?.offAt.toISOString()).toBe('2026-05-24T05:15:00.000Z');
+    });
+
+    it('returns no pairs when the entity is off throughout the window', () => {
+        const states = [
+            { state: 'off', lastChanged: new Date('2026-05-24T03:30:00.000Z') },
+        ];
+
+        const result = pairOnOffTransitions(states, WINDOW_START, WINDOW_END);
+
+        expect(result).toEqual([]);
     });
 });
 
