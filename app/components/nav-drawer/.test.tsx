@@ -180,4 +180,5 @@ describe('NavDrawer', () => {
         expect(onSelect).toHaveBeenCalledWith('schedules');
         expect(onClose).toHaveBeenCalledTimes(1);
     });
+
 });
