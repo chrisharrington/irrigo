@@ -432,81 +432,10 @@ function createDaemonReposStub(inputs?: DaemonStubInputs) {
 // Tests
 // ============================================================================
 
-describe('computeNextRePlanAt', () => {
-    it('UTC: returns todays hour when the current time is before that hour', () => {
-        const now = new Date('2026-05-04T01:30:00.000Z');
-        const next = computeNextRePlanAt(now, 4, 'UTC');
-
-        expect(next.toISOString()).toBe('2026-05-04T04:00:00.000Z');
-    });
-
-    it('UTC: returns tomorrows hour when the current time is past todays hour', () => {
-        const now = new Date('2026-05-04T18:30:00.000Z');
-        const next = computeNextRePlanAt(now, 4, 'UTC');
-
-        expect(next.toISOString()).toBe('2026-05-05T04:00:00.000Z');
-    });
-
-    it('UTC: returns tomorrows hour when the current time exactly matches todays hour', () => {
-        const now = new Date('2026-05-04T04:00:00.000Z');
-        const next = computeNextRePlanAt(now, 4, 'UTC');
-
-        expect(next.toISOString()).toBe('2026-05-05T04:00:00.000Z');
-    });
-
-    it('Edmonton MDT: maps local 04:00 to the correct UTC instant when now is before it', () => {
-        const now = new Date('2026-05-04T01:30:00.000Z');
-        const next = computeNextRePlanAt(now, 4, 'America/Edmonton');
-
-        expect(next.toISOString()).toBe('2026-05-04T10:00:00.000Z');
-    });
-
-    it('Edmonton MDT: rolls to tomorrow when now is past local 04:00', () => {
-        const now = new Date('2026-05-04T18:30:00.000Z');
-        const next = computeNextRePlanAt(now, 4, 'America/Edmonton');
-
-        expect(next.toISOString()).toBe('2026-05-05T10:00:00.000Z');
-    });
-
-    it('Edmonton MST: maps local 04:00 to the correct UTC instant outside DST', () => {
-        const now = new Date('2026-01-15T18:30:00.000Z');
-        const next = computeNextRePlanAt(now, 4, 'America/Edmonton');
-
-        expect(next.toISOString()).toBe('2026-01-16T11:00:00.000Z');
-    });
-});
-
-describe('computeNextMorningAt', () => {
-    it('returns sunrise + offset minutes when that instant is in the future', () => {
-        const now = new Date('2026-05-24T04:00:00.000Z');
-        const sunrise = new Date('2026-05-24T11:41:00.000Z');
-        const next = computeNextMorningAt(now, sunrise, 60);
-
-        expect(next?.toISOString()).toBe('2026-05-24T12:41:00.000Z');
-    });
-
-    it('returns null when sunrise is null (no anchor known yet)', () => {
-        const next = computeNextMorningAt(new Date('2026-05-24T04:00:00.000Z'), null, 60);
-
-        expect(next).toBeNull();
-    });
-
-    it('returns null when sunrise + offset is already in the past', () => {
-        const now = new Date('2026-05-24T18:00:00.000Z');
-        const sunrise = new Date('2026-05-24T11:41:00.000Z');
-        const next = computeNextMorningAt(now, sunrise, 60);
-
-        expect(next).toBeNull();
-    });
-
-    it('respects a non-default offset', () => {
-        const now = new Date('2026-05-24T04:00:00.000Z');
-        const sunrise = new Date('2026-05-24T11:41:00.000Z');
-        const next = computeNextMorningAt(now, sunrise, 30);
-
-        expect(next?.toISOString()).toBe('2026-05-24T12:11:00.000Z');
-    });
-});
+// `computeNextRePlanAt` and `computeNextMorningAt` are now tested in
+// service/daemon/scheduling/.test.ts (API-80). Their tests moved alongside
+// the pure functions; the daemon-level integration tests below exercise
+// them through the scheduler.
 
 describe('start', () => {
     // Default the system kill-switch to enabled for every test. Kill-switch
