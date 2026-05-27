@@ -17,6 +17,34 @@ export type DailyWeather = {
     sunset?: dayjs.Dayjs;
 }
 
+/**
+ * One hour of observed/forecast weather. Open-Meteo emits one row per hour
+ * over the requested past + forecast window. `time` is the start instant of
+ * the hour, anchored to the requested timezone. The reconciler sums
+ * `precipitationMm` and `evapotranspirationMm` over the window between the
+ * last reconciled-at timestamp and now to advance depletion against reality.
+ */
+export type HourlyWeather = {
+    /** Required. Start of the hour, anchored to the request timezone. */
+    time: dayjs.Dayjs;
+
+    /** Required. Total precipitation during the hour. */
+    precipitationMm: number;
+
+    /** Required. Reference evapotranspiration (ET₀) during the hour. */
+    evapotranspirationMm: number;
+}
+
+/**
+ * Composite weather response returned by `getWeatherData`. `daily` continues
+ * to feed the planner's multi-day forecast; `hourly` is consumed by the
+ * morning/evening depletion reconcilers for sub-daily window math.
+ */
+export type WeatherData = {
+    daily: DailyWeather[];
+    hourly: HourlyWeather[];
+}
+
 export type GrassType = {
     /** Required. The name of the grass. */
     name: string;
@@ -89,6 +117,9 @@ export type Zone = {
 
     /** Required. The current soil moisture deficit (0 = full). */
     currentDepletionMm: number;
+
+    /** Optional. Timestamp of the last reconciliation write to `currentDepletionMm`. Anchors the [since, now) window used by the morning/evening reconcilers to sum weather and actuation history. Null for freshly-seeded zones; the first reconciler tick stamps it and skips the math. */
+    currentDepletionReconciledAt?: Date;
 
     /** Required. The ID of the site this zone belongs to. */
     siteId: string;

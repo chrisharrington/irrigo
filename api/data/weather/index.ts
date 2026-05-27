@@ -1,4 +1,4 @@
-import type { DailyWeather } from "@/models";
+import type { DailyWeather, HourlyWeather, WeatherData } from "@/models";
 import dayjs from "dayjs";
 import utc from "dayjs/plugin/utc";
 import tzPlugin from "dayjs/plugin/timezone";
@@ -29,6 +29,11 @@ type OpenMeteoResponse = {
         rain_sum: number[];
         et0_fao_evapotranspiration: number[];
     };
+    hourly: {
+        time: string[];
+        precipitation: number[];
+        et0_fao_evapotranspiration: number[];
+    };
 };
 
 export type WeatherDataParams = {
@@ -40,6 +45,13 @@ export type WeatherDataParams = {
 
     /** Optional. Number of days to forecast (default: 7). */
     forecastDays?: number;
+
+    /**
+     * Optional. Number of days of past observations to include (default: 1).
+     * The morning/evening reconcilers need yesterday's hourly observations to
+     * sum ET and precipitation between the last reconciliation and now.
+     */
+    pastDays?: number;
 
     /**
      * Optional. IANA timezone string (e.g. `America/Edmonton`). When provided,
@@ -70,11 +82,11 @@ export type WeatherDataOptions = {
  * window, ET₀ adjustments); without caching, two back-to-back re-plans can
  * produce different schedules from the same site state. See API-70.
  *
- * Keyed by `${latitude}|${longitude}|${forecastDays}|${timezone ?? ''}` — the
- * full set of request parameters that vary between callers. `apiKey` is
+ * Keyed by `${latitude}|${longitude}|${forecastDays}|${pastDays}|${timezone ?? ''}`
+ * — the full set of request parameters that vary between callers. `apiKey` is
  * deliberately omitted; it's a process-wide constant, not a request input.
  */
-type WeatherCacheEntry = { value: DailyWeather[]; expiresAt: number };
+type WeatherCacheEntry = { value: WeatherData; expiresAt: number };
 const cache = new Map<string, WeatherCacheEntry>();
 
 /** 10 minutes — long enough to dedupe rapid re-plan storms, short enough that a "stale" forecast can't drift far from reality (Open-Meteo's model refreshes hourly). */
@@ -171,16 +183,16 @@ export async function fetchWithRetry(url: string, retryOptions: PRetryOptions = 
 export async function getWeatherData(
     params: WeatherDataParams,
     options?: WeatherDataOptions,
-): Promise<DailyWeather[]> {
+): Promise<WeatherData> {
     if (process.env.OPEN_METEO_ENABLED === 'false') {
         throw new Error('Weather integration is disabled (OPEN_METEO_ENABLED=false).');
     }
 
-    const { latitude, longitude, forecastDays = 7, timezone } = params;
+    const { latitude, longitude, forecastDays = 7, pastDays = 1, timezone } = params;
     const ttlMs = options?.ttlMs ?? WEATHER_CACHE_TTL_MS;
     const now = options?.now ?? Date.now;
 
-    const cacheKey = `${latitude}|${longitude}|${forecastDays}|${timezone ?? ''}`;
+    const cacheKey = `${latitude}|${longitude}|${forecastDays}|${pastDays}|${timezone ?? ''}`;
     const cached = cache.get(cacheKey);
     if (cached !== undefined && cached.expiresAt > now()) {
         console.log(`weather: cache hit for ${cacheKey}.`);
@@ -196,7 +208,9 @@ export async function getWeatherData(
     url.searchParams.set('latitude', latitude.toString());
     url.searchParams.set('longitude', longitude.toString());
     url.searchParams.set('daily', 'sunrise,sunset,rain_sum,et0_fao_evapotranspiration');
+    url.searchParams.set('hourly', 'precipitation,et0_fao_evapotranspiration');
     url.searchParams.set('forecast_days', forecastDays.toString());
+    url.searchParams.set('past_days', pastDays.toString());
     if (timezone) {
         url.searchParams.set('timezone', timezone);
     }
@@ -212,17 +226,25 @@ export async function getWeatherData(
     const parseTime = (t: string): dayjs.Dayjs =>
         timezone ? dayjs.tz(t, timezone) : dayjs(t);
 
-    let parsed: DailyWeather[];
+    let parsed: WeatherData;
     try {
         const data = await response.json() as OpenMeteoResponse;
 
-        parsed = data.daily.time.map((time, index) => ({
+        const daily: DailyWeather[] = data.daily.time.map((time, index) => ({
             date: parseTime(time),
             sunrise: parseTime(data.daily.sunrise[index]!),
             sunset: parseTime(data.daily.sunset[index]!),
             rainfallMm: data.daily.rain_sum[index],
             evapotranspirationMmPerDay: data.daily.et0_fao_evapotranspiration[index],
         }));
+
+        const hourly: HourlyWeather[] = data.hourly.time.map((time, index) => ({
+            time: parseTime(time),
+            precipitationMm: data.hourly.precipitation[index] ?? 0,
+            evapotranspirationMm: data.hourly.et0_fao_evapotranspiration[index] ?? 0,
+        }));
+
+        parsed = { daily, hourly };
     } catch (err) {
         const detail = err instanceof Error ? err.message : String(err);
         console.error(`weather: Open-Meteo response could not be parsed: ${detail}`);
@@ -233,4 +255,34 @@ export async function getWeatherData(
     // above without polluting the cache.
     cache.set(cacheKey, { value: parsed, expiresAt: now() + ttlMs });
     return parsed;
+}
+
+/**
+ * Pure helper. Returns the sum of `precipitationMm` and `evapotranspirationMm`
+ * across hourly observations whose `time` falls in the half-open window
+ * `[since, until)`. Open-Meteo emits one hourly row per hour-start, so each
+ * row contributes fully if its hour-start is inside the window; partial hours
+ * at the edges are *not* pro-rated (the reconciler's window boundaries are
+ * always at tick times, ~12 hours apart, so the per-hour rounding error is
+ * negligible compared to the 24+ rows summed).
+ *
+ * Used by the morning/evening reconcilers in api/service/daemon to compute
+ * the depletion delta over the gap since the last reconciliation.
+ */
+export function sumHourlyWeatherBetween(
+    hourly: ReadonlyArray<HourlyWeather>,
+    since: Date,
+    until: Date,
+): { rainMm: number; etMm: number } {
+    const sinceMs = since.getTime();
+    const untilMs = until.getTime();
+    let rainMm = 0;
+    let etMm = 0;
+    for (const row of hourly) {
+        const t = row.time.valueOf();
+        if (t < sinceMs || t >= untilMs) continue;
+        rainMm += row.precipitationMm;
+        etMm += row.evapotranspirationMm;
+    }
+    return { rainMm, etMm };
 }

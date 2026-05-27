@@ -4,7 +4,7 @@
  * 'missed-close'))` constraint, so widening the union requires both a code
  * change here and a new migration.
  */
-export type AlertClass = 'weather-stale' | 'ha-call-failed' | 'missed-close';
+export type AlertClass = 'weather-stale' | 'ha-call-failed' | 'missed-close' | 'actuation-stale';
 
 /**
  * Visual severity used by the mobile app to colour the alert row. `warn`

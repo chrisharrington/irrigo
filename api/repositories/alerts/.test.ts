@@ -285,6 +285,27 @@ describe('createAlertsRepository.insertAlert', () => {
             zoneId: null,
         });
     });
+
+    it('accepts the actuation-stale class for HA-history fetch failures', async () => {
+        const { db, inserts } = createStub([]);
+        const repo = createAlertsRepository(db);
+
+        await repo.insertAlert({
+            class: 'actuation-stale',
+            tone: 'warn',
+            title: 'HA actuation history stale',
+            sub: 'North · ECONNREFUSED',
+            zoneId: 'zone-001',
+        });
+
+        expect(inserts[0]?.values).toEqual({
+            class: 'actuation-stale',
+            tone: 'warn',
+            title: 'HA actuation history stale',
+            sub: 'North · ECONNREFUSED',
+            zoneId: 'zone-001',
+        });
+    });
 });
 
 describe('createAlertsRepository.updateAlert', () => {

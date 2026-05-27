@@ -26,6 +26,6 @@ export const alerts = pgTable('alerts', {
     ack: boolean('ack').notNull().default(false),
     ...auditColumns,
 }, (table) => [
-    check('alerts_class_check', sql`${table.class} in ('weather-stale', 'ha-call-failed', 'missed-close')`),
+    check('alerts_class_check', sql`${table.class} in ('weather-stale', 'ha-call-failed', 'missed-close', 'actuation-stale')`),
     check('alerts_tone_check', sql`${table.tone} in ('warn', 'danger')`),
 ]);

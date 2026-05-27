@@ -21,7 +21,7 @@ export type PushRegistration = {
  * `@/alerts` and `@/service/push-tokens` (the dispatcher lives in the push
  * service, which is itself wired into the alerter).
  */
-export type PushAlertClass = 'weather-stale' | 'ha-call-failed' | 'missed-close';
+export type PushAlertClass = 'weather-stale' | 'ha-call-failed' | 'missed-close' | 'actuation-stale';
 
 /**
  * Visual severity carried alongside the push. `danger` maps to Expo
