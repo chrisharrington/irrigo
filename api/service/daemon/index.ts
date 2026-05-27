@@ -17,12 +17,11 @@ import { noopNotifier, type Notifier } from '@/notifications';
 import { runScheduleForZone, type RunScheduleForZoneOptions } from '@/schedules';
 import type { PlanZoneScheduleResult } from '@/schedules/dynamic';
 import { getSystemState } from '@/service/system';
-import { pickNextTick, pickUpcomingSunrise } from './scheduling';
+import { pickNextTick } from './scheduling';
 export { computeNextMorningAt, computeNextRePlanAt, type TickKind } from './scheduling';
 import { runTickForZone } from './tick';
-import { reconcileCycleAndRelayState, type ReconcileSummary } from './reconcile';
+import { runBootSequence } from './boot';
 import {
-    armCloseOnly,
     armCycle,
     closeAllInFlight,
     realClock,
@@ -165,58 +164,21 @@ export async function start(options?: DaemonOptions): Promise<DaemonControl> {
 
     console.log(`daemon: starting (re-plan hour: ${rePlanHourLocal}:00 ${siteTimezone}).`);
 
-    const enabledZonesAtBoot = await zonesRepo.loadEnabled();
-    const reconcileSummary: ReconcileSummary = await reconcileCycleAndRelayState({
-        clock,
-        registry,
-        notifier,
-        alerter,
-        closeZone,
-        getZoneState,
-        armCloseOnly,
-        managedZones: enabledZonesAtBoot.filter(z => z.homeAssistantEntityId !== undefined),
+    const { initialSunrise } = await runBootSequence({
+        morningTickMinutesAfterSunrise,
+        deps: {
+            clock, registry, notifier, alerter,
+            openZone, closeZone, getZoneState, getWeather,
+            zonesRepo, scheduleEntriesRepo,
+        },
     });
-    console.log(`daemon: reconcile summary — resumed: ${reconcileSummary.resumed}, forcedClosed: ${reconcileSummary.forcedClosed}, missedClose: ${reconcileSummary.missedClose}, orphansClosed: ${reconcileSummary.orphansClosed}, errors: ${reconcileSummary.errors}.`);
-
-    const futureCycles = await scheduleEntriesRepo.loadFutureCycles(clock.now());
-    const systemAtBoot = await getSystemState();
-    if (!systemAtBoot.irrigationEnabled) {
-        console.warn(`daemon: system irrigation is disabled (since ${systemAtBoot.since}); skipping arm of ${futureCycles.length} future cycle(s).`);
-    } else {
-        for (const { cycle, zone } of futureCycles) {
-            armCycle({ clock, registry, zone, cycle, openZone, closeZone, notifier, alerter });
-        }
-    }
-
-    const { total, enabled } = await zonesRepo.count();
-    if (total === 0) {
-        console.warn('daemon: has no zones to manage. Did you run `bun run seed`? Daemon is idle until zones are added.');
-    } else if (enabled === 0) {
-        console.warn('daemon: all zones are disabled. Daemon is idle until at least one zone is enabled.');
-    }
 
     // Most-recently-observed sunrise instant in the site's timezone. Seeded
-    // by a boot-time weather fetch (cache-friendly — the first per-zone
+    // by the boot weather fetch (cache-friendly — the first per-zone
     // _rePlan call shares the cache) so the first scheduleNextTick can pick
     // between morning and evening. Updated inside _rePlan on every
     // subsequent successful weather fetch.
-    let latestKnownSunrise: Date | null = null;
-
-    // Boot weather fetch — seeds latestKnownSunrise so the first
-    // scheduleNextTick can pick a morning tick. Fire-and-forget tolerance:
-    // if the fetch fails, the daemon still boots and schedules an evening
-    // tick; the next successful fetch (per-zone, inside _rePlan) repopulates
-    // the anchor.
-    const bootSeedZone = enabledZonesAtBoot.find(z => z.location !== undefined);
-    if (bootSeedZone) {
-        try {
-            const bootWeather = await getWeather(bootSeedZone);
-            latestKnownSunrise = pickUpcomingSunrise(bootWeather.daily, clock.now(), morningTickMinutesAfterSunrise);
-            console.log(`daemon: boot weather fetch ok — latestKnownSunrise=${latestKnownSunrise?.toISOString() ?? 'null'}.`);
-        } catch (err) {
-            console.warn(`daemon: boot weather fetch failed; morning tick will be scheduled after the first successful in-tick fetch.`, err);
-        }
-    }
+    let latestKnownSunrise: Date | null = initialSunrise;
 
     const scheduleNextTick = (): void => {
         const { kind, at } = pickNextTick({
