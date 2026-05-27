@@ -216,4 +216,36 @@ describe('ZoneDetail', () => {
 
         expect(onRunNow).toHaveBeenCalledTimes(1);
     });
+
+    it('renders the View all in Activity link when onViewActivity is supplied (APP-67).', () => {
+        const onViewActivity = jest.fn();
+        render(
+            <ZoneDetail
+                zone={buildZone()}
+                nextRun={undefined}
+                activity={[]}
+                isActivityLoading={false}
+                onRunNow={jest.fn()}
+                onViewActivity={onViewActivity}
+            />,
+        );
+
+        fireEvent.press(screen.getByText('View all in Activity →'));
+
+        expect(onViewActivity).toHaveBeenCalledTimes(1);
+    });
+
+    it('hides the View all in Activity link when onViewActivity is omitted (APP-67).', () => {
+        render(
+            <ZoneDetail
+                zone={buildZone()}
+                nextRun={undefined}
+                activity={[]}
+                isActivityLoading={false}
+                onRunNow={jest.fn()}
+            />,
+        );
+
+        expect(screen.queryByText('View all in Activity →')).toBeNull();
+    });
 });
