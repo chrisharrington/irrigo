@@ -17,6 +17,21 @@ const DEFAULT_TIMEZONE = 'UTC';
 const ALL_ZONES_LABEL = 'all zones';
 
 /**
+ * Props for the Activity smart container.
+ */
+export type ActivityViewProps = {
+    /**
+     * Optional. Zone id to preselect in the filter chip strip on first
+     * render. Threaded from the route's `zoneId` query param so that the
+     * "View all in Activity" link on Zone detail (APP-67) lands here with
+     * the originating zone already filtered. The chip strip stays
+     * user-controlled afterwards — taps on other chips replace the
+     * selection as normal.
+     */
+    initialZoneId?: string;
+};
+
+/**
  * Smart container for the Activity screen. Composes the eyebrow + page
  * title with a zone-filter chip strip and the chronological fire log
  * sourced from `GET /activity`. Reads `useNextRun()` only for the site
@@ -26,11 +41,11 @@ const ALL_ZONES_LABEL = 'all zones';
  * fresh query — so the fire log re-fetches the first page automatically.
  * RN port of `ActivityView` from `Mobile.jsx` — minus the alert region,
  * since alerts have no dismiss affordance yet and lingering non-
- * interactive copy is worse than silence here. APP-32 / APP-61.
+ * interactive copy is worse than silence here. APP-32 / APP-61 / APP-67.
  */
-export function ActivityView() {
+export function ActivityView({ initialZoneId }: ActivityViewProps = {}) {
     const insets = useSafeAreaInsets();
-    const [selectedZoneId, setSelectedZoneId] = useState<string | undefined>(undefined);
+    const [selectedZoneId, setSelectedZoneId] = useState<string | undefined>(initialZoneId);
     const activity = useActivity({ ...(selectedZoneId !== undefined ? { zoneId: selectedZoneId } : {}) });
     const nextRun = useNextRun();
     const zones = useZones();

@@ -1,5 +1,5 @@
 import dayjs from 'dayjs';
-import { StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import type { ActivityDto } from '@/api/types/activity';
 import type { NextRunDto } from '@/api/types/next-run';
@@ -38,6 +38,9 @@ export type ZoneDetailProps = {
 
     /** Required. Fires when the user taps "Run now". The FireSheet wiring is a separate ticket; the route currently passes a no-op. */
     onRunNow: () => void;
+
+    /** Optional. Fires when the user taps "View all in Activity →" in the Recent runs section heading. When omitted, the link is hidden. APP-67. */
+    onViewActivity?: () => void;
 };
 
 /**
@@ -46,7 +49,7 @@ export type ZoneDetailProps = {
  * presentational — all data is supplied by the route, which composes
  * `useZone`, `useNextRun`, and `useActivity`.
  */
-export function ZoneDetail({ zone, nextRun, activity, isActivityLoading, onRunNow }: ZoneDetailProps) {
+export function ZoneDetail({ zone, nextRun, activity, isActivityLoading, onRunNow, onViewActivity }: ZoneDetailProps) {
     const geometry = computeBatteryGeometry(zone.currentDepletionMm, zone.rawMm);
     const toneColor = TONE_COLOR[geometry.tone];
     const statusCopy = computeZoneStatusCopy(zone, nextRun);
@@ -99,7 +102,19 @@ export function ZoneDetail({ zone, nextRun, activity, isActivityLoading, onRunNo
             </View>
 
             <View>
-                <Text style={styles.sectionHeading}>Recent runs</Text>
+                <View style={styles.recentRunsHeading}>
+                    <Text style={styles.sectionHeading}>Recent runs</Text>
+                    {onViewActivity && (
+                        <Pressable
+                            onPress={onViewActivity}
+                            accessibilityRole='link'
+                            accessibilityLabel='View all in Activity'
+                            hitSlop={8}
+                        >
+                            <Text style={styles.recentRunsLink}>View all in Activity →</Text>
+                        </Pressable>
+                    )}
+                </View>
                 {activity.length === 0 && isActivityLoading ? (
                     <Text style={styles.emptyState}>Loading recent runs…</Text>
                 ) : activity.length === 0 ? (
@@ -241,6 +256,18 @@ const styles = StyleSheet.create({
         fontSize: 16,
         lineHeight: 20,
         color: colors.fg,
+    },
+    recentRunsHeading: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'baseline',
+    },
+    recentRunsLink: {
+        marginBottom: 10,
+        fontFamily: FontFamily.sansMedium,
+        fontSize: 12,
+        lineHeight: 14,
+        color: colors['fg-muted'],
     },
     attrTable: {
         borderTopWidth: 1,

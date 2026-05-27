@@ -303,4 +303,40 @@ describe('ActivityView', () => {
 
         await waitFor(() => expect(screen.getByText('Chronological · South')).toBeOnTheScreen());
     });
+
+    it('seeds the filter from initialZoneId so the eyebrow reflects the preselected zone (APP-67).', async () => {
+        const { wrapper, client } = buildApiWrapper();
+        client.setQueryData(keys.zones.list(), ZONES);
+        mockFetch.mockImplementation(async () => jsonResponse(activityResult([buildActivity()])));
+
+        render(<ActivityView initialZoneId='z-2' />, { wrapper });
+
+        await waitFor(() => expect(screen.getByText('Chronological · South')).toBeOnTheScreen());
+        expect(screen.getByLabelText('Filter to South').props.accessibilityState).toMatchObject({ selected: true });
+    });
+
+    it('issues the initial /activity fetch with zoneId when initialZoneId is supplied (APP-67).', async () => {
+        const { wrapper, client } = buildApiWrapper();
+        client.setQueryData(keys.zones.list(), ZONES);
+        mockFetch.mockImplementation(async () => jsonResponse(activityResult([buildActivity()])));
+
+        render(<ActivityView initialZoneId='z-1' />, { wrapper });
+
+        await waitFor(() => {
+            const scopedCall = mockFetch.mock.calls.find(([u]) => {
+                const url = new URL(String(u));
+                return url.pathname === '/activity' && url.searchParams.get('zoneId') === 'z-1';
+            });
+            expect(scopedCall).toBeDefined();
+        });
+    });
+
+    it('defaults to all-zones when initialZoneId is undefined (regression).', () => {
+        const { wrapper } = buildApiWrapper();
+        mockFetch.mockImplementation(() => new Promise(() => {}));
+
+        render(<ActivityView />, { wrapper });
+
+        expect(screen.getByText('Chronological · all zones')).toBeOnTheScreen();
+    });
 });
