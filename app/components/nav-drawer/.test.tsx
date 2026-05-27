@@ -180,4 +180,23 @@ describe('NavDrawer', () => {
         expect(onSelect).toHaveBeenCalledWith('schedules');
         expect(onClose).toHaveBeenCalledTimes(1);
     });
+
+    it('defers the open-direction slide start to the next animation frame (APP-68).', () => {
+        const { wrapper, client } = buildApiWrapper();
+        client.setQueryData(keys.schedules.list(), [SAMPLE_ACTIVE]);
+        const rafSpy = jest.spyOn(global, 'requestAnimationFrame');
+
+        try {
+            render(
+                <NavDrawer visible onClose={jest.fn()} activeId='home' onSelect={jest.fn()} />,
+                { wrapper },
+            );
+
+            // The open-direction useEffect schedules the slide via rAF so the
+            // Modal mount on frame N doesn't compete with the animation start.
+            expect(rafSpy).toHaveBeenCalled();
+        } finally {
+            rafSpy.mockRestore();
+        }
+    });
 });

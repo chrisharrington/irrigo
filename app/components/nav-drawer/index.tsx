@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { memo, useCallback, useEffect, useRef, useState } from 'react';
 import {
     Animated,
     Modal as RNModal,
@@ -104,13 +104,20 @@ export function NavDrawer({ visible, onClose, activeId, onSelect }: NavDrawerPro
     useEffect(() => {
         if (visible) {
             setModalVisible(true);
-            Animated.timing(translateX, {
-                toValue: 0,
-                duration: Duration.default,
-                easing: MotionEasing.standard,
-                useNativeDriver: true,
-            }).start();
-        } else if (modalVisible) {
+            // Defer the slide one frame so the Modal tree mount on frame N
+            // doesn't compete with the animation start. APP-68 / APP-64.
+            const handle = requestAnimationFrame(() => {
+                Animated.timing(translateX, {
+                    toValue: 0,
+                    duration: Duration.default,
+                    easing: MotionEasing.standard,
+                    useNativeDriver: true,
+                }).start();
+            });
+            return () => cancelAnimationFrame(handle);
+        }
+        if (modalVisible) {
+            // Close path stays synchronous — no mount cost to compete with.
             Animated.timing(translateX, {
                 toValue: -DRAWER_WIDTH,
                 duration: Duration.default,
@@ -120,12 +127,14 @@ export function NavDrawer({ visible, onClose, activeId, onSelect }: NavDrawerPro
                 if (finished) setModalVisible(false);
             });
         }
+        return undefined;
     }, [visible, modalVisible, translateX]);
 
-    const handleSelect = (id: NavItemId) => {
+    const handleSelect = useCallback((id: NavItemId) => {
         onSelect(id);
         onClose();
-    };
+    }, [onSelect, onClose]);
+    const handleSwitchProfile = useCallback(() => handleSelect('schedules'), [handleSelect]);
 
     const { data: schedules } = useSchedules();
     const activeSchedule = schedules?.find(row => row.isActive) ?? null;
@@ -187,7 +196,7 @@ export function NavDrawer({ visible, onClose, activeId, onSelect }: NavDrawerPro
                     <View style={styles.footerSlot}>
                         <ActiveScheduleCard
                             schedule={activeSchedule}
-                            onSwitchProfile={() => handleSelect('schedules')}
+                            onSwitchProfile={handleSwitchProfile}
                         />
                     </View>
                 </Animated.View>
@@ -219,7 +228,13 @@ function NavRow({ item, active, onPress }: { item: NavItem; active: boolean; onP
     );
 }
 
-function ActiveScheduleCard({
+/**
+ * Memoized footer card so that `useSchedules()` resolving mid-slide-in only
+ * re-renders this subtree, not the whole drawer (BrandGlyph, NavRows, and
+ * the Animated.View panel skip the reconcile). Requires a reference-stable
+ * `onSwitchProfile` — the parent wraps it in `useCallback`. APP-68 / APP-64.
+ */
+const ActiveScheduleCard = memo(function ActiveScheduleCard({
     schedule,
     onSwitchProfile,
 }: {
@@ -242,7 +257,7 @@ function ActiveScheduleCard({
             </View>
         </View>
     );
-}
+});
 
 const styles = StyleSheet.create({
     overlay: {
