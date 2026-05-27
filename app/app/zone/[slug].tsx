@@ -53,6 +53,7 @@ export default function ZoneScreen() {
                 activity={flattened}
                 isActivityLoading={activity.isPending}
                 onRunNow={() => {}}
+                onViewActivity={() => router.push({ pathname: '/activity', params: { zoneId: zone.id } } as never)}
             />
         </RefreshableScrollView>
     );
