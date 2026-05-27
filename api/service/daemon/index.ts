@@ -8,12 +8,14 @@ import {
     openZone as defaultOpenZone,
     type ZoneRelayState,
 } from '@/data/home-assistant';
-import type { Zone } from '@/models';
+import { getWeatherData, sumHourlyWeatherBetween } from '@/data/weather';
+import type { WeatherData, Zone } from '@/models';
 import type { PersistedCycle } from '@/models/cycle';
 import { noopNotifier, type Notifier } from '@/notifications';
 import { runScheduleForZone, type RunScheduleForZoneOptions } from '@/schedules';
 import type { PlanZoneScheduleResult } from '@/schedules/dynamic';
 import { getSystemState } from '@/service/system';
+import { advanceFromObservedWeather } from './depletion';
 import { reconcileCycleAndRelayState, type ReconcileSummary } from './reconcile';
 import {
     armCloseOnly,
@@ -68,6 +70,13 @@ export function bootDaemonService(input: BootDaemonServiceInput): void {
 export type DaemonOptions = {
     rePlanHourLocal?: number;
     runPlan?: (zone: Zone, options?: RunScheduleForZoneOptions) => Promise<PlanZoneScheduleResult>;
+    /**
+     * Reads weather (daily + hourly) for a zone. Defaulted to the real
+     * `getWeatherData`. Injected separately from `runPlan` so the daemon can
+     * advance depletion against observed hourly weather without the planner
+     * having to plumb the hourly array through `PlanZoneScheduleResult`.
+     */
+    getWeather?: (zone: Zone) => Promise<WeatherData>;
     openZone?: (zone: Zone) => Promise<void>;
     closeZone?: (zone: Zone) => Promise<void>;
     getZoneState?: (zone: Zone) => Promise<ZoneRelayState>;
@@ -111,6 +120,14 @@ export async function start(options?: DaemonOptions): Promise<DaemonControl> {
     const clock = options?.clock ?? realClock;
     const rePlanHourLocal = options?.rePlanHourLocal ?? DEFAULT_REPLAN_HOUR_LOCAL;
     const runPlan = options?.runPlan ?? ((zone, opts) => runScheduleForZone(zone, opts));
+    const getWeather = options?.getWeather ?? (async (zone: Zone): Promise<WeatherData> => {
+        if (!zone.location) throw new Error(`daemon: zone ${zone.id} has no location; cannot fetch weather.`);
+        return getWeatherData({
+            latitude: zone.location.lat,
+            longitude: zone.location.lon,
+            timezone: zone.siteTimezone,
+        });
+    });
     const openZone = options?.openZone ?? defaultOpenZone;
     const closeZone = options?.closeZone ?? defaultCloseZone;
     const getZoneState = options?.getZoneState ?? defaultGetZoneState;
@@ -174,9 +191,10 @@ export async function start(options?: DaemonOptions): Promise<DaemonControl> {
     };
 
     // Private implementation. `isScheduledTick` distinguishes the nightly
-    // daemon-scheduled re-plan (which should persist projectedNextDepletionMm
-    // so tomorrow's plan starts honest) from operator-triggered replans (which
-    // must be idempotent and must not mutate zone state). See API-71.
+    // daemon-scheduled re-plan (which advances depletion from observed hourly
+    // weather since the last reconciliation, see API-79) from
+    // operator-triggered replans (which must be idempotent and must not
+    // mutate zone state). See API-71.
     const _rePlan = async (isScheduledTick: boolean): Promise<void> => {
         console.log(`daemon: re-plan starting (scheduled=${isScheduledTick}).`);
         registry.cancelOpenTimers(clock);
@@ -225,7 +243,34 @@ export async function start(options?: DaemonOptions): Promise<DaemonControl> {
                     rootDepthM: activeSchedule.rootDepthMOverride ?? undefined,
                     allowableDepletionFraction: activeSchedule.allowableDepletionFractionOverride ?? undefined,
                 };
-                const { entries, projectedNextDepletionMm } = await runPlan(zone, {
+                // Reality-derived depletion advance: sum hourly weather since
+                // the last reconciliation and apply (ET adds, rain subtracts).
+                // A null reconciledAt (fresh seed) is stamped without math —
+                // we have no anchor for the prior window, so the first tick
+                // calibrates the clock and subsequent ticks roll forward
+                // against a known boundary. See API-79.
+                const tickNow = clock.now();
+                const weather = await getWeather(zone);
+                let newDepletionMm = zone.currentDepletionMm;
+                let planningZone = zone;
+                if (isScheduledTick) {
+                    if (zone.currentDepletionReconciledAt) {
+                        const weatherDelta = sumHourlyWeatherBetween(
+                            weather.hourly, zone.currentDepletionReconciledAt, tickNow,
+                        );
+                        newDepletionMm = advanceFromObservedWeather({
+                            previousDepletionMm: zone.currentDepletionMm,
+                            weatherDelta,
+                        });
+                        console.log(`daemon: zone ${zone.id} weather advance — rain=${weatherDelta.rainMm.toFixed(2)}mm, ET=${weatherDelta.etMm.toFixed(2)}mm, depletion=${zone.currentDepletionMm.toFixed(2)}→${newDepletionMm.toFixed(2)}mm.`);
+                    } else {
+                        console.log(`daemon: zone ${zone.id} has null currentDepletionReconciledAt — stamping ${tickNow.toISOString()} without advancing depletion.`);
+                    }
+                    // Hand the planner the advanced depletion so it plans
+                    // from the same value we're about to persist.
+                    planningZone = { ...zone, currentDepletionMm: newDepletionMm, currentDepletionReconciledAt: tickNow };
+                }
+                const { entries } = await runPlan(planningZone, {
                     busyWindows: [pastWindow, ...busyWindows],
                     restrictions,
                     overrides,
@@ -234,11 +279,12 @@ export async function start(options?: DaemonOptions): Promise<DaemonControl> {
                 const { cycles } = await scheduleEntriesRepo.replaceForZone(
                     zone.id, entries, today, activeSchedule.id,
                 );
-                // Only the nightly scheduled tick advances currentDepletionMm.
                 // Operator replans (isScheduledTick=false) are intentionally
-                // idempotent — they plan against current state without mutating it.
+                // idempotent — they plan against current state without
+                // mutating it. The scheduled tick writes the reality-derived
+                // depletion alongside the new reconciledAt anchor.
                 if (isScheduledTick) {
-                    await zonesRepo.advanceDepletion(zone.id, projectedNextDepletionMm, clock.now());
+                    await zonesRepo.advanceDepletion(zone.id, newDepletionMm, tickNow);
                 }
                 for (const cycle of cycles) {
                     const cycleEnd = new Date(cycle.startTime.getTime() + cycle.durationMin * 60_000);

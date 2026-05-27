@@ -1,9 +1,10 @@
-import { afterEach, beforeEach, describe, expect, it, spyOn } from 'bun:test';
+import { afterEach, beforeEach, describe, expect, it, mock, spyOn } from 'bun:test';
 import type { AlertEvent, Alerter, AlertsDb } from '@/alerts';
 import dayjs from 'dayjs';
 import utc from 'dayjs/plugin/utc';
 import timezone from 'dayjs/plugin/timezone';
 import { grassTypes, irrigationCycles, scheduleEntries, schedules, sites, soilTypes, weatherState, zones } from '@/db/schema';
+import { __resetWeatherCacheForTests } from '@/data/weather';
 
 dayjs.extend(utc);
 dayjs.extend(timezone);
@@ -22,6 +23,29 @@ import { bootDaemonService, computeNextRePlanAt, start } from '.';
 import type { Clock, TimerHandle } from './runtime';
 
 const NOW = new Date('2026-05-04T12:00:00.000Z');
+
+// Empty-weather response stubbed onto the global `fetch` so the daemon's
+// per-zone `getWeather` call doesn't reach the network. Individual tests that
+// care about hourly weather pass an explicit `getWeather` stub to `start()`.
+const emptyOpenMeteoResponse = {
+    latitude: 51.0,
+    longitude: -114.0,
+    generationtime_ms: 0,
+    utc_offset_seconds: 0,
+    timezone: 'GMT',
+    timezone_abbreviation: 'GMT',
+    elevation: 0,
+    daily_units: { time: 'iso8601', sunrise: 'iso8601', sunset: 'iso8601', rain_sum: 'mm', et0_fao_evapotranspiration: 'mm' },
+    daily: { time: [], sunrise: [], sunset: [], rain_sum: [], et0_fao_evapotranspiration: [] },
+    hourly: { time: [], precipitation: [], et0_fao_evapotranspiration: [] },
+};
+const mockFetch = mock(() => Promise.resolve({
+    ok: true,
+    status: 200,
+    statusText: 'OK',
+    json: async () => emptyOpenMeteoResponse,
+} as Response));
+(global as unknown as { fetch: typeof mockFetch }).fetch = mockFetch;
 
 type RecordedNotification = { event: NotificationEvent; context: NotificationContext | undefined };
 
@@ -462,6 +486,8 @@ describe('start', () => {
                 upsertSingleton: async () => {},
             },
         });
+        mockFetch.mockClear();
+        __resetWeatherCacheForTests();
     });
 
     it('arms each future cycle returned by the DB so it fires at its start_time', async () => {
@@ -826,11 +852,21 @@ describe('start', () => {
     });
 
     it('nightly tick advances currentDepletionMm; public rePlan() is idempotent (no depletion write)', async () => {
-        // API-71: operator replans must not mutate zone depletion; only the
-        // nightly scheduled tick (isScheduledTick=true) should call advanceDepletion.
-        // NOW = 2026-05-04T12:00:00Z; with rePlanHourLocal=20 + UTC the tick fires
-        // 8h later at 2026-05-04T20:00:00Z.
-        const enabledRow = buildJoinedRow({ zone: { id: 'zone-001', currentDepletionMm: 0 } });
+        // API-71 + API-79: operator replans must not mutate zone depletion;
+        // only the nightly scheduled tick advances depletion against observed
+        // hourly weather. NOW = 2026-05-04T12:00:00Z; with rePlanHourLocal=20
+        // + UTC the tick fires 8h later at 2026-05-04T20:00:00Z. The zone
+        // starts with depletion=5 and a reconciledAt 12h before the tick; a
+        // weather stub reports 2 mm ET and 0 mm rain over that window, so
+        // the advance lands at 7.
+        const reconciledAt = new Date('2026-05-04T08:00:00.000Z');
+        const enabledRow = buildJoinedRow({
+            zone: {
+                id: 'zone-001',
+                currentDepletionMm: 5,
+                currentDepletionReconciledAt: reconciledAt,
+            },
+        });
         const stub = createDaemonReposStub({ enabledZones: [enabledRow] });
         bootDaemonService({ repos: stub.repos, alertsDb: stub.alertsDb });
         const { clock, advanceTo } = createFakeClock(NOW);
@@ -839,7 +875,16 @@ describe('start', () => {
             clock,
             rePlanHourLocal: 20,
             siteTimezone: 'UTC',
-            runPlan: async () => ({ entries: [], projectedNextDepletionMm: 7.5 }),
+            runPlan: async () => ({ entries: [], projectedNextDepletionMm: 999 }),
+            getWeather: async () => ({
+                daily: [],
+                hourly: [
+                    { time: dayjs('2026-05-04T10:00:00Z'), precipitationMm: 0, evapotranspirationMm: 1 },
+                    { time: dayjs('2026-05-04T15:00:00Z'), precipitationMm: 0, evapotranspirationMm: 1 },
+                    // Outside the window — must be ignored.
+                    { time: dayjs('2026-05-04T06:00:00Z'), precipitationMm: 99, evapotranspirationMm: 99 },
+                ],
+            }),
             openZone: async () => {},
             closeZone: async () => {},
         });
@@ -849,8 +894,81 @@ describe('start', () => {
 
         expect(stub.depletionAdvances).toHaveLength(1);
         expect(stub.depletionAdvances[0]?.zoneId).toBe('zone-001');
-        expect(stub.depletionAdvances[0]?.depletionMm).toBe(7.5);
+        expect(stub.depletionAdvances[0]?.depletionMm).toBeCloseTo(7, 6);
         expect(stub.depletionAdvances[0]?.reconciledAt).toBeInstanceOf(Date);
+    });
+
+    it('on first tick with null currentDepletionReconciledAt, stamps the timestamp without changing depletion (API-79)', async () => {
+        // Fresh-seed zone — no prior anchor for the window. The tick should
+        // write the same depletion value plus a reconciledAt timestamp; the
+        // next tick will use that anchor for actual math.
+        const enabledRow = buildJoinedRow({
+            zone: {
+                id: 'zone-001',
+                currentDepletionMm: 12.4,
+                currentDepletionReconciledAt: null,
+            },
+        });
+        const stub = createDaemonReposStub({ enabledZones: [enabledRow] });
+        bootDaemonService({ repos: stub.repos, alertsDb: stub.alertsDb });
+        const { clock, advanceTo } = createFakeClock(NOW);
+
+        await start({
+            clock,
+            rePlanHourLocal: 20,
+            siteTimezone: 'UTC',
+            runPlan: async () => ({ entries: [], projectedNextDepletionMm: 999 }),
+            // Even with heavy rain in the hourly stub, the null reconciledAt
+            // path skips the math.
+            getWeather: async () => ({
+                daily: [],
+                hourly: [
+                    { time: dayjs('2026-05-04T15:00:00Z'), precipitationMm: 50, evapotranspirationMm: 0 },
+                ],
+            }),
+            openZone: async () => {},
+            closeZone: async () => {},
+        });
+
+        await advanceTo(new Date('2026-05-04T20:00:01.000Z'));
+
+        expect(stub.depletionAdvances).toHaveLength(1);
+        expect(stub.depletionAdvances[0]?.depletionMm).toBeCloseTo(12.4, 6);
+        expect(stub.depletionAdvances[0]?.reconciledAt).toBeInstanceOf(Date);
+    });
+
+    it('clamps depletion to zero when rain exceeds the deficit (API-79)', async () => {
+        const reconciledAt = new Date('2026-05-04T08:00:00.000Z');
+        const enabledRow = buildJoinedRow({
+            zone: {
+                id: 'zone-001',
+                currentDepletionMm: 3,
+                currentDepletionReconciledAt: reconciledAt,
+            },
+        });
+        const stub = createDaemonReposStub({ enabledZones: [enabledRow] });
+        bootDaemonService({ repos: stub.repos, alertsDb: stub.alertsDb });
+        const { clock, advanceTo } = createFakeClock(NOW);
+
+        await start({
+            clock,
+            rePlanHourLocal: 20,
+            siteTimezone: 'UTC',
+            runPlan: async () => ({ entries: [], projectedNextDepletionMm: 999 }),
+            getWeather: async () => ({
+                daily: [],
+                hourly: [
+                    { time: dayjs('2026-05-04T15:00:00Z'), precipitationMm: 25, evapotranspirationMm: 1 },
+                ],
+            }),
+            openZone: async () => {},
+            closeZone: async () => {},
+        });
+
+        await advanceTo(new Date('2026-05-04T20:00:01.000Z'));
+
+        expect(stub.depletionAdvances).toHaveLength(1);
+        expect(stub.depletionAdvances[0]?.depletionMm).toBe(0);
     });
 
     it('two consecutive operator rePlan() calls produce no depletionAdvances (API-71 regression)', async () => {
