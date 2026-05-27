@@ -63,12 +63,13 @@ export interface ZonesRepository {
     loadLatestFires(): Promise<LatestZoneFire[]>;
 
     /**
-     * Writes `current_depletion_mm` for the zone. Called by the daemon on two
-     * paths: (1) the nightly scheduled re-plan, which persists
-     * `projectedNextDepletionMm` as the next morning's starting depletion; and
-     * (2) `runClose`, which resets depletion to 0 after irrigation actually fires.
+     * Writes `current_depletion_mm` for the zone alongside the reconciliation
+     * timestamp that anchors the [since, now) window used by the next
+     * morning/evening reconciler tick. Callers should pass `clock.now()` (or
+     * an equivalent) so the window math stays accurate across daemon
+     * restarts.
      */
-    advanceDepletion(zoneId: string, depletionMm: number): Promise<void>;
+    advanceDepletion(zoneId: string, depletionMm: number, reconciledAt: Date): Promise<void>;
 }
 
 /**
@@ -161,9 +162,11 @@ export function createZonesRepository(db: Database): ZonesRepository {
             }));
         },
 
-        advanceDepletion: async (zoneId, depletionMm) => {
-            await db.update(zones).set({ currentDepletionMm: depletionMm }).where(eq(zones.id, zoneId));
-            console.log(`zones: advanced current_depletion_mm=${depletionMm} for zone ${zoneId}.`);
+        advanceDepletion: async (zoneId, depletionMm, reconciledAt) => {
+            await db.update(zones)
+                .set({ currentDepletionMm: depletionMm, currentDepletionReconciledAt: reconciledAt })
+                .where(eq(zones.id, zoneId));
+            console.log(`zones: advanced current_depletion_mm=${depletionMm} reconciled_at=${reconciledAt.toISOString()} for zone ${zoneId}.`);
         },
     };
 }
@@ -204,6 +207,7 @@ export function joinedRowToZone(row: ZoneJoinedRow): Zone {
         areaM2: row.zone.areaM2,
         precipitationRateMmPerHr: row.zone.precipitationRateMmPerHr ?? undefined,
         currentDepletionMm: row.zone.currentDepletionMm,
+        currentDepletionReconciledAt: row.zone.currentDepletionReconciledAt ?? undefined,
         siteId: row.zone.siteId,
         siteTimezone: row.site.timezone,
         isEnabled: row.zone.isEnabled,

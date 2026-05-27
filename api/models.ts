@@ -90,6 +90,9 @@ export type Zone = {
     /** Required. The current soil moisture deficit (0 = full). */
     currentDepletionMm: number;
 
+    /** Optional. Timestamp of the last reconciliation write to `currentDepletionMm`. Anchors the [since, now) window used by the morning/evening reconcilers to sum weather and actuation history. Null for freshly-seeded zones; the first reconciler tick stamps it and skips the math. */
+    currentDepletionReconciledAt?: Date;
+
     /** Required. The ID of the site this zone belongs to. */
     siteId: string;
 

@@ -455,27 +455,33 @@ function stubUpdateDb(): { db: Database; updateCalls: Array<{ table: unknown; va
 }
 
 describe('createZonesRepository.advanceDepletion', () => {
-    it('issues a single UPDATE on zones with the supplied depletionMm value', async () => {
+    it('issues a single UPDATE on zones with the supplied depletionMm and reconciledAt values', async () => {
         const { db, updateCalls } = stubUpdateDb();
         const repo = createZonesRepository(db);
+        const reconciledAt = new Date('2026-05-04T08:00:00.000Z');
 
-        await repo.advanceDepletion('zone-001', 7.5);
+        await repo.advanceDepletion('zone-001', 7.5, reconciledAt);
 
         expect(updateCalls).toHaveLength(1);
         expect(updateCalls[0]?.table).toBe(zones);
-        expect(updateCalls[0]?.values).toEqual({ currentDepletionMm: 7.5 });
+        expect(updateCalls[0]?.values).toEqual({
+            currentDepletionMm: 7.5,
+            currentDepletionReconciledAt: reconciledAt,
+        });
     });
 
     it('issues a separate UPDATE for each call (two zones produce two updates)', async () => {
         const { db, updateCalls } = stubUpdateDb();
         const repo = createZonesRepository(db);
+        const t1 = new Date('2026-05-04T08:00:00.000Z');
+        const t2 = new Date('2026-05-04T20:00:00.000Z');
 
-        await repo.advanceDepletion('zone-A', 3.2);
-        await repo.advanceDepletion('zone-B', 0);
+        await repo.advanceDepletion('zone-A', 3.2, t1);
+        await repo.advanceDepletion('zone-B', 0, t2);
 
         expect(updateCalls).toHaveLength(2);
-        expect(updateCalls[0]?.values).toEqual({ currentDepletionMm: 3.2 });
-        expect(updateCalls[1]?.values).toEqual({ currentDepletionMm: 0 });
+        expect(updateCalls[0]?.values).toEqual({ currentDepletionMm: 3.2, currentDepletionReconciledAt: t1 });
+        expect(updateCalls[1]?.values).toEqual({ currentDepletionMm: 0, currentDepletionReconciledAt: t2 });
     });
 });
 

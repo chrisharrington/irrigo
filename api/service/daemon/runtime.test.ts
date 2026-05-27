@@ -112,7 +112,7 @@ function recordingScheduleEntriesRepo(): { repo: ScheduleEntriesRepository; upda
     return { repo, updates };
 }
 
-function defaultRepos(scheduleEntries: ScheduleEntriesRepository, onAdvanceDepletion?: (zoneId: string, mm: number) => void): DaemonServiceRepos {
+function defaultRepos(scheduleEntries: ScheduleEntriesRepository, onAdvanceDepletion?: (zoneId: string, mm: number, reconciledAt: Date) => void): DaemonServiceRepos {
     return {
         zones: {
             loadEnabled: async () => [],
@@ -120,7 +120,7 @@ function defaultRepos(scheduleEntries: ScheduleEntriesRepository, onAdvanceDeple
             count: async () => ({ total: 0, enabled: 0 }),
             loadJoinedRowsForSummary: async () => [],
             loadLatestFires: async () => [],
-            advanceDepletion: async (zoneId, mm) => { onAdvanceDepletion?.(zoneId, mm); },
+            advanceDepletion: async (zoneId, mm, reconciledAt) => { onAdvanceDepletion?.(zoneId, mm, reconciledAt); },
         },
         sites: { loadTimezone: async () => 'UTC' },
         schedules: {
@@ -244,14 +244,14 @@ describe('armCycle', () => {
         expect(calls.some(c => c.event === 'schedule-begun')).toBe(true);
     });
 
-    it('calls advanceDepletion(zone.id, 0) on the zones repo after the relay closes', async () => {
+    it('calls advanceDepletion(zone.id, 0, closedAt) on the zones repo after the relay closes', async () => {
         const { clock, advanceTo } = createFakeClock(NOW);
         const registry = new TimerRegistry();
         const { notifier } = recordingNotifier();
         const { alerter } = recordingAlerter();
         const { repo } = recordingScheduleEntriesRepo();
-        const depletionAdvances: Array<{ zoneId: string; mm: number }> = [];
-        setDaemonRepos({ repos: defaultRepos(repo, (zoneId, mm) => depletionAdvances.push({ zoneId, mm })) });
+        const depletionAdvances: Array<{ zoneId: string; mm: number; reconciledAt: Date }> = [];
+        setDaemonRepos({ repos: defaultRepos(repo, (zoneId, mm, reconciledAt) => depletionAdvances.push({ zoneId, mm, reconciledAt })) });
 
         armCycle({
             clock,
@@ -267,7 +267,9 @@ describe('armCycle', () => {
         await advanceTo(new Date('2026-05-04T13:05:01.000Z'));
 
         expect(depletionAdvances).toHaveLength(1);
-        expect(depletionAdvances[0]).toEqual({ zoneId: 'zone-depletion', mm: 0 });
+        expect(depletionAdvances[0]?.zoneId).toBe('zone-depletion');
+        expect(depletionAdvances[0]?.mm).toBe(0);
+        expect(depletionAdvances[0]?.reconciledAt).toBeInstanceOf(Date);
     });
 
     it('records HA open-failure alert and skips firedAt write on openZone error', async () => {

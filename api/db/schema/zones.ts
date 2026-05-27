@@ -1,5 +1,5 @@
 import { sql } from 'drizzle-orm';
-import { boolean, check, doublePrecision, pgTable, real, text, uuid } from 'drizzle-orm/pg-core';
+import { boolean, check, doublePrecision, pgTable, real, text, timestamp, uuid } from 'drizzle-orm/pg-core';
 import { auditColumns } from './audit-columns';
 import { grassTypes } from './grass-types';
 import { sites } from './sites';
@@ -19,6 +19,7 @@ export const zones = pgTable('zones', {
     areaM2: real('area_m2').notNull(),
     precipitationRateMmPerHr: real('precipitation_rate_mm_per_hr'),
     currentDepletionMm: real('current_depletion_mm').notNull().default(0),
+    currentDepletionReconciledAt: timestamp('current_depletion_reconciled_at', { withTimezone: true }),
     isEnabled: boolean('is_enabled').notNull().default(true),
     latitude: doublePrecision('latitude'),
     longitude: doublePrecision('longitude'),

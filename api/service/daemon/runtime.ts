@@ -234,7 +234,7 @@ async function runClose(inputs: RunCloseInputs): Promise<void> {
 
     const closedAt = clock.now();
     await getScheduleEntriesRepo().markCycleClosed(cycle.id, closedAt);
-    await getZonesRepo().advanceDepletion(zone.id, 0);
+    await getZonesRepo().advanceDepletion(zone.id, 0, closedAt);
     registry.clearInFlight(cycle.id);
     console.log(`daemon: closed zone ${zone.id} for cycle ${cycle.id} at ${closedAt.toISOString()}.`);
 

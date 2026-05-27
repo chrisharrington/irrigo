@@ -223,7 +223,7 @@ type DaemonStubInputs = {
 
 function createDaemonReposStub(inputs?: DaemonStubInputs) {
     const cycleUpdates: CycleUpdate[] = [];
-    const depletionAdvances: Array<{ zoneId: string; depletionMm: number }> = [];
+    const depletionAdvances: Array<{ zoneId: string; depletionMm: number; reconciledAt: Date }> = [];
     const inserts: InsertCall[] = [];
     const deletes: Array<{ table: unknown }> = [];
     const weatherStateUpserts: Array<Record<string, unknown>> = [];
@@ -269,10 +269,13 @@ function createDaemonReposStub(inputs?: DaemonStubInputs) {
         count: async () => counts,
         loadJoinedRowsForSummary: async () => [],
         loadLatestFires: async () => [],
-        advanceDepletion: async (zoneId, depletionMm) => {
-            depletionAdvances.push({ zoneId, depletionMm });
+        advanceDepletion: async (zoneId, depletionMm, reconciledAt) => {
+            depletionAdvances.push({ zoneId, depletionMm, reconciledAt });
             for (const row of enabledZoneRows) {
-                if (row.zone.id === zoneId) row.zone.currentDepletionMm = depletionMm;
+                if (row.zone.id === zoneId) {
+                    row.zone.currentDepletionMm = depletionMm;
+                    row.zone.currentDepletionReconciledAt = reconciledAt;
+                }
             }
         },
     };
@@ -844,9 +847,10 @@ describe('start', () => {
         // Advance past the nightly re-plan tick (20:00 UTC, 8h from NOW=12:00).
         await advanceTo(new Date('2026-05-04T20:00:01.000Z'));
 
-        expect(stub.depletionAdvances).toEqual([
-            { zoneId: 'zone-001', depletionMm: 7.5 },
-        ]);
+        expect(stub.depletionAdvances).toHaveLength(1);
+        expect(stub.depletionAdvances[0]?.zoneId).toBe('zone-001');
+        expect(stub.depletionAdvances[0]?.depletionMm).toBe(7.5);
+        expect(stub.depletionAdvances[0]?.reconciledAt).toBeInstanceOf(Date);
     });
 
     it('two consecutive operator rePlan() calls produce no depletionAdvances (API-71 regression)', async () => {

@@ -238,7 +238,7 @@ export async function start(options?: DaemonOptions): Promise<DaemonControl> {
                 // Operator replans (isScheduledTick=false) are intentionally
                 // idempotent — they plan against current state without mutating it.
                 if (isScheduledTick) {
-                    await zonesRepo.advanceDepletion(zone.id, projectedNextDepletionMm);
+                    await zonesRepo.advanceDepletion(zone.id, projectedNextDepletionMm, clock.now());
                 }
                 for (const cycle of cycles) {
                     const cycleEnd = new Date(cycle.startTime.getTime() + cycle.durationMin * 60_000);
