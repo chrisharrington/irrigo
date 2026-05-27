@@ -1,7 +1,47 @@
 import { fireEvent, render, screen } from '@testing-library/react-native';
 import { StyleSheet, View } from 'react-native';
 
-import { Toggle } from '.';
+import { Toggle, computeToggleGeometry } from '.';
+
+describe('computeToggleGeometry', () => {
+    it('returns the documented default-size geometry.', () => {
+        expect(computeToggleGeometry('default')).toEqual({
+            width: 44,
+            height: 26,
+            thumbSize: 18,
+            thumbInset: 4,
+            thumbTravel: 18,
+        });
+    });
+
+    it('returns the documented lg-size geometry.', () => {
+        expect(computeToggleGeometry('lg')).toEqual({
+            width: 54,
+            height: 30,
+            thumbSize: 22,
+            thumbInset: 4,
+            thumbTravel: 24,
+        });
+    });
+
+    it.each(['default', 'lg'] as const)(
+        'centers the %s-size thumb vertically (top space equals bottom space) (APP-65).',
+        (size) => {
+            const g = computeToggleGeometry(size);
+            const bottomSpace = g.height - g.thumbInset - g.thumbSize;
+            expect(g.thumbInset).toBe(bottomSpace);
+        },
+    );
+
+    it.each(['default', 'lg'] as const)(
+        'matches the %s-size off-state left gap to the on-state right gap (APP-65).',
+        (size) => {
+            const g = computeToggleGeometry(size);
+            const onStateRightGap = g.width - g.thumbInset - g.thumbTravel - g.thumbSize;
+            expect(g.thumbInset).toBe(onStateRightGap);
+        },
+    );
+});
 
 describe('Toggle', () => {
     it('exposes the switch role with the supplied accessibility label.', () => {
