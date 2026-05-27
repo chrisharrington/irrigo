@@ -18,6 +18,8 @@ import { runScheduleForZone, type RunScheduleForZoneOptions } from '@/schedules'
 import type { PlanZoneScheduleResult } from '@/schedules/dynamic';
 import { getSystemState } from '@/service/system';
 import { advanceFromObservedWeather, reconcileFromActuationHistory } from './depletion';
+import { pickNextTick, pickUpcomingSunrise, type TickKind } from './scheduling';
+export { computeNextMorningAt, computeNextRePlanAt, type TickKind } from './scheduling';
 import { reconcileCycleAndRelayState, type ReconcileSummary } from './reconcile';
 import {
     armCloseOnly,
@@ -96,14 +98,6 @@ export type DaemonOptions = {
     notifier?: Notifier;
     alerter?: Alerter;
 };
-
-/**
- * Distinguishes the daemon's two scheduled ticks. The morning tick
- * (~sunrise+60min) reconciles depletion against actual HA actuation history
- * for the prior night; the evening tick (20:00 local) advances depletion
- * through the day's observed weather and forward-plans tonight's cycles.
- */
-type TickKind = 'morning' | 'evening';
 
 const DEFAULT_MORNING_TICK_MINUTES_AFTER_SUNRISE = 60;
 
@@ -208,18 +202,6 @@ export async function start(options?: DaemonOptions): Promise<DaemonControl> {
     // subsequent successful weather fetch.
     let latestKnownSunrise: Date | null = null;
 
-    // Picks the soonest sunrise from a `daily` array whose `sunrise+offset`
-    // is still in the future relative to `at`. Returns null if no entry
-    // qualifies (e.g. the last day of the horizon already morning-ticked).
-    const pickUpcomingSunrise = (daily: ReadonlyArray<{ sunrise?: dayjs.Dayjs }>, at: Date): Date | null => {
-        const thresholdMs = at.getTime() - morningTickMinutesAfterSunrise * 60_000;
-        for (const day of daily) {
-            const candidate = day.sunrise?.toDate();
-            if (candidate && candidate.getTime() > thresholdMs) return candidate;
-        }
-        return null;
-    };
-
     // Boot weather fetch — seeds latestKnownSunrise so the first
     // scheduleNextTick can pick a morning tick. Fire-and-forget tolerance:
     // if the fetch fails, the daemon still boots and schedules an evening
@@ -229,7 +211,7 @@ export async function start(options?: DaemonOptions): Promise<DaemonControl> {
     if (bootSeedZone) {
         try {
             const bootWeather = await getWeather(bootSeedZone);
-            latestKnownSunrise = pickUpcomingSunrise(bootWeather.daily, clock.now());
+            latestKnownSunrise = pickUpcomingSunrise(bootWeather.daily, clock.now(), morningTickMinutesAfterSunrise);
             console.log(`daemon: boot weather fetch ok — latestKnownSunrise=${latestKnownSunrise?.toISOString() ?? 'null'}.`);
         } catch (err) {
             console.warn(`daemon: boot weather fetch failed; morning tick will be scheduled after the first successful in-tick fetch.`, err);
@@ -237,13 +219,15 @@ export async function start(options?: DaemonOptions): Promise<DaemonControl> {
     }
 
     const scheduleNextTick = (): void => {
-        const now = clock.now();
-        const nextEvening = computeNextRePlanAt(now, rePlanHourLocal, siteTimezone);
-        const nextMorning = computeNextMorningAt(now, latestKnownSunrise, morningTickMinutesAfterSunrise);
-        const next = nextMorning !== null && nextMorning.getTime() < nextEvening.getTime() ? nextMorning : nextEvening;
-        const kind: TickKind = next === nextMorning ? 'morning' : 'evening';
-        const delay = Math.max(0, next.getTime() - now.getTime());
-        console.log(`daemon: next tick (${kind}) scheduled at ${next.toISOString()} (${delay}ms from now).`);
+        const { kind, at } = pickNextTick({
+            now: clock.now(),
+            eveningHourLocal: rePlanHourLocal,
+            siteTimezone,
+            latestKnownSunrise,
+            morningOffsetMinutes: morningTickMinutesAfterSunrise,
+        });
+        const delay = Math.max(0, at.getTime() - clock.now().getTime());
+        console.log(`daemon: next tick (${kind}) scheduled at ${at.toISOString()} (${delay}ms from now).`);
         const handle = clock.setTimeout(() => {
             _rePlan(kind, true).catch(err => {
                 console.error('daemon: unhandled error in scheduled re-plan.', err);
@@ -300,7 +284,7 @@ export async function start(options?: DaemonOptions): Promise<DaemonControl> {
                 const weather = await getWeather(zone);
                 // Refresh the morning-tick anchor with the soonest upcoming
                 // sunrise still inside the offset window.
-                const upcoming = pickUpcomingSunrise(weather.daily, tickNow);
+                const upcoming = pickUpcomingSunrise(weather.daily, tickNow, morningTickMinutesAfterSunrise);
                 if (upcoming) latestKnownSunrise = upcoming;
 
                 let newDepletionMm = zone.currentDepletionMm;
@@ -448,32 +432,6 @@ export async function start(options?: DaemonOptions): Promise<DaemonControl> {
     return { rePlan, shutdown, getStatus };
 }
 
-/**
- * Returns the next wall-clock occurrence of `hourLocal:00` after `now`,
- * resolved against the supplied IANA timezone. Pure function exported so the
- * scheduling math is unit-testable directly.
- */
-export function computeNextRePlanAt(now: Date, hourLocal: number, tz: string): Date {
-    const ref = dayjs(now).tz(tz);
-    const todayAtHour = ref.hour(hourLocal).minute(0).second(0).millisecond(0);
-    const next = todayAtHour.isAfter(ref) ? todayAtHour : todayAtHour.add(1, 'day');
-    return next.toDate();
-}
-
-/**
- * Returns `sunrise + offsetMinutes` if that instant is still in the future
- * relative to `now`; otherwise `null`. Used by `scheduleNextTick` to pick
- * between the morning reconciliation tick and the evening forward-plan tick.
- * When the latest known sunrise has already passed (or no sunrise has been
- * observed yet), the daemon falls back to scheduling the evening tick only,
- * and the next successful weather fetch refreshes the morning anchor.
- */
-export function computeNextMorningAt(now: Date, sunrise: Date | null, offsetMinutes: number): Date | null {
-    if (sunrise === null) return null;
-    const candidate = new Date(sunrise.getTime() + offsetMinutes * 60_000);
-    if (candidate.getTime() <= now.getTime()) return null;
-    return candidate;
-}
 
 /**
  * Tagged cycle ready for `armCycle`. Marker fields decide whether the runtime
