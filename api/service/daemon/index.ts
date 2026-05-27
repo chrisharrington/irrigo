@@ -1,7 +1,7 @@
 import dayjs from 'dayjs';
 import utc from 'dayjs/plugin/utc';
 import timezone from 'dayjs/plugin/timezone';
-import { clearAlertsByClass, noopAlerter, type Alerter } from '@/alerts';
+import { noopAlerter, type Alerter } from '@/alerts';
 import {
     closeZone as defaultCloseZone,
     getZoneActuationHistory as defaultGetZoneActuationHistory,
@@ -10,16 +10,16 @@ import {
     type ZoneActuationInterval,
     type ZoneRelayState,
 } from '@/data/home-assistant';
-import { getWeatherData, sumHourlyWeatherBetween } from '@/data/weather';
-import type { IrrigationScheduleEntry, WeatherData, Zone } from '@/models';
+import { getWeatherData } from '@/data/weather';
+import type { WeatherData, Zone } from '@/models';
 import type { PersistedCycle } from '@/models/cycle';
 import { noopNotifier, type Notifier } from '@/notifications';
 import { runScheduleForZone, type RunScheduleForZoneOptions } from '@/schedules';
 import type { PlanZoneScheduleResult } from '@/schedules/dynamic';
 import { getSystemState } from '@/service/system';
-import { advanceFromObservedWeather, reconcileFromActuationHistory } from './depletion';
-import { pickNextTick, pickUpcomingSunrise, type TickKind } from './scheduling';
+import { pickNextTick, pickUpcomingSunrise } from './scheduling';
 export { computeNextMorningAt, computeNextRePlanAt, type TickKind } from './scheduling';
+import { runTickForZone } from './tick';
 import { reconcileCycleAndRelayState, type ReconcileSummary } from './reconcile';
 import {
     armCloseOnly,
@@ -236,12 +236,18 @@ export async function start(options?: DaemonOptions): Promise<DaemonControl> {
         registry.setRePlanHandle(handle);
     };
 
+    const tickDeps = {
+        clock, alerter,
+        runPlan, getWeather, getZoneActuationHistory,
+        zonesRepo, scheduleEntriesRepo, weatherStateRepo, getAlertsDb,
+    };
+
     // Private implementation. `isScheduledTick` distinguishes the nightly
     // daemon-scheduled re-plan (which writes a reality-derived depletion via
     // the morning HA-history or evening observed-weather path, see API-79)
     // from operator-triggered replans (idempotent, no zone mutation; see
     // API-71). `tickKind` selects morning vs. evening math.
-    const _rePlan = async (tickKind: TickKind, isScheduledTick: boolean): Promise<void> => {
+    const _rePlan = async (tickKind: 'morning' | 'evening', isScheduledTick: boolean): Promise<void> => {
         console.log(`daemon: re-plan starting (kind=${tickKind}, scheduled=${isScheduledTick}).`);
         registry.cancelOpenTimers(clock);
 
@@ -270,132 +276,21 @@ export async function start(options?: DaemonOptions): Promise<DaemonControl> {
         const cyclesToArm: Array<{ zone: Zone; cycle: PersistedCycle }> = [];
 
         for (const zone of enabledZones) {
-            const activeSchedule = activeSchedulesBySite.get(zone.siteId);
-
-            try {
-                // Reality-derived depletion advance. Morning ticks reconcile
-                // against actual HA actuation history (subtracts applied
-                // depth); evening ticks advance through observed weather only
-                // (no irrigation has fired since the morning anchor). A null
-                // reconciledAt (fresh seed) is stamped without math — first
-                // tick calibrates the clock, subsequent ticks roll forward.
-                // See API-79.
-                const tickNow = clock.now();
-                const weather = await getWeather(zone);
-                // Refresh the morning-tick anchor with the soonest upcoming
-                // sunrise still inside the offset window.
-                const upcoming = pickUpcomingSunrise(weather.daily, tickNow, morningTickMinutesAfterSunrise);
-                if (upcoming) latestKnownSunrise = upcoming;
-
-                let newDepletionMm = zone.currentDepletionMm;
-                if (isScheduledTick) {
-                    if (zone.currentDepletionReconciledAt) {
-                        const weatherDelta = sumHourlyWeatherBetween(
-                            weather.hourly, zone.currentDepletionReconciledAt, tickNow,
-                        );
-                        if (tickKind === 'morning') {
-                            let history: ZoneActuationInterval[] = [];
-                            try {
-                                history = await getZoneActuationHistory(zone, zone.currentDepletionReconciledAt, tickNow);
-                            } catch (err) {
-                                const reason = err instanceof Error ? err.message : String(err);
-                                console.error(`daemon: HA actuation history fetch failed for zone ${zone.id}; falling through to weather-only advance.`, err);
-                                await alerter({
-                                    class: 'actuation-stale',
-                                    tone: 'warn',
-                                    title: 'HA actuation history stale',
-                                    sub: `Depletion advanced from weather only. Last fetch error: ${reason}.`,
-                                    zoneId: zone.id,
-                                    zoneName: zone.name,
-                                });
-                            }
-                            const result = reconcileFromActuationHistory({
-                                previousDepletionMm: zone.currentDepletionMm,
-                                weatherDelta,
-                                history,
-                                precipitationRateMmPerHr: zone.precipitationRateMmPerHr,
-                            });
-                            newDepletionMm = result.newDepletionMm;
-                            console.log(`daemon: zone ${zone.id} morning reconcile — rain=${weatherDelta.rainMm.toFixed(2)}mm, ET=${weatherDelta.etMm.toFixed(2)}mm, applied=${result.appliedDepthMm.toFixed(2)}mm, depletion=${zone.currentDepletionMm.toFixed(2)}→${newDepletionMm.toFixed(2)}mm.`);
-                        } else {
-                            newDepletionMm = advanceFromObservedWeather({
-                                previousDepletionMm: zone.currentDepletionMm,
-                                weatherDelta,
-                            });
-                            console.log(`daemon: zone ${zone.id} evening weather advance — rain=${weatherDelta.rainMm.toFixed(2)}mm, ET=${weatherDelta.etMm.toFixed(2)}mm, depletion=${zone.currentDepletionMm.toFixed(2)}→${newDepletionMm.toFixed(2)}mm.`);
-                        }
-                    } else {
-                        console.log(`daemon: zone ${zone.id} has null currentDepletionReconciledAt — stamping ${tickNow.toISOString()} without advancing depletion.`);
-                    }
-                    // Persist the reality-derived depletion + the new anchor
-                    // immediately. Planning runs afterward; if it skips (kill
-                    // switch off, no active schedule), the reconciliation
-                    // still landed.
-                    await zonesRepo.advanceDepletion(zone.id, newDepletionMm, tickNow);
-                }
-
-                // Successful weather fetch — refresh the staleness timestamp
-                // and clear any lingering unacked weather-stale alert.
-                const alertsDb = getAlertsDb();
-                await Promise.all([
-                    weatherStateRepo.markFetchSuccessful(clock.now()),
-                    alertsDb ? clearAlertsByClass(alertsDb, 'weather-stale') : Promise.resolve(),
-                ]);
-
-                // Planning + arming portion. Skipped when irrigation is
-                // disabled (kill switch off) or the zone's site has no
-                // active schedule.
-                if (!irrigationEnabled) continue;
-                if (!activeSchedule) {
-                    console.warn(`daemon: no active schedule for site ${zone.siteId} — skipping plan/arm of zone ${zone.id} (${zone.name}).`);
-                    continue;
-                }
-
-                const restrictions = {
-                    allowedDays: activeSchedule.allowedDays,
-                    allowedTimeWindows: activeSchedule.allowedTimeWindows,
-                    endBySunrise: activeSchedule.endBySunrise ?? false,
-                    skippedNightDate: activeSchedule.skippedNightDate ?? null,
-                };
-                const overrides = {
-                    rootDepthM: activeSchedule.rootDepthMOverride ?? undefined,
-                    allowableDepletionFraction: activeSchedule.allowableDepletionFractionOverride ?? undefined,
-                };
-                const planningZone = isScheduledTick
-                    ? { ...zone, currentDepletionMm: newDepletionMm, currentDepletionReconciledAt: tickNow }
-                    : zone;
-                const { entries } = await runPlan(planningZone, {
-                    busyWindows: [pastWindow, ...busyWindows],
-                    restrictions,
-                    overrides,
-                    forecastDays: 14,
-                });
-                const { cycles } = await scheduleEntriesRepo.replaceForZone(
-                    zone.id, entries, today, activeSchedule.id,
-                );
-                for (const cycle of cycles) {
-                    const cycleEnd = new Date(cycle.startTime.getTime() + cycle.durationMin * 60_000);
-                    const overlaps = busyWindows.some(w => cycle.startTime < w.end && cycleEnd > w.start);
-                    if (overlaps) {
-                        console.warn(`daemon: cycle ${cycle.id} for zone ${zone.id} (${zone.name}) overlaps a busy window — not arming.`);
-                        continue;
-                    }
-                    cyclesToArm.push({ zone, cycle });
-                    busyWindows.push({ start: cycle.startTime, end: cycleEnd });
-                }
-            } catch (err) {
-                const reason = err instanceof Error ? err.message : String(err);
-                console.error(`daemon: re-plan failed for zone ${zone.id}.`, err);
-                if (await weatherStateRepo.isStale(clock.now())) {
-                    await alerter({
-                        class: 'weather-stale',
-                        tone: 'warn',
-                        title: 'Weather API stale',
-                        sub: `Planner using fallback ET zero. Last fetch error: ${reason}.`,
-                        zoneName: zone.name,
-                    });
-                }
-            }
+            const result = await runTickForZone({
+                zone,
+                activeSchedule: activeSchedulesBySite.get(zone.siteId),
+                today,
+                busyWindows,
+                pastWindow,
+                tickKind,
+                isScheduledTick,
+                irrigationEnabled,
+                morningTickMinutesAfterSunrise,
+                deps: tickDeps,
+            });
+            if (result.observedSunrise) latestKnownSunrise = result.observedSunrise;
+            cyclesToArm.push(...result.cyclesToArm);
+            busyWindows.push(...result.newBusyWindows);
         }
 
         armCyclesWithScheduleMarkers(cyclesToArm, siteTimezone, ({ zone, cycle, scheduleStart, scheduleEnd }) => {
