@@ -19,7 +19,7 @@ import { joinedRowToZone } from '@/repositories/zones';
 import { planZoneSchedule } from '@/schedules/dynamic';
 import type { NotificationContext, NotificationEvent, Notifier } from '@/notifications';
 import { bootSystemService } from '@/service/system';
-import { bootDaemonService, computeNextRePlanAt, start } from '.';
+import { bootDaemonService, computeNextMorningAt, computeNextRePlanAt, start } from '.';
 import type { Clock, TimerHandle } from './runtime';
 
 const NOW = new Date('2026-05-04T12:00:00.000Z');
@@ -476,6 +476,38 @@ describe('computeNextRePlanAt', () => {
     });
 });
 
+describe('computeNextMorningAt', () => {
+    it('returns sunrise + offset minutes when that instant is in the future', () => {
+        const now = new Date('2026-05-24T04:00:00.000Z');
+        const sunrise = new Date('2026-05-24T11:41:00.000Z');
+        const next = computeNextMorningAt(now, sunrise, 60);
+
+        expect(next?.toISOString()).toBe('2026-05-24T12:41:00.000Z');
+    });
+
+    it('returns null when sunrise is null (no anchor known yet)', () => {
+        const next = computeNextMorningAt(new Date('2026-05-24T04:00:00.000Z'), null, 60);
+
+        expect(next).toBeNull();
+    });
+
+    it('returns null when sunrise + offset is already in the past', () => {
+        const now = new Date('2026-05-24T18:00:00.000Z');
+        const sunrise = new Date('2026-05-24T11:41:00.000Z');
+        const next = computeNextMorningAt(now, sunrise, 60);
+
+        expect(next).toBeNull();
+    });
+
+    it('respects a non-default offset', () => {
+        const now = new Date('2026-05-24T04:00:00.000Z');
+        const sunrise = new Date('2026-05-24T11:41:00.000Z');
+        const next = computeNextMorningAt(now, sunrise, 30);
+
+        expect(next?.toISOString()).toBe('2026-05-24T12:11:00.000Z');
+    });
+});
+
 describe('start', () => {
     // Default the system kill-switch to enabled for every test. Kill-switch
     // tests below override this with their own bootSystemService call.
@@ -650,7 +682,7 @@ describe('start', () => {
         expect(stub.alertTableUpdates[0]!.set).toEqual({ ack: true });
     });
 
-    it('rePlan() records a weather-stale alert when the planner throws and no recent fetch is on record', async () => {
+    it('rePlan() records a weather-stale alert when getWeather throws and no recent fetch is on record', async () => {
         const enabledRows = [buildJoinedRow({ zone: { id: 'zone-bad', name: 'North' } })];
         const stub = createDaemonReposStub({ enabledZones: enabledRows });
         bootDaemonService({ repos: stub.repos, alertsDb: stub.alertsDb });
@@ -660,7 +692,8 @@ describe('start', () => {
         const control = await start({
             clock,
             rePlanHourLocal: 4,
-            runPlan: async () => { throw new Error('weather: Open-Meteo network error'); },
+            runPlan: async () => ({ entries: [], projectedNextDepletionMm: 0 }),
+            getWeather: async () => { throw new Error('weather: Open-Meteo network error'); },
             getZoneState: async () => 'off',
             openZone: async () => {},
             closeZone: async () => {},
@@ -688,7 +721,8 @@ describe('start', () => {
         const control = await start({
             clock,
             rePlanHourLocal: 4,
-            runPlan: async () => { throw new Error('transient error'); },
+            runPlan: async () => ({ entries: [], projectedNextDepletionMm: 0 }),
+            getWeather: async () => { throw new Error('transient error'); },
             getZoneState: async () => 'off',
             openZone: async () => {},
             closeZone: async () => {},
@@ -969,6 +1003,203 @@ describe('start', () => {
 
         expect(stub.depletionAdvances).toHaveLength(1);
         expect(stub.depletionAdvances[0]?.depletionMm).toBe(0);
+    });
+
+    it('morning tick reconciles depletion against HA actuation history including applied depth (API-79)', async () => {
+        // Sunrise at 11:41 UTC; next morning tick fires at sunrise+60min =
+        // 12:41 UTC. The morning weather fetch reports today's sunrise, the
+        // hourly array sums to 1 mm ET / 0 mm rain over the window, and HA
+        // history shows two 30-minute cycles at 9 mm/hr = 9 mm applied.
+        // 10 + 1 - 0 - 9 = 2 mm
+        const reconciledAt = new Date('2026-05-04T08:00:00.000Z');
+        const sunrise = dayjs('2026-05-04T11:41:00Z');
+        const enabledRow = buildJoinedRow({
+            zone: {
+                id: 'zone-001',
+                currentDepletionMm: 10,
+                currentDepletionReconciledAt: reconciledAt,
+                precipitationRateMmPerHr: 9,
+            },
+        });
+        const stub = createDaemonReposStub({ enabledZones: [enabledRow] });
+        bootDaemonService({ repos: stub.repos, alertsDb: stub.alertsDb });
+        const { clock, advanceTo } = createFakeClock(NOW);
+
+        await start({
+            clock,
+            rePlanHourLocal: 20,
+            siteTimezone: 'UTC',
+            morningTickMinutesAfterSunrise: 60,
+            runPlan: async () => ({ entries: [], projectedNextDepletionMm: 999 }),
+            getWeather: async () => ({
+                daily: [{ date: sunrise, sunrise }],
+                hourly: [
+                    { time: dayjs('2026-05-04T10:00:00Z'), precipitationMm: 0, evapotranspirationMm: 1 },
+                ],
+            }),
+            getZoneActuationHistory: async () => ([
+                { onAt: new Date('2026-05-04T09:00:00Z'), offAt: new Date('2026-05-04T09:30:00Z') },
+                { onAt: new Date('2026-05-04T10:00:00Z'), offAt: new Date('2026-05-04T10:30:00Z') },
+            ]),
+            openZone: async () => {},
+            closeZone: async () => {},
+        });
+
+        // Boot fetches weather → sunrise observed → morning tick scheduled
+        // at 12:41 UTC. Advance just past that.
+        await advanceTo(new Date('2026-05-04T12:41:01.000Z'));
+
+        expect(stub.depletionAdvances).toHaveLength(1);
+        expect(stub.depletionAdvances[0]?.depletionMm).toBeCloseTo(2, 6);
+    });
+
+    it('morning tick falls back to weather-only advance and raises actuation-stale when HA history fetch fails (API-79)', async () => {
+        const reconciledAt = new Date('2026-05-04T08:00:00.000Z');
+        const sunrise = dayjs('2026-05-04T11:41:00Z');
+        const enabledRow = buildJoinedRow({
+            zone: {
+                id: 'zone-001',
+                name: 'North',
+                currentDepletionMm: 5,
+                currentDepletionReconciledAt: reconciledAt,
+            },
+        });
+        const stub = createDaemonReposStub({ enabledZones: [enabledRow] });
+        bootDaemonService({ repos: stub.repos, alertsDb: stub.alertsDb });
+        const { clock, advanceTo } = createFakeClock(NOW);
+        const { alerter, calls: alertCalls } = recordingAlerter();
+
+        await start({
+            clock,
+            rePlanHourLocal: 20,
+            siteTimezone: 'UTC',
+            morningTickMinutesAfterSunrise: 60,
+            runPlan: async () => ({ entries: [], projectedNextDepletionMm: 999 }),
+            getWeather: async () => ({
+                daily: [{ date: sunrise, sunrise }],
+                hourly: [
+                    { time: dayjs('2026-05-04T10:00:00Z'), precipitationMm: 0, evapotranspirationMm: 2 },
+                ],
+            }),
+            getZoneActuationHistory: async () => { throw new Error('HA history fetch ECONNREFUSED'); },
+            openZone: async () => {},
+            closeZone: async () => {},
+            alerter,
+        });
+
+        await advanceTo(new Date('2026-05-04T12:41:01.000Z'));
+
+        // HA-down path: depletion still advances by weather only (5 + 2 = 7).
+        expect(stub.depletionAdvances).toHaveLength(1);
+        expect(stub.depletionAdvances[0]?.depletionMm).toBeCloseTo(7, 6);
+        // actuation-stale alert raised, pinned to the zone.
+        const stale = alertCalls.filter(a => a.class === 'actuation-stale');
+        expect(stale).toHaveLength(1);
+        expect(stale[0]).toMatchObject({ class: 'actuation-stale', tone: 'warn', zoneId: 'zone-001', zoneName: 'North' });
+    });
+
+    it('morning tick reconciles depletion even when irrigation is disabled, but skips planning (API-79)', async () => {
+        // Kill switch off: depletion math + write should still happen; no
+        // cycles should arm.
+        bootSystemService({
+            repo: {
+                findSingleton: async () => ({ irrigationEnabled: false, since: new Date('2026-05-04T08:00:00.000Z') }),
+                upsertSingleton: async () => {},
+            },
+        });
+        const reconciledAt = new Date('2026-05-04T08:00:00.000Z');
+        const sunrise = dayjs('2026-05-04T11:41:00Z');
+        const enabledRow = buildJoinedRow({
+            zone: {
+                id: 'zone-001',
+                currentDepletionMm: 4,
+                currentDepletionReconciledAt: reconciledAt,
+                precipitationRateMmPerHr: 9,
+            },
+        });
+        const stub = createDaemonReposStub({ enabledZones: [enabledRow] });
+        bootDaemonService({ repos: stub.repos, alertsDb: stub.alertsDb });
+        const { clock, advanceTo } = createFakeClock(NOW);
+        let runPlanCalls = 0;
+        const opens: string[] = [];
+
+        await start({
+            clock,
+            rePlanHourLocal: 20,
+            siteTimezone: 'UTC',
+            morningTickMinutesAfterSunrise: 60,
+            runPlan: async () => {
+                runPlanCalls += 1;
+                return { entries: [], projectedNextDepletionMm: 999 };
+            },
+            getWeather: async () => ({
+                daily: [{ date: sunrise, sunrise }],
+                hourly: [
+                    { time: dayjs('2026-05-04T10:00:00Z'), precipitationMm: 0, evapotranspirationMm: 1 },
+                ],
+            }),
+            getZoneActuationHistory: async () => ([
+                { onAt: new Date('2026-05-04T09:00:00Z'), offAt: new Date('2026-05-04T09:20:00Z') }, // 3 mm
+            ]),
+            openZone: async (z) => { opens.push(z.id); },
+            closeZone: async () => {},
+        });
+
+        await advanceTo(new Date('2026-05-04T12:41:01.000Z'));
+
+        // 4 + 1 - 0 - 3 = 2 mm. Reconciliation ran despite kill switch.
+        expect(stub.depletionAdvances).toHaveLength(1);
+        expect(stub.depletionAdvances[0]?.depletionMm).toBeCloseTo(2, 6);
+        // Planning + arming suppressed.
+        expect(runPlanCalls).toBe(0);
+        expect(opens).toEqual([]);
+    });
+
+    it('morning tick advances depletion with weather only when zone has no homeAssistantEntityId (API-79)', async () => {
+        const reconciledAt = new Date('2026-05-04T08:00:00.000Z');
+        const sunrise = dayjs('2026-05-04T11:41:00Z');
+        const enabledRow = buildJoinedRow({
+            zone: {
+                id: 'zone-001',
+                currentDepletionMm: 8,
+                currentDepletionReconciledAt: reconciledAt,
+                homeAssistantEntityId: null,
+            },
+        });
+        const stub = createDaemonReposStub({ enabledZones: [enabledRow] });
+        bootDaemonService({ repos: stub.repos, alertsDb: stub.alertsDb });
+        const { clock, advanceTo } = createFakeClock(NOW);
+        let actuationFetchCalled = false;
+
+        await start({
+            clock,
+            rePlanHourLocal: 20,
+            siteTimezone: 'UTC',
+            morningTickMinutesAfterSunrise: 60,
+            runPlan: async () => ({ entries: [], projectedNextDepletionMm: 999 }),
+            getWeather: async () => ({
+                daily: [{ date: sunrise, sunrise }],
+                hourly: [
+                    { time: dayjs('2026-05-04T10:00:00Z'), precipitationMm: 0, evapotranspirationMm: 2 },
+                ],
+            }),
+            getZoneActuationHistory: async (zone) => {
+                actuationFetchCalled = true;
+                // Real impl returns [] when no entity id; we mirror that.
+                return zone.homeAssistantEntityId ? [] : [];
+            },
+            openZone: async () => {},
+            closeZone: async () => {},
+        });
+
+        await advanceTo(new Date('2026-05-04T12:41:01.000Z'));
+
+        // Weather-only advance: 8 + 2 = 10.
+        expect(stub.depletionAdvances).toHaveLength(1);
+        expect(stub.depletionAdvances[0]?.depletionMm).toBeCloseTo(10, 6);
+        // The HA call is still issued; the real implementation returns []
+        // when the zone has no entityId, which the reconciler handles.
+        expect(actuationFetchCalled).toBe(true);
     });
 
     it('two consecutive operator rePlan() calls produce no depletionAdvances (API-71 regression)', async () => {

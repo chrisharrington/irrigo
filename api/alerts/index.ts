@@ -5,11 +5,10 @@ import type { Notifier } from '@/notifications';
 
 /**
  * Operator-facing failure classes recorded by the daemon. The set is closed:
- * the schema has a `check (class in ('weather-stale', 'ha-call-failed',
- * 'missed-close'))` constraint, so widening the union requires both a code
- * change here and a new migration.
+ * the schema has a `check` constraint on `alerts.class`, so widening the
+ * union requires both a code change here and a new migration.
  */
-export type AlertClass = 'weather-stale' | 'ha-call-failed' | 'missed-close';
+export type AlertClass = 'weather-stale' | 'ha-call-failed' | 'missed-close' | 'actuation-stale';
 
 /**
  * Visual severity used by the mobile app to colour the alert row. `warn`
