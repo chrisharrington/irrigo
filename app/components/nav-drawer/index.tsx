@@ -9,6 +9,8 @@ import {
 } from 'react-native';
 import Animated, {
     Easing,
+    FadeIn,
+    FadeOut,
     SlideInLeft,
     SlideOutLeft,
 } from 'react-native-reanimated';
@@ -139,6 +141,14 @@ export function NavDrawer({ visible, onClose, activeId, onSelect }: NavDrawerPro
     const enterAnimation = SlideInLeft
         .duration(Duration.default)
         .easing(REANIMATED_EASING_STANDARD);
+    // Backdrop fade is tuned to the same duration + easing as the panel so
+    // the dim and the slide complete on the same frame.
+    const backdropEnter = FadeIn
+        .duration(Duration.default)
+        .easing(REANIMATED_EASING_STANDARD);
+    const backdropExit = FadeOut
+        .duration(Duration.default)
+        .easing(REANIMATED_EASING_STANDARD);
 
     return (
         <RNModal
@@ -149,15 +159,21 @@ export function NavDrawer({ visible, onClose, activeId, onSelect }: NavDrawerPro
             statusBarTranslucent
         >
             <View style={styles.overlay}>
-                <Pressable
+                {visible && <Animated.View
+                    entering={backdropEnter}
+                    exiting={backdropExit}
                     style={StyleSheet.absoluteFill}
-                    onPress={onClose}
-                    accessibilityRole='button'
-                    accessibilityLabel='Dismiss drawer'
                 >
-                    <BlurView intensity={50} tint='dark' style={StyleSheet.absoluteFill} />
-                    <View style={styles.scrim} />
-                </Pressable>
+                    <Pressable
+                        style={StyleSheet.absoluteFill}
+                        onPress={onClose}
+                        accessibilityRole='button'
+                        accessibilityLabel='Dismiss drawer'
+                    >
+                        <BlurView intensity={50} tint='dark' style={StyleSheet.absoluteFill} />
+                        <View style={styles.scrim} />
+                    </Pressable>
+                </Animated.View>}
 
                 {visible && <Animated.View
                     entering={enterAnimation}
