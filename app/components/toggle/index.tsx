@@ -17,6 +17,38 @@ const SIZE_SPEC = {
     lg: { width: 54, height: 30, padding: 3 },
 } as const;
 
+export type ToggleSize = keyof typeof SIZE_SPEC;
+
+/**
+ * Pure geometry helper. Returns the width, height, thumb size, thumb inset,
+ * and translateX distance the `Toggle` renders for a given size.
+ *
+ * The thumb is sized to fit inside the track minus the 1px border on each
+ * side plus the design's `padding` gap around the thumb:
+ *     thumbSize = height − 2*padding − 2  // -2 = top border + bottom border
+ *
+ * `thumbInset` is the symmetric distance from the track's outer edge to the
+ * thumb on the closer side (top / off-state-left / on-state-right). Using it
+ * for both `top` and `left` keeps the off-state and on-state visual gaps
+ * symmetric on all four sides — without it the thumb sits 2px too high and
+ * the off-state-left gap differs from the on-state-right gap by 2px (APP-65).
+ *
+ *     thumbInset = (height - thumbSize) / 2  // = padding + 1 after the math falls out
+ */
+export function computeToggleGeometry(size: ToggleSize): {
+    width: number;
+    height: number;
+    thumbSize: number;
+    thumbInset: number;
+    thumbTravel: number;
+} {
+    const spec = SIZE_SPEC[size];
+    const thumbSize = spec.height - spec.padding * 2 - 2;
+    const thumbInset = (spec.height - thumbSize) / 2;
+    const thumbTravel = spec.width - spec.height;
+    return { width: spec.width, height: spec.height, thumbSize, thumbInset, thumbTravel };
+}
+
 const toggle = tv({
     slots: {
         track: 'rounded-r-1 border',
@@ -48,7 +80,7 @@ export type ToggleProps = {
     onValueChange: (next: boolean) => void;
 
     /** Optional. Hit-target size. `default` 44×26; `lg` 54×30 (used by the master irrigation switch). Defaults to `default`. */
-    size?: keyof typeof SIZE_SPEC;
+    size?: ToggleSize;
 
     /** Optional. Disables interaction and dims the control. Defaults to `false`. */
     disabled?: ToggleVariants['disabled'];
@@ -71,9 +103,7 @@ export function Toggle({
     disabled = false,
     accessibilityLabel,
 }: ToggleProps) {
-    const spec = SIZE_SPEC[size];
-    const thumbSize = spec.height - spec.padding * 2 - 2;
-    const thumbTravel = spec.width - spec.height;
+    const geometry = computeToggleGeometry(size);
 
     const animated = useRef(new Animated.Value(value ? 1 : 0)).current;
     useEffect(() => {
@@ -94,7 +124,7 @@ export function Toggle({
     });
     const thumbTranslateX = animated.interpolate({
         inputRange: [0, 1],
-        outputRange: [0, thumbTravel],
+        outputRange: [0, geometry.thumbTravel],
     });
 
     const styles = toggle({ on: value, disabled });
@@ -107,7 +137,7 @@ export function Toggle({
             accessibilityLabel={accessibilityLabel}
             accessibilityState={{ checked: value, disabled }}
         >
-            <View style={{ width: spec.width, height: spec.height }}>
+            <View style={{ width: geometry.width, height: geometry.height }}>
                 <Animated.View
                     className={styles.track()}
                     style={{
@@ -122,10 +152,10 @@ export function Toggle({
                 <Animated.View
                     className={styles.thumb()}
                     style={{
-                        top: spec.padding,
-                        left: spec.padding,
-                        width: thumbSize,
-                        height: thumbSize,
+                        top: geometry.thumbInset,
+                        left: geometry.thumbInset,
+                        width: geometry.thumbSize,
+                        height: geometry.thumbSize,
                         backgroundColor: thumbBackgroundColor,
                         transform: [{ translateX: thumbTranslateX }],
                     }}
