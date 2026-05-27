@@ -54,7 +54,7 @@ export async function runScheduleForZone(
 
     console.log(`runScheduleForZone: planning zone ${zone.id} at (${zone.location.lat}, ${zone.location.lon}) over ${forecastDays} day(s).`);
 
-    const weather = await getWeatherData({
+    const { daily } = await getWeatherData({
         latitude: zone.location.lat,
         longitude: zone.location.lon,
         forecastDays,
@@ -66,5 +66,5 @@ export async function runScheduleForZone(
         end: dayjs(w.end),
     }));
 
-    return planZoneSchedule(zone, weather, busyWindows, options?.restrictions, options?.overrides);
+    return planZoneSchedule(zone, daily, busyWindows, options?.restrictions, options?.overrides);
 }

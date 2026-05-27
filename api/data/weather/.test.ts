@@ -1,5 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, mock, spyOn } from 'bun:test';
-import { __resetWeatherCacheForTests, fetchWithRetry, getWeatherData } from '.';
+import dayjs from 'dayjs';
+import { __resetWeatherCacheForTests, fetchWithRetry, getWeatherData, sumHourlyWeatherBetween } from '.';
+import type { HourlyWeather } from '@/models';
 
 // Production defaults wait 500 ms then 1500 ms between attempts; tests
 // short-circuit both via `minTimeout: 0` so the retry loop runs without
@@ -34,6 +36,11 @@ describe('Weather Data', () => {
             sunset: ['2025-10-20T18:10', '2025-10-21T18:08', '2025-10-22T18:06'],
             rain_sum: [0.2, 0.5, 0.0],
             et0_fao_evapotranspiration: [1.63, 1.62, 1.04],
+        },
+        hourly: {
+            time: ['2025-10-20T00:00', '2025-10-20T01:00', '2025-10-20T02:00'],
+            precipitation: [0.0, 0.1, 0.2],
+            et0_fao_evapotranspiration: [0.02, 0.03, 0.05],
         },
     };
 
@@ -72,7 +79,9 @@ describe('Weather Data', () => {
         expect(calledUrl.searchParams.get('latitude')).toBe('52.52');
         expect(calledUrl.searchParams.get('longitude')).toBe('13.41');
         expect(calledUrl.searchParams.get('forecast_days')).toBe('7');
+        expect(calledUrl.searchParams.get('past_days')).toBe('1');
         expect(calledUrl.searchParams.get('daily')).toBe('sunrise,sunset,rain_sum,et0_fao_evapotranspiration');
+        expect(calledUrl.searchParams.get('hourly')).toBe('precipitation,et0_fao_evapotranspiration');
         expect(calledUrl.searchParams.get('timezone')).toBeNull();
     });
 
@@ -91,40 +100,48 @@ describe('Weather Data', () => {
         expect(calledUrl.searchParams.get('forecast_days')).toBe('7');
     });
 
-    it('should transform API response into DailyWeather array', async () => {
+    it('should transform API response into daily and hourly arrays', async () => {
         mockFetch.mockResolvedValueOnce({
             ok: true,
             json: async () => mockWeatherResponse,
         } as Response);
 
-        const result = await getWeatherData({
+        const { daily, hourly } = await getWeatherData({
             latitude: 52.52,
             longitude: 13.41,
         });
 
-        // Verify array length.
-        expect(result.length).toBe(3);
+        // Verify daily array length.
+        expect(daily.length).toBe(3);
 
         // Verify first day's data.
-        expect(result[0]!.date.format('YYYY-MM-DD')).toBe('2025-10-20');
-        expect(result[0]!.sunrise?.format('YYYY-MM-DDTHH:mm')).toBe('2025-10-20T05:41');
-        expect(result[0]!.sunset?.format('YYYY-MM-DDTHH:mm')).toBe('2025-10-20T18:10');
-        expect(result[0]!.rainfallMm).toBe(0.2);
-        expect(result[0]!.evapotranspirationMmPerDay).toBe(1.63);
+        expect(daily[0]!.date.format('YYYY-MM-DD')).toBe('2025-10-20');
+        expect(daily[0]!.sunrise?.format('YYYY-MM-DDTHH:mm')).toBe('2025-10-20T05:41');
+        expect(daily[0]!.sunset?.format('YYYY-MM-DDTHH:mm')).toBe('2025-10-20T18:10');
+        expect(daily[0]!.rainfallMm).toBe(0.2);
+        expect(daily[0]!.evapotranspirationMmPerDay).toBe(1.63);
 
         // Verify second day's data.
-        expect(result[1]!.date.format('YYYY-MM-DD')).toBe('2025-10-21');
-        expect(result[1]!.sunrise?.format('YYYY-MM-DDTHH:mm')).toBe('2025-10-21T05:43');
-        expect(result[1]!.sunset?.format('YYYY-MM-DDTHH:mm')).toBe('2025-10-21T18:08');
-        expect(result[1]!.rainfallMm).toBe(0.5);
-        expect(result[1]!.evapotranspirationMmPerDay).toBe(1.62);
+        expect(daily[1]!.date.format('YYYY-MM-DD')).toBe('2025-10-21');
+        expect(daily[1]!.sunrise?.format('YYYY-MM-DDTHH:mm')).toBe('2025-10-21T05:43');
+        expect(daily[1]!.sunset?.format('YYYY-MM-DDTHH:mm')).toBe('2025-10-21T18:08');
+        expect(daily[1]!.rainfallMm).toBe(0.5);
+        expect(daily[1]!.evapotranspirationMmPerDay).toBe(1.62);
 
         // Verify third day's data.
-        expect(result[2]!.date.format('YYYY-MM-DD')).toBe('2025-10-22');
-        expect(result[2]!.sunrise?.format('YYYY-MM-DDTHH:mm')).toBe('2025-10-22T05:45');
-        expect(result[2]!.sunset?.format('YYYY-MM-DDTHH:mm')).toBe('2025-10-22T18:06');
-        expect(result[2]!.rainfallMm).toBe(0.0);
-        expect(result[2]!.evapotranspirationMmPerDay).toBe(1.04);
+        expect(daily[2]!.date.format('YYYY-MM-DD')).toBe('2025-10-22');
+        expect(daily[2]!.sunrise?.format('YYYY-MM-DDTHH:mm')).toBe('2025-10-22T05:45');
+        expect(daily[2]!.sunset?.format('YYYY-MM-DDTHH:mm')).toBe('2025-10-22T18:06');
+        expect(daily[2]!.rainfallMm).toBe(0.0);
+        expect(daily[2]!.evapotranspirationMmPerDay).toBe(1.04);
+
+        // Verify hourly array.
+        expect(hourly.length).toBe(3);
+        expect(hourly[0]!.time.format('YYYY-MM-DDTHH:mm')).toBe('2025-10-20T00:00');
+        expect(hourly[0]!.precipitationMm).toBe(0.0);
+        expect(hourly[0]!.evapotranspirationMm).toBe(0.02);
+        expect(hourly[2]!.precipitationMm).toBe(0.2);
+        expect(hourly[2]!.evapotranspirationMm).toBe(0.05);
     });
 
     it('should throw immediately on a 4xx response without retrying', async () => {
@@ -171,7 +188,7 @@ describe('Weather Data', () => {
             json: async () => mockWeatherResponse,
         } as Response);
 
-        const result = await getWeatherData({
+        const { daily } = await getWeatherData({
             latitude: 52.52,
             longitude: 13.41,
             timezone: 'America/Edmonton',
@@ -179,9 +196,9 @@ describe('Weather Data', () => {
 
         // '2025-10-20T05:41' interpreted as 5:41am America/Edmonton (MDT=UTC-6 in Oct).
         // In UTC that's 11:41am. utcOffset() for an America/Edmonton dayjs is -360 (MDT).
-        expect(result[0]!.sunrise).toBeDefined();
+        expect(daily[0]!.sunrise).toBeDefined();
         // Verify the offset matches the specified timezone (MDT = -360 min in Oct 2025).
-        expect(result[0]!.sunrise!.utcOffset()).toBe(-360);
+        expect(daily[0]!.sunrise!.utcOffset()).toBe(-360);
     });
 
     it('should handle empty response arrays', async () => {
@@ -193,6 +210,11 @@ describe('Weather Data', () => {
                 rain_sum: [],
                 et0_fao_evapotranspiration: [],
             },
+            hourly: {
+                time: [],
+                precipitation: [],
+                et0_fao_evapotranspiration: [],
+            },
         };
 
         mockFetch.mockResolvedValueOnce({
@@ -200,12 +222,13 @@ describe('Weather Data', () => {
             json: async () => emptyResponse,
         } as Response);
 
-        const result = await getWeatherData({
+        const { daily, hourly } = await getWeatherData({
             latitude: 52.52,
             longitude: 13.41,
         });
 
-        expect(result.length).toBe(0);
+        expect(daily.length).toBe(0);
+        expect(hourly.length).toBe(0);
     });
 
     it('should throw error when API response is malformed', async () => {
@@ -340,6 +363,11 @@ describe('Weather caching', () => {
             rain_sum: [0, 0],
             et0_fao_evapotranspiration: [4.0, 4.0],
         },
+        hourly: {
+            time: ['2026-05-24T00:00', '2026-05-24T01:00'],
+            precipitation: [0, 0],
+            et0_fao_evapotranspiration: [0.1, 0.1],
+        },
     };
 
     const stubSuccess = () => mockFetch.mockResolvedValueOnce({
@@ -368,7 +396,7 @@ describe('Weather caching', () => {
         const second = await getWeatherData(params, { now: fixedNow });
 
         expect(mockFetch).toHaveBeenCalledTimes(1);
-        expect(second).toBe(first); // reference-equal — same cached array
+        expect(second).toBe(first); // reference-equal — same cached object
     });
 
     it('refetches after the TTL has expired', async () => {
@@ -386,20 +414,22 @@ describe('Weather caching', () => {
         expect(mockFetch).toHaveBeenCalledTimes(2);
     });
 
-    it('keys the cache by (latitude, longitude, forecastDays, timezone) so each variant misses independently', async () => {
+    it('keys the cache by (latitude, longitude, forecastDays, pastDays, timezone) so each variant misses independently', async () => {
+        stubSuccess();
         stubSuccess();
         stubSuccess();
         stubSuccess();
         stubSuccess();
         const fixedNow = () => 1_700_000_000_000;
-        const base = { latitude: 51.0, longitude: -114.0, forecastDays: 7, timezone: 'America/Edmonton' };
+        const base = { latitude: 51.0, longitude: -114.0, forecastDays: 7, pastDays: 1, timezone: 'America/Edmonton' };
 
         await getWeatherData(base, { now: fixedNow });
         await getWeatherData({ ...base, latitude: 51.1 }, { now: fixedNow });
         await getWeatherData({ ...base, forecastDays: 14 }, { now: fixedNow });
+        await getWeatherData({ ...base, pastDays: 2 }, { now: fixedNow });
         await getWeatherData({ ...base, timezone: 'UTC' }, { now: fixedNow });
 
-        expect(mockFetch).toHaveBeenCalledTimes(4);
+        expect(mockFetch).toHaveBeenCalledTimes(5);
     });
 
     it('does not populate the cache when the upstream call fails', async () => {
@@ -518,5 +548,88 @@ describe('fetchWithRetry', () => {
             fetchWithRetry('https://example.test/', { ...FAST_RETRY_OPTS, retries: 1 }),
         ).rejects.toThrow('Open-Meteo API request failed: 500 Internal Server Error');
         expect(mockFetch).toHaveBeenCalledTimes(2);
+    });
+});
+
+describe('sumHourlyWeatherBetween', () => {
+    function mkRow(timeIso: string, precipitationMm: number, evapotranspirationMm: number): HourlyWeather {
+        return { time: dayjs(timeIso), precipitationMm, evapotranspirationMm };
+    }
+
+    it('sums rows whose time falls inside [since, until)', async () => {
+        const rows = [
+            mkRow('2026-05-24T05:00:00Z', 0.1, 0.05),
+            mkRow('2026-05-24T06:00:00Z', 0.2, 0.06),
+            mkRow('2026-05-24T07:00:00Z', 0.3, 0.07),
+        ];
+
+        const result = sumHourlyWeatherBetween(
+            rows,
+            new Date('2026-05-24T05:00:00Z'),
+            new Date('2026-05-24T07:00:00Z'),
+        );
+
+        // The 07:00 row is excluded because `until` is exclusive.
+        expect(result.rainMm).toBeCloseTo(0.3, 6);
+        expect(result.etMm).toBeCloseTo(0.11, 6);
+    });
+
+    it('returns zero when the window is empty (since >= until)', async () => {
+        const rows = [
+            mkRow('2026-05-24T05:00:00Z', 1, 1),
+            mkRow('2026-05-24T06:00:00Z', 1, 1),
+        ];
+
+        const result = sumHourlyWeatherBetween(
+            rows,
+            new Date('2026-05-24T06:00:00Z'),
+            new Date('2026-05-24T06:00:00Z'),
+        );
+
+        expect(result).toEqual({ rainMm: 0, etMm: 0 });
+    });
+
+    it('returns zero when no rows fall in the window', async () => {
+        const rows = [
+            mkRow('2026-05-24T05:00:00Z', 1, 1),
+            mkRow('2026-05-24T06:00:00Z', 1, 1),
+        ];
+
+        const result = sumHourlyWeatherBetween(
+            rows,
+            new Date('2026-05-25T00:00:00Z'),
+            new Date('2026-05-25T03:00:00Z'),
+        );
+
+        expect(result).toEqual({ rainMm: 0, etMm: 0 });
+    });
+
+    it('handles an empty hourly array', async () => {
+        const result = sumHourlyWeatherBetween(
+            [],
+            new Date('2026-05-24T05:00:00Z'),
+            new Date('2026-05-24T07:00:00Z'),
+        );
+
+        expect(result).toEqual({ rainMm: 0, etMm: 0 });
+    });
+
+    it('spans day boundaries correctly', async () => {
+        const rows = [
+            mkRow('2026-05-24T22:00:00Z', 0.5, 0.05),
+            mkRow('2026-05-24T23:00:00Z', 0.6, 0.04),
+            mkRow('2026-05-25T00:00:00Z', 0.7, 0.03),
+            mkRow('2026-05-25T01:00:00Z', 0.8, 0.02),
+        ];
+
+        const result = sumHourlyWeatherBetween(
+            rows,
+            new Date('2026-05-24T23:00:00Z'),
+            new Date('2026-05-25T01:00:00Z'),
+        );
+
+        // 23:00 + 00:00 included; 01:00 excluded.
+        expect(result.rainMm).toBeCloseTo(1.3, 6);
+        expect(result.etMm).toBeCloseTo(0.07, 6);
     });
 });

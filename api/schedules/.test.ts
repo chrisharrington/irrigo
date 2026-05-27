@@ -30,6 +30,11 @@ const stubWeatherResponse = {
         rain_sum: [0, 0, 0, 0],
         et0_fao_evapotranspiration: [4.0, 4.0, 4.0, 4.0],
     },
+    hourly: {
+        time: ['2025-10-20T00:00', '2025-10-20T01:00'],
+        precipitation: [0, 0],
+        et0_fao_evapotranspiration: [0.1, 0.1],
+    },
 };
 
 const stubSuccess = () => mockFetch.mockResolvedValueOnce({
@@ -206,6 +211,11 @@ describe('runScheduleForZone', () => {
                     time: [],
                     sunrise: [],
                     rain_sum: [],
+                    et0_fao_evapotranspiration: [],
+                },
+                hourly: {
+                    time: [],
+                    precipitation: [],
                     et0_fao_evapotranspiration: [],
                 },
             }),
