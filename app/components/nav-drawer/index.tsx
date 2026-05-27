@@ -1,6 +1,5 @@
-import { memo, useCallback, useEffect, useRef, useState } from 'react';
+import { memo, useCallback, useEffect, useState } from 'react';
 import {
-    Animated,
     Modal as RNModal,
     Pressable,
     StyleSheet,
@@ -8,13 +7,19 @@ import {
     View,
     type ViewStyle,
 } from 'react-native';
+import Animated, {
+    Easing,
+    SlideInLeft,
+    SlideOutLeft,
+} from 'react-native-reanimated';
+import { scheduleOnRN } from 'react-native-worklets';
 import { BlurView } from 'expo-blur';
 
 import { BrandGlyph } from '@/components/brand-glyph';
 import { Button } from '@/components/button';
 import { Cal, History, Home as HomeIcon, X, Zone, type IconProps } from '@/components/icons';
 import { FontFamily } from '@/constants/fonts';
-import { Duration, MotionEasing } from '@/constants/motion';
+import { Duration } from '@/constants/motion';
 import { useSchedules } from '@/hooks/schedules';
 import config from '@/tailwind.config';
 import type { ScheduleAllowedTimeWindow, ScheduleListItem } from '@/api/types/schedules';
@@ -23,6 +28,12 @@ const colors = config.theme.extend.colors;
 const shadows = config.theme.extend.boxShadow;
 
 const DRAWER_WIDTH = 280;
+
+// Reanimated-flavor of `MotionEasing.standard` (cubic-bezier(0.2,0.7,0.2,1)).
+// Inlined here because the shared `MotionEasing` constant uses RN's `Easing`,
+// which isn't worklet-compatible — Reanimated's `withTiming` needs an easing
+// built from its own `Easing` API.
+const REANIMATED_EASING_STANDARD = Easing.bezier(0.2, 0.7, 0.2, 1);
 
 /**
  * The four nav destinations the drawer offers. Consumers map these to their
@@ -90,45 +101,24 @@ export type NavDrawerProps = {
  * `onSelect(id)` followed by `onClose()` so the drawer dismisses after a
  * navigation, matching the Mobile.jsx tap-then-close UX.
  *
- * Slide animation: 280ms `translateX` from `-DRAWER_WIDTH → 0` (open) and
- * back (close). RN Modal handles the platform overlay + Android back; the
- * internal `modalVisible` state lags the `visible` prop so the slide-OUT
- * runs to completion before the Modal unmounts. `useSchedules` powers the
- * footer card; when no schedule is active (or the query is still in flight)
- * the footer renders a `—` placeholder rather than a blank card.
+ * Slide animation: Reanimated `SlideInLeft` / `SlideOutLeft` layout
+ * animations on the panel. Reanimated ties the slide-in to the panel's
+ * mount (so the animation never starts before the view is on-screen) and
+ * holds unmount during slide-out until the exit animation completes; an
+ * `exiting.withCallback` then flips `mounted` to false so RN Modal can
+ * unmount the rest of the overlay. `useSchedules` powers the footer card;
+ * when no schedule is active (or the query is still in flight) the footer
+ * renders a `—` placeholder rather than a blank card.
  */
 export function NavDrawer({ visible, onClose, activeId, onSelect }: NavDrawerProps) {
-    const translateX = useRef(new Animated.Value(-DRAWER_WIDTH)).current;
-    const [modalVisible, setModalVisible] = useState(visible);
+    // Modal stays mounted while the panel's exit animation runs. We flip
+    // `mounted` back to false from the Reanimated exit callback so the
+    // unmount is synchronized with the slide finishing.
+    const [mounted, setMounted] = useState(visible);
 
     useEffect(() => {
-        if (visible) {
-            setModalVisible(true);
-            // Defer the slide one frame so the Modal tree mount on frame N
-            // doesn't compete with the animation start. APP-68 / APP-64.
-            const handle = requestAnimationFrame(() => {
-                Animated.timing(translateX, {
-                    toValue: 0,
-                    duration: Duration.default,
-                    easing: MotionEasing.standard,
-                    useNativeDriver: true,
-                }).start();
-            });
-            return () => cancelAnimationFrame(handle);
-        }
-        if (modalVisible) {
-            // Close path stays synchronous — no mount cost to compete with.
-            Animated.timing(translateX, {
-                toValue: -DRAWER_WIDTH,
-                duration: Duration.default,
-                easing: MotionEasing.standard,
-                useNativeDriver: true,
-            }).start(({ finished }) => {
-                if (finished) setModalVisible(false);
-            });
-        }
-        return undefined;
-    }, [visible, modalVisible, translateX]);
+        if (visible) setMounted(true);
+    }, [visible]);
 
     const handleSelect = useCallback((id: NavItemId) => {
         onSelect(id);
@@ -139,9 +129,20 @@ export function NavDrawer({ visible, onClose, activeId, onSelect }: NavDrawerPro
     const { data: schedules } = useSchedules();
     const activeSchedule = schedules?.find(row => row.isActive) ?? null;
 
+    const exitAnimation = SlideOutLeft
+        .duration(Duration.default)
+        .easing(REANIMATED_EASING_STANDARD)
+        .withCallback((finished) => {
+            'worklet';
+            if (finished) scheduleOnRN(setMounted, false);
+        });
+    const enterAnimation = SlideInLeft
+        .duration(Duration.default)
+        .easing(REANIMATED_EASING_STANDARD);
+
     return (
         <RNModal
-            visible={modalVisible}
+            visible={mounted}
             onRequestClose={onClose}
             transparent
             animationType='none'
@@ -158,8 +159,10 @@ export function NavDrawer({ visible, onClose, activeId, onSelect }: NavDrawerPro
                     <View style={styles.scrim} />
                 </Pressable>
 
-                <Animated.View
-                    style={[styles.panel, { transform: [{ translateX }] }]}
+                {visible && <Animated.View
+                    entering={enterAnimation}
+                    exiting={exitAnimation}
+                    style={styles.panel}
                     accessibilityViewIsModal
                     accessibilityLabel='Navigation'
                 >
@@ -199,7 +202,7 @@ export function NavDrawer({ visible, onClose, activeId, onSelect }: NavDrawerPro
                             onSwitchProfile={handleSwitchProfile}
                         />
                     </View>
-                </Animated.View>
+                </Animated.View>}
             </View>
         </RNModal>
     );
