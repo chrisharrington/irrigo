@@ -836,25 +836,77 @@ function RuleRow({ k, v, good, dim, last }) {
 // ─── Sheet / Modal ─────────────────────────────────────────────────────────
 
 function FireSheet({ zone, onClose }) {
+  const [minutes, setMinutes] = React.useState(5);
+  const MIN = 1, MAX = 60;
+  const dec = () => setMinutes(m => Math.max(MIN, m - 1));
+  const inc = () => setMinutes(m => Math.min(MAX, m + 1));
+  const canDec = minutes > MIN;
+  const canInc = minutes < MAX;
+
+  const stepperBtn = (enabled) => ({
+    width: 56, height: 56, borderRadius: 4,
+    border: '1px solid var(--border)',
+    background: 'var(--ink-400)',
+    color: enabled ? 'var(--fg)' : 'var(--fg-dim)',
+    cursor: enabled ? 'pointer' : 'not-allowed',
+    display: 'grid', placeItems: 'center',
+    transition: 'background var(--d-1) var(--ease-out), border-color var(--d-1) var(--ease-out)',
+  });
+
   return (
     <>
       <div style={{ position: 'absolute', inset: 0, background: 'rgba(2,4,3,0.55)', backdropFilter: 'blur(6px)', zIndex: 99 }} onClick={onClose}/>
       <div className="sheet" style={{ position: 'absolute', left: 0, right: 0, bottom: 0, zIndex: 100 }}>
         <div className="grabber" />
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 14 }}>
-          <div>
-            <div style={{ font: 'var(--h1)', color: 'var(--fg)' }}>Run {zone.name}</div>
-            <div className="body-sm" style={{ color: 'var(--fg-muted)' }}>{zone.grass} · {zone.area} m²</div>
-          </div>
-          <button onClick={onClose} style={{
-            width: 32, height: 32, borderRadius: 4, border: '1px solid var(--border)',
-            background: 'var(--ink-400)', color: 'var(--fg-muted)', cursor: 'pointer',
-          }}>×</button>
+        <div style={{ marginBottom: 20 }}>
+          <div style={{ font: 'var(--h1)', color: 'var(--fg)' }}>Run {zone.name}</div>
+          <div className="body-sm" style={{ color: 'var(--fg-muted)' }}>{zone.grass} · {zone.area} m²</div>
         </div>
-        <SheetRow k="Estimated depth" v="8.0 mm" />
-        <SheetRow k="Cycles · soak" v="3 × 16 min · 45 min soak" />
-        <SheetRow k="Ends" v="≈ 02:14 am" />
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginTop: 14 }}>
+
+        {/* Duration stepper */}
+        <div style={{
+          background: 'var(--ink-200)',
+          border: '1px solid var(--hairline)',
+          borderRadius: 6,
+          padding: '18px 14px 16px',
+          marginBottom: 14,
+        }}>
+          <div className="eyebrow" style={{ textAlign: 'center', marginBottom: 12 }}>Duration</div>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
+            <button
+              onClick={dec}
+              disabled={!canDec}
+              aria-label="Decrease minutes"
+              style={stepperBtn(canDec)}
+            >
+              <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                <path d="M3 8h10" stroke="currentColor" strokeWidth="1.75" strokeLinecap="square"/>
+              </svg>
+            </button>
+
+            <div style={{ flex: 1, textAlign: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2 }}>
+              <span className="num-hero" style={{ color: 'var(--fg)', fontSize: 56, lineHeight: 1 }}>
+                {minutes}
+              </span>
+              <span className="label" style={{ color: 'var(--fg-muted)' }}>
+                {minutes === 1 ? 'minute' : 'minutes'}
+              </span>
+            </div>
+
+            <button
+              onClick={inc}
+              disabled={!canInc}
+              aria-label="Increase minutes"
+              style={stepperBtn(canInc)}
+            >
+              <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                <path d="M3 8h10M8 3v10" stroke="currentColor" strokeWidth="1.75" strokeLinecap="square"/>
+              </svg>
+            </button>
+          </div>
+        </div>
+
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
           <button className="btn btn-secondary" onClick={onClose}>Cancel</button>
           <button className="btn btn-primary" onClick={onClose}>Run now</button>
         </div>
