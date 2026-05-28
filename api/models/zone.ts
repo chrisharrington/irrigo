@@ -24,6 +24,8 @@ export type ZoneSummary = {
     lastAppliedMm: number | null;
     homeAssistantEntityId: string | null;
     patch: string;
+    isRunning: boolean;
+    willCloseAt: string | null;
 };
 
 /**

@@ -4,12 +4,15 @@ import type { Notifier } from '@/notifications';
 
 /**
  * Snapshot of the active manual fire (if any). Drives the HTTP status the
- * mobile app shows on the Zone detail screen.
+ * mobile app shows on the Zone detail screen. `willCloseAt` is the scheduled
+ * auto-close instant set by `run()`; `null` after the bare `open()` path,
+ * which has no auto-close.
  */
 export type ActiveManualSnapshot = {
     zoneId: string;
     zoneName: string;
     since: Date;
+    willCloseAt: Date | null;
 };
 
 /**

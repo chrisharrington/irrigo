@@ -36,6 +36,8 @@ function buildZone(overrides?: Partial<ZoneSummary>): ZoneSummary {
         lastAppliedMm: null,
         homeAssistantEntityId: 'switch.zone_north',
         patch: 'a',
+        isRunning: false,
+        willCloseAt: null,
         ...overrides,
     };
 }

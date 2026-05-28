@@ -21,4 +21,8 @@ export type ZoneSummary = {
     lastAppliedMm: number | null;
     homeAssistantEntityId: string | null;
     patch: string;
+    /** True when this zone is currently watering via a manual fire. APP-69 / API-81. */
+    isRunning: boolean;
+    /** ISO-8601 instant when the active manual fire will auto-close. `null` for bare opens (no auto-close) and for non-running zones. */
+    willCloseAt: string | null;
 };

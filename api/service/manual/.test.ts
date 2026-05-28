@@ -139,7 +139,7 @@ describe('manual controller — open', () => {
         expect(opens).toHaveLength(1);
         expect(opens[0]?.id).toBe('zone-001');
         expect(result.since.getTime()).toBe(NOW.getTime());
-        expect(controller.getActiveZone()).toEqual({ zoneId: 'zone-001', zoneName: 'Front Lawn', since: NOW });
+        expect(controller.getActiveZone()).toEqual({ zoneId: 'zone-001', zoneName: 'Front Lawn', since: NOW, willCloseAt: null });
         const started = calls.find(c => c.event === 'watering-started');
         expect(started?.context).toEqual({ zoneName: 'Front Lawn', reason: 'manual' });
         // `open` alone doesn't write — the write happens at close (or up-front in `run`).
@@ -522,7 +522,25 @@ describe('manual controller — getActiveZone and shutdown', () => {
 
         await controller.open(buildZone({ id: 'zone-007', name: 'Side Strip' }));
 
-        expect(controller.getActiveZone()).toEqual({ zoneId: 'zone-007', zoneName: 'Side Strip', since: NOW });
+        expect(controller.getActiveZone()).toEqual({ zoneId: 'zone-007', zoneName: 'Side Strip', since: NOW, willCloseAt: null });
+    });
+
+    it('getActiveZone surfaces willCloseAt as openedAt + durationMin after run()', async () => {
+        const { clock } = createFakeClock(NOW);
+        const controller = createManualController({
+            clock,
+            openZone: async () => {},
+            closeZone: async () => {},
+            notifier: async () => {},
+            isAnyScheduledInFlight: () => false,
+            isIrrigationEnabled: async () => true,
+        });
+
+        await controller.run(buildZone({ id: 'zone-007', name: 'Side Strip' }), 12);
+
+        const snapshot = controller.getActiveZone();
+        expect(snapshot?.zoneId).toBe('zone-007');
+        expect(snapshot?.willCloseAt).toEqual(new Date(NOW.getTime() + 12 * 60_000));
     });
 
     it('shutdown closes any active manual zone and cancels the close timer', async () => {

@@ -852,7 +852,7 @@ if (import.meta.main) {
         zoneById: zoneId => getZoneById(zoneId),
         schedule: wrapScheduleWithReplan(baseSchedule, () => daemon.rePlan()),
         replan: () => daemon.rePlan(),
-        zonesSummary: () => getZoneSummaries(),
+        zonesSummary: () => getZoneSummaries(manual.getActiveZone()),
         alerts: {
             list: () => listActiveAlerts(alertsDb),
             ack: id => acknowledgeAlert(alertsDb, id),

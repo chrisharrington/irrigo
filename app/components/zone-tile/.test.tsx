@@ -31,6 +31,8 @@ const HEALTHY_ZONE: ZoneSummary = {
     lastAppliedMm: 14,
     homeAssistantEntityId: 'switch.zone_north',
     patch: 'a',
+    isRunning: false,
+    willCloseAt: null,
 };
 
 const PAST_RAW_ZONE: ZoneSummary = {

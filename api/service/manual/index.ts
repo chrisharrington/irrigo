@@ -65,6 +65,7 @@ function getRepo(): ManualRepository {
 type ActiveManualFire = {
     zone: Zone;
     openedAt: Date;
+    willCloseAt: Date | null;
     closeHandle?: TimerHandle;
     cycleId?: string;
     runDurationMin?: number;
@@ -114,7 +115,7 @@ export function createManualController(deps: ManualControllerDeps): ManualContro
         }
 
         const openedAt = clock.now();
-        current = { zone, openedAt };
+        current = { zone, openedAt, willCloseAt: null };
         console.log(`manual: opened zone ${zone.id} at ${openedAt.toISOString()}.`);
         await notifier('watering-started', { zoneName: zone.name, reason: 'manual' });
 
@@ -217,7 +218,7 @@ export function createManualController(deps: ManualControllerDeps): ManualContro
             });
         }, durationMin * 60_000);
 
-        current = { zone, openedAt, closeHandle, cycleId: cycleId ?? undefined, runDurationMin: durationMin };
+        current = { zone, openedAt, willCloseAt, closeHandle, cycleId: cycleId ?? undefined, runDurationMin: durationMin };
         console.log(`manual: opened zone ${zone.id} at ${openedAt.toISOString()} for ${durationMin} min (auto-close).`);
         await notifier('watering-started', { zoneName: zone.name, durationMin, reason: 'manual' });
 
@@ -226,7 +227,12 @@ export function createManualController(deps: ManualControllerDeps): ManualContro
 
     const getActiveZone: ManualController['getActiveZone'] = () => {
         if (current === null) return null;
-        return { zoneId: current.zone.id, zoneName: current.zone.name, since: current.openedAt };
+        return {
+            zoneId: current.zone.id,
+            zoneName: current.zone.name,
+            since: current.openedAt,
+            willCloseAt: current.willCloseAt,
+        };
     };
 
     const shutdown: ManualController['shutdown'] = async () => {
