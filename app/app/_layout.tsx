@@ -1,7 +1,6 @@
 import { useState } from 'react';
 import { View } from 'react-native';
-import { DarkTheme, ThemeProvider, type Theme } from '@react-navigation/native';
-import { Stack, usePathname, useRouter } from 'expo-router';
+import { DarkTheme, Stack, ThemeProvider, usePathname, useRouter } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { StatusBar } from 'expo-status-bar';
 import 'react-native-reanimated';
@@ -28,7 +27,7 @@ SplashScreen.preventAutoHideAsync().catch(err => {
 // we don't branch on `useColorScheme()` — the OS scheme is pinned to dark
 // via `userInterfaceStyle: "dark"` in app.json. The background paints behind
 // any screen that doesn't supply its own backdrop — plain black per APP-52.
-export const irrigoDarkTheme: Theme = {
+export const irrigoDarkTheme: typeof DarkTheme = {
     ...DarkTheme,
     colors: {
         ...DarkTheme.colors,

@@ -38,6 +38,24 @@ jest.mock('expo-router', () => {
         Stack,
         useRouter: () => ({ push: mockRouterPush }),
         usePathname: () => mockUsePathname(),
+        DarkTheme: {
+            dark: true,
+            colors: {
+                primary: '#ffffff',
+                background: '#111111',
+                card: '#111111',
+                text: '#ffffff',
+                border: '#222222',
+                notification: '#ff453a',
+            },
+            fonts: {
+                regular: { fontFamily: 'System', fontWeight: '400' },
+                medium: { fontFamily: 'System', fontWeight: '500' },
+                bold: { fontFamily: 'System', fontWeight: '700' },
+                heavy: { fontFamily: 'System', fontWeight: '900' },
+            },
+        },
+        ThemeProvider: ({ children }: { children?: React.ReactNode }) => <View>{children}</View>,
     };
 });
 
