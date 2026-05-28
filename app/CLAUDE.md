@@ -1,12 +1,12 @@
 # Irrigo App
 
-Expo / React Native client for Irrigo — **Expo SDK 54, React Native 0.81, NativeWind, Jest**. Single-screen-at-a-time operator UI for the homeowner; talks to the `irrigo_api` backend.
+Expo / React Native client for Irrigo — **Expo SDK 56, React Native 0.85, NativeWind, Jest**. Single-screen-at-a-time operator UI for the homeowner; talks to the `irrigo_api` backend.
 
 Shared conventions (typing, shell rules, ticket workflow, git workflow) live in the root `CLAUDE.md`. Detailed frontend conventions (component structure, hooks, comments, NativeWind organization, testing patterns) live in `shared/CLAUDE.md`. This file holds client-only guidance and the scripts table.
 
 ## Expo has changed
 
-Read the exact versioned docs at <https://docs.expo.dev/versions/v54.0.0/> before writing any code that touches Expo APIs.
+Read the exact versioned docs at <https://docs.expo.dev/versions/v56.0.0/> before writing any code that touches Expo APIs.
 
 ## Scroll containers
 
