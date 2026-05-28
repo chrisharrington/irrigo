@@ -1,9 +1,9 @@
 import { StyleSheet, Text, View } from 'react-native';
 
-import { FontFamily } from '@/constants/fonts';
 import { Drop, Pause } from '@/components/icons';
 import { TileGradient } from '@/components/tile-gradient';
 import { Toggle } from '@/components/toggle';
+import { FontFamily } from '@/constants/fonts';
 import { useSetSystemEnabled, useSystem } from '@/hooks/system';
 import config from '@/tailwind.config';
 
@@ -40,33 +40,21 @@ export function MasterToggle({ accessibilityLabel = DEFAULT_LABEL }: MasterToggl
     const on = system.data.irrigationEnabled;
     const palette = on ? ON_PALETTE : OFF_PALETTE;
 
-    const mutationErrorSub = setEnabled.isError
-        ? `${ERROR_MUTATION_PREFIX}${setEnabled.error.message}.`
-        : undefined;
+    const mutationErrorSub = setEnabled.isError ? `${ERROR_MUTATION_PREFIX}${setEnabled.error.message}.` : undefined;
 
     return (
-        <TileGradient
-            accessibilityLabel={accessibilityLabel}
-            style={[styles.card, { borderColor: palette.border }]}
-        >
+        <TileGradient accessibilityLabel={accessibilityLabel} style={[styles.card, { borderColor: palette.border }]}>
             <View style={[styles.iconBadge, { borderColor: palette.border, backgroundColor: palette.tint }]}>
-                {on
-                    ? <Drop color={colors.accent} />
-                    : <Pause color={colors.warn} />}
+                {on ?
+                    <Drop color={colors.accent} />
+                :   <Pause color={colors.warn} />}
             </View>
 
             <View style={styles.body}>
-                <Text style={[styles.eyebrow, { color: palette.accent }]}>
-                    {on ? 'System on' : 'System off'}
-                </Text>
-                <Text style={styles.title}>
-                    {on ? 'Irrigation enabled' : 'Irrigation disabled'}
-                </Text>
+                <Text style={[styles.eyebrow, { color: palette.accent }]}>{on ? 'System on' : 'System off'}</Text>
+                <Text style={styles.title}>{on ? 'Irrigation enabled' : 'Irrigation disabled'}</Text>
                 <Text style={styles.sub}>
-                    {mutationErrorSub
-                        ?? (on
-                            ? 'Scheduling & manual runs allowed'
-                            : 'Scheduling & manual runs blocked')}
+                    {mutationErrorSub ?? (on ? 'Scheduling & manual runs allowed' : 'Scheduling & manual runs blocked')}
                 </Text>
             </View>
 
@@ -101,10 +89,7 @@ const OFF_PALETTE: Palette = {
 
 function PendingCard({ accessibilityLabel }: { accessibilityLabel: string }) {
     return (
-        <TileGradient
-            accessibilityLabel={accessibilityLabel}
-            style={[styles.card, { borderColor: colors.border }]}
-        >
+        <TileGradient accessibilityLabel={accessibilityLabel} style={[styles.card, { borderColor: colors.border }]}>
             <View style={[styles.iconBadge, { borderColor: colors.border, backgroundColor: colors.surface }]}>
                 <Drop color={colors['fg-muted']} />
             </View>
@@ -124,7 +109,9 @@ function ErrorCard({ accessibilityLabel }: { accessibilityLabel: string }) {
             accessibilityLabel={accessibilityLabel}
             style={[styles.card, { borderColor: colors['warn-border'] }]}
         >
-            <View style={[styles.iconBadge, { borderColor: colors['warn-border'], backgroundColor: colors['warn-tint'] }]}>
+            <View
+                style={[styles.iconBadge, { borderColor: colors['warn-border'], backgroundColor: colors['warn-tint'] }]}
+            >
                 <Pause color={colors.warn} />
             </View>
 
