@@ -12,7 +12,7 @@ const colors = config.theme.extend.colors;
 
 const MIN_MINUTES = 1;
 const MAX_MINUTES = 60;
-const DEFAULT_MINUTES = 5;
+const DEFAULT_MINUTES = 1;
 
 /**
  * Props for the manual zone-run confirmation sheet.
@@ -52,14 +52,12 @@ export function FireSheet({ visible, zone, onCancel, onRun, isSubmitting = false
     const canIncrement = minutes < MAX_MINUTES;
 
     return (
-        <Sheet
-            visible={visible}
-            onRequestClose={onCancel}
-            accessibilityLabel={`Run ${zone.name}`}
-        >
+        <Sheet visible={visible} onRequestClose={onCancel} accessibilityLabel={`Run ${zone.name}`}>
             <View style={styles.header}>
                 <Text style={styles.title}>Run {zone.name}</Text>
-                <Text style={styles.subtitle}>{zone.grassType.name} · {zone.areaM2} m²</Text>
+                <Text style={styles.subtitle}>
+                    {zone.grassType.name} · {zone.areaM2} m²
+                </Text>
             </View>
 
             <View style={styles.stepperCard}>
@@ -96,14 +94,12 @@ export function FireSheet({ visible, zone, onCancel, onRun, isSubmitting = false
 
             <View style={styles.footer}>
                 <View style={styles.footerSlot}>
-                    <Button variant='secondary' onPress={onCancel}>Cancel</Button>
+                    <Button variant='secondary' onPress={onCancel}>
+                        Cancel
+                    </Button>
                 </View>
                 <View style={styles.footerSlot}>
-                    <Button
-                        variant='primary'
-                        onPress={() => onRun(minutes)}
-                        disabled={isSubmitting}
-                    >
+                    <Button variant='primary' onPress={() => onRun(minutes)} disabled={isSubmitting}>
                         Run now
                     </Button>
                 </View>
