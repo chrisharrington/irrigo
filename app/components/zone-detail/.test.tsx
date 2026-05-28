@@ -72,6 +72,7 @@ describe('ZoneDetail', () => {
                 activity={[]}
                 isActivityLoading={false}
                 onRunNow={jest.fn()}
+                onStopWatering={jest.fn()}
             />,
         );
 
@@ -89,6 +90,7 @@ describe('ZoneDetail', () => {
                 activity={[]}
                 isActivityLoading={false}
                 onRunNow={jest.fn()}
+                onStopWatering={jest.fn()}
             />,
         );
 
@@ -117,6 +119,7 @@ describe('ZoneDetail', () => {
                 activity={[]}
                 isActivityLoading={false}
                 onRunNow={jest.fn()}
+                onStopWatering={jest.fn()}
             />,
         );
 
@@ -132,6 +135,7 @@ describe('ZoneDetail', () => {
                 activity={[]}
                 isActivityLoading={false}
                 onRunNow={jest.fn()}
+                onStopWatering={jest.fn()}
             />,
         );
 
@@ -146,6 +150,7 @@ describe('ZoneDetail', () => {
                 activity={[]}
                 isActivityLoading={false}
                 onRunNow={jest.fn()}
+                onStopWatering={jest.fn()}
             />,
         );
 
@@ -165,6 +170,7 @@ describe('ZoneDetail', () => {
                 activity={activity}
                 isActivityLoading={false}
                 onRunNow={jest.fn()}
+                onStopWatering={jest.fn()}
             />,
         );
 
@@ -182,6 +188,7 @@ describe('ZoneDetail', () => {
                 activity={[]}
                 isActivityLoading={false}
                 onRunNow={jest.fn()}
+                onStopWatering={jest.fn()}
             />,
         );
 
@@ -196,6 +203,7 @@ describe('ZoneDetail', () => {
                 activity={[]}
                 isActivityLoading
                 onRunNow={jest.fn()}
+                onStopWatering={jest.fn()}
             />,
         );
 
@@ -211,6 +219,7 @@ describe('ZoneDetail', () => {
                 activity={[]}
                 isActivityLoading={false}
                 onRunNow={onRunNow}
+                onStopWatering={jest.fn()}
             />,
         );
 
@@ -228,6 +237,7 @@ describe('ZoneDetail', () => {
                 activity={[]}
                 isActivityLoading={false}
                 onRunNow={jest.fn()}
+                onStopWatering={jest.fn()}
                 onViewActivity={onViewActivity}
             />,
         );
@@ -245,9 +255,81 @@ describe('ZoneDetail', () => {
                 activity={[]}
                 isActivityLoading={false}
                 onRunNow={jest.fn()}
+                onStopWatering={jest.fn()}
             />,
         );
 
         expect(screen.queryByText('View all in Activity →')).toBeNull();
+    });
+
+    it('renders Run now and not Stop watering when the zone is not running (APP-69).', () => {
+        render(
+            <ZoneDetail
+                zone={buildZone({ isRunning: false })}
+                nextRun={undefined}
+                activity={[]}
+                isActivityLoading={false}
+                onRunNow={jest.fn()}
+                onStopWatering={jest.fn()}
+            />,
+        );
+
+        expect(screen.getByText('Run now')).toBeOnTheScreen();
+        expect(screen.queryByText('Stop watering')).toBeNull();
+    });
+
+    it('renders Stop watering and not Run now when the zone is running (APP-69).', () => {
+        render(
+            <ZoneDetail
+                zone={buildZone({ isRunning: true })}
+                nextRun={undefined}
+                activity={[]}
+                isActivityLoading={false}
+                onRunNow={jest.fn()}
+                onStopWatering={jest.fn()}
+            />,
+        );
+
+        expect(screen.getByText('Stop watering')).toBeOnTheScreen();
+        expect(screen.queryByText('Run now')).toBeNull();
+    });
+
+    it('fires onStopWatering — and not onRunNow — when Stop watering is tapped (APP-69).', () => {
+        const onRunNow = jest.fn();
+        const onStopWatering = jest.fn();
+        render(
+            <ZoneDetail
+                zone={buildZone({ isRunning: true })}
+                nextRun={undefined}
+                activity={[]}
+                isActivityLoading={false}
+                onRunNow={onRunNow}
+                onStopWatering={onStopWatering}
+            />,
+        );
+
+        fireEvent.press(screen.getByText('Stop watering'));
+
+        expect(onStopWatering).toHaveBeenCalledTimes(1);
+        expect(onRunNow).not.toHaveBeenCalled();
+    });
+
+    it('disables Stop watering while the close mutation is in flight (APP-69).', () => {
+        const onStopWatering = jest.fn();
+        render(
+            <ZoneDetail
+                zone={buildZone({ isRunning: true })}
+                nextRun={undefined}
+                activity={[]}
+                isActivityLoading={false}
+                onRunNow={jest.fn()}
+                onStopWatering={onStopWatering}
+                isStopping
+            />,
+        );
+
+        fireEvent.press(screen.getByText('Stop watering'));
+
+        expect(onStopWatering).not.toHaveBeenCalled();
     });
 });

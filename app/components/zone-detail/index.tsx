@@ -36,8 +36,14 @@ export type ZoneDetailProps = {
     /** Required. Whether the activity query is still in its first load. The component renders a hint when this is true and `activity` is empty. */
     isActivityLoading: boolean;
 
-    /** Required. Fires when the user taps "Run now". The FireSheet wiring is a separate ticket; the route currently passes a no-op. */
+    /** Required. Fires when the user taps "Run now". Hidden when `zone.isRunning` is true (the Stop-watering button takes its place). */
     onRunNow: () => void;
+
+    /** Required. Fires when the user taps "Stop watering" — only rendered when `zone.isRunning` is true. APP-69. */
+    onStopWatering: () => void;
+
+    /** Optional. Disables the Stop watering button while the close mutation is in flight. Defaults to `false`. APP-69. */
+    isStopping?: boolean;
 
     /** Optional. Fires when the user taps "View all in Activity →" in the Recent runs section heading. When omitted, the link is hidden. APP-67. */
     onViewActivity?: () => void;
@@ -49,7 +55,16 @@ export type ZoneDetailProps = {
  * presentational — all data is supplied by the route, which composes
  * `useZone`, `useNextRun`, and `useActivity`.
  */
-export function ZoneDetail({ zone, nextRun, activity, isActivityLoading, onRunNow, onViewActivity }: ZoneDetailProps) {
+export function ZoneDetail({
+    zone,
+    nextRun,
+    activity,
+    isActivityLoading,
+    onRunNow,
+    onStopWatering,
+    isStopping = false,
+    onViewActivity,
+}: ZoneDetailProps) {
     const geometry = computeBatteryGeometry(zone.currentDepletionMm, zone.rawMm);
     const toneColor = TONE_COLOR[geometry.tone];
     const statusCopy = computeZoneStatusCopy(zone, nextRun);
@@ -57,7 +72,9 @@ export function ZoneDetail({ zone, nextRun, activity, isActivityLoading, onRunNo
 
     return (
         <View style={styles.container}>
-            <Text style={styles.eyebrow}>{zone.grassType.name} · {zone.areaM2} m²</Text>
+            <Text style={styles.eyebrow}>
+                {zone.grassType.name} · {zone.areaM2} m²
+            </Text>
 
             <View style={styles.headerRow}>
                 <LawnPatch slug={normaliseSlug(zone.patch)} size={44} tone={toneColor} />
@@ -85,7 +102,14 @@ export function ZoneDetail({ zone, nextRun, activity, isActivityLoading, onRunNo
                 </View>
             </View>
 
-            <Button variant='primary' size='lg' onPress={onRunNow}>Run now</Button>
+            {zone.isRunning ?
+                <Button variant='secondary' size='lg' onPress={onStopWatering} disabled={isStopping}>
+                    Stop watering
+                </Button>
+            :   <Button variant='primary' size='lg' onPress={onRunNow}>
+                    Run now
+                </Button>
+            }
 
             <View>
                 <Text style={styles.sectionHeading}>Physical</Text>
@@ -115,17 +139,16 @@ export function ZoneDetail({ zone, nextRun, activity, isActivityLoading, onRunNo
                         </Pressable>
                     )}
                 </View>
-                {activity.length === 0 && isActivityLoading ? (
+                {activity.length === 0 && isActivityLoading ?
                     <Text style={styles.emptyState}>Loading recent runs…</Text>
-                ) : activity.length === 0 ? (
+                : activity.length === 0 ?
                     <Text style={styles.emptyState}>No runs recorded yet.</Text>
-                ) : (
-                    <View style={styles.fireLog}>
+                :   <View style={styles.fireLog}>
                         {activity.map(row => (
                             <RecentRunRow key={row.id} row={row} />
                         ))}
                     </View>
-                )}
+                }
             </View>
         </View>
     );
