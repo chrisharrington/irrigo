@@ -1,13 +1,15 @@
 import { router, useLocalSearchParams } from 'expo-router';
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 
+import { FireSheet } from '@/components/fire-sheet';
 import { RefreshableScrollView } from '@/components/refreshable-scroll-view';
 import { ZoneDetail } from '@/components/zone-detail';
 import { FontFamily } from '@/constants/fonts';
 import { useActivity } from '@/hooks/activity';
 import { useNextRun } from '@/hooks/next-run';
 import { useZone } from '@/hooks/zone';
+import { useRunZone } from '@/hooks/zone-control';
 import config from '@/tailwind.config';
 
 const colors = config.theme.extend.colors;
@@ -22,6 +24,8 @@ export default function ZoneScreen() {
     const { zone, isPending } = useZone(slug);
     const nextRun = useNextRun();
     const activity = useActivity({ zoneId: zone?.id });
+    const runZone = useRunZone();
+    const [isFireSheetOpen, setFireSheetOpen] = useState<boolean>(false);
 
     // Redirect when the slug doesn't match any zone in the loaded list.
     const shouldRedirect = !isPending && zone === undefined;
@@ -52,8 +56,20 @@ export default function ZoneScreen() {
                 nextRun={nextRun.data}
                 activity={flattened}
                 isActivityLoading={activity.isPending}
-                onRunNow={() => {}}
+                onRunNow={() => setFireSheetOpen(true)}
                 onViewActivity={() => router.push({ pathname: '/activity', params: { zoneId: zone.id } } as never)}
+            />
+            <FireSheet
+                visible={isFireSheetOpen}
+                zone={zone}
+                onCancel={() => setFireSheetOpen(false)}
+                onRun={durationMin => {
+                    runZone.mutate(
+                        { zoneId: zone.id, durationMin },
+                        { onSettled: () => setFireSheetOpen(false) },
+                    );
+                }}
+                isSubmitting={runZone.isPending}
             />
         </RefreshableScrollView>
     );
