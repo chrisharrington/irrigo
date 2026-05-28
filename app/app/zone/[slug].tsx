@@ -9,7 +9,7 @@ import { FontFamily } from '@/constants/fonts';
 import { useActivity } from '@/hooks/activity';
 import { useNextRun } from '@/hooks/next-run';
 import { useZone } from '@/hooks/zone';
-import { useRunZone } from '@/hooks/zone-control';
+import { useCloseZone, useRunZone } from '@/hooks/zone-control';
 import config from '@/tailwind.config';
 
 const colors = config.theme.extend.colors;
@@ -25,6 +25,7 @@ export default function ZoneScreen() {
     const nextRun = useNextRun();
     const activity = useActivity({ zoneId: zone?.id });
     const runZone = useRunZone();
+    const closeZone = useCloseZone();
     const [isFireSheetOpen, setFireSheetOpen] = useState<boolean>(false);
 
     // Redirect when the slug doesn't match any zone in the loaded list.
@@ -57,6 +58,8 @@ export default function ZoneScreen() {
                 activity={flattened}
                 isActivityLoading={activity.isPending}
                 onRunNow={() => setFireSheetOpen(true)}
+                onStopWatering={() => closeZone.mutate(zone.id)}
+                isStopping={closeZone.isPending}
                 onViewActivity={() => router.push({ pathname: '/activity', params: { zoneId: zone.id } } as never)}
             />
             <FireSheet
