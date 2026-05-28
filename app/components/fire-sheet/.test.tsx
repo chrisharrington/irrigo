@@ -23,6 +23,8 @@ function buildZone(overrides?: Partial<ZoneSummary>): ZoneSummary {
         lastAppliedMm: null,
         homeAssistantEntityId: 'switch.north_zone',
         patch: 'a',
+        isRunning: false,
+        willCloseAt: null,
         ...overrides,
     };
 }
@@ -48,7 +50,7 @@ describe('FireSheet', () => {
         expect(screen.getByText('Kentucky Bluegrass · 100 m²')).toBeOnTheScreen();
     });
 
-    it('starts the duration stepper at 5 minutes.', () => {
+    it('starts the duration stepper at 1 minute.', () => {
         render(
             <FireSheet
                 visible
@@ -58,8 +60,8 @@ describe('FireSheet', () => {
             />,
         );
 
-        expect(screen.getByText('5')).toBeOnTheScreen();
-        expect(screen.getByText('minutes')).toBeOnTheScreen();
+        expect(screen.getByText('1')).toBeOnTheScreen();
+        expect(screen.getByText('minute')).toBeOnTheScreen();
     });
 
     it('decrements the readout by 1 when the minus button is pressed.', () => {
@@ -72,9 +74,11 @@ describe('FireSheet', () => {
             />,
         );
 
+        // Step up past the floor so decrement has somewhere to go.
+        pressTimes('Increase minutes', 3);
         fireEvent.press(screen.getByLabelText('Decrease minutes'));
 
-        expect(screen.getByText('4')).toBeOnTheScreen();
+        expect(screen.getByText('3')).toBeOnTheScreen();
     });
 
     it('increments the readout by 1 when the plus button is pressed.', () => {
@@ -89,7 +93,7 @@ describe('FireSheet', () => {
 
         fireEvent.press(screen.getByLabelText('Increase minutes'));
 
-        expect(screen.getByText('6')).toBeOnTheScreen();
+        expect(screen.getByText('2')).toBeOnTheScreen();
     });
 
     it('uses the singular "minute" label at 1 and "minutes" everywhere else.', () => {
@@ -102,15 +106,15 @@ describe('FireSheet', () => {
             />,
         );
 
-        // Plural at the default (5).
-        expect(screen.getByText('minutes')).toBeOnTheScreen();
-
-        // Step down to 1 — minus is pressed 4 times.
-        pressTimes('Decrease minutes', 4);
-
-        expect(screen.getByText('1')).toBeOnTheScreen();
+        // Singular at the default (1).
         expect(screen.getByText('minute')).toBeOnTheScreen();
         expect(screen.queryByText('minutes')).toBeNull();
+
+        // Step up to 2 — plural takes over.
+        fireEvent.press(screen.getByLabelText('Increase minutes'));
+
+        expect(screen.getByText('2')).toBeOnTheScreen();
+        expect(screen.getByText('minutes')).toBeOnTheScreen();
     });
 
     it('clamps at the minimum of 1 minute and disables the minus button.', () => {
@@ -176,12 +180,12 @@ describe('FireSheet', () => {
             />,
         );
 
-        // Bump to 12.
+        // Bump from the default of 1 up to 8.
         pressTimes('Increase minutes', 7);
         fireEvent.press(screen.getByText('Run now'));
 
         expect(onRun).toHaveBeenCalledTimes(1);
-        expect(onRun).toHaveBeenCalledWith(12);
+        expect(onRun).toHaveBeenCalledWith(8);
     });
 
     it('disables Run now while the caller marks the mutation as submitting.', () => {
@@ -201,7 +205,7 @@ describe('FireSheet', () => {
         expect(onRun).not.toHaveBeenCalled();
     });
 
-    it('resets the readout to 5 each time the sheet is re-opened.', () => {
+    it('resets the readout to 1 minute each time the sheet is re-opened.', () => {
         const { rerender } = render(
             <FireSheet
                 visible
@@ -212,7 +216,7 @@ describe('FireSheet', () => {
         );
 
         // User picks 20 in the first opening.
-        pressTimes('Increase minutes', 15);
+        pressTimes('Increase minutes', 19);
         expect(screen.getByText('20')).toBeOnTheScreen();
 
         // Close and re-open.
@@ -237,6 +241,6 @@ describe('FireSheet', () => {
             );
         });
 
-        expect(screen.getByText('5')).toBeOnTheScreen();
+        expect(screen.getByText('1')).toBeOnTheScreen();
     });
 });

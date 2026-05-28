@@ -893,6 +893,8 @@ describe('buildApp GET /zones', () => {
             lastAppliedMm: 14,
             homeAssistantEntityId: 'switch.sprinkler_controller_north_zone',
             patch: 'a',
+            isRunning: false,
+            willCloseAt: null,
             ...overrides,
         };
     }

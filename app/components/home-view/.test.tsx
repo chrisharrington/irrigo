@@ -62,6 +62,8 @@ const SAMPLE_ZONES: ZoneSummary[] = [
         lastAppliedMm: 14,
         homeAssistantEntityId: 'switch.zone_north',
         patch: 'a',
+        isRunning: false,
+        willCloseAt: null,
     },
     {
         id: 'zone-002',
@@ -82,6 +84,8 @@ const SAMPLE_ZONES: ZoneSummary[] = [
         lastAppliedMm: 9,
         homeAssistantEntityId: 'switch.zone_south',
         patch: 'b',
+        isRunning: false,
+        willCloseAt: null,
     },
 ];
 

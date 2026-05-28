@@ -67,7 +67,7 @@ describe('mapJoinedRowToSummary', () => {
             soilType: { availableWaterHoldingCapacityMmPerM: 140 },
         });
 
-        const summary = mapJoinedRowToSummary(row, null);
+        const summary = mapJoinedRowToSummary(row, null, null);
 
         expect(summary.rawMm).toBe(21);
     });
@@ -78,13 +78,13 @@ describe('mapJoinedRowToSummary', () => {
             soilType: { availableWaterHoldingCapacityMmPerM: 137 },
         });
 
-        const summary = mapJoinedRowToSummary(row, null);
+        const summary = mapJoinedRowToSummary(row, null, null);
 
         expect(summary.rawMm).toBe(16.65);
     });
 
     it('emits null lastFiredAt and lastAppliedMm when no fire entry is supplied', () => {
-        const summary = mapJoinedRowToSummary(summaryRow(), null);
+        const summary = mapJoinedRowToSummary(summaryRow(), null, null);
 
         expect(summary.lastFiredAt).toBeNull();
         expect(summary.lastAppliedMm).toBeNull();
@@ -95,14 +95,14 @@ describe('mapJoinedRowToSummary', () => {
             zoneId: 'zone-001',
             firedAt: new Date('2026-05-13T05:00:00.000Z'),
             appliedDepthMm: 14,
-        });
+        }, null);
 
         expect(summary.lastFiredAt).toBe('2026-05-13T05:00:00.000Z');
         expect(summary.lastAppliedMm).toBe(14);
     });
 
     it('passes the patch variant through from the zone row', () => {
-        const summary = mapJoinedRowToSummary(summaryRow({ zone: { patch: 'b' } }), null);
+        const summary = mapJoinedRowToSummary(summaryRow({ zone: { patch: 'b' } }), null, null);
 
         expect(summary.patch).toBe('b');
     });
@@ -111,7 +111,7 @@ describe('mapJoinedRowToSummary', () => {
         const summary = mapJoinedRowToSummary(summaryRow({
             grassType: { name: 'Bermudagrass' },
             soilType: { name: 'Sandy Loam' },
-        }), null);
+        }), null, null);
 
         expect(summary.grassType).toEqual({ name: 'Bermudagrass' });
         expect(summary.soilType).toEqual({ name: 'Sandy Loam' });
@@ -128,7 +128,7 @@ describe('mapJoinedRowToSummary', () => {
                 homeAssistantEntityId: 'switch.back_yard',
                 precipitationRateMmPerHr: 12.5,
             },
-        }), null);
+        }), null, null);
 
         expect(summary.id).toBe('zone-007');
         expect(summary.slug).toBe('back-yard');
@@ -142,10 +142,53 @@ describe('mapJoinedRowToSummary', () => {
     it('emits null for missing homeAssistantEntityId and precipitationRateMmPerHr', () => {
         const summary = mapJoinedRowToSummary(summaryRow({
             zone: { homeAssistantEntityId: null, precipitationRateMmPerHr: null },
-        }), null);
+        }), null, null);
 
         expect(summary.homeAssistantEntityId).toBeNull();
         expect(summary.precipitationRateMmPerHr).toBeNull();
+    });
+
+    it('emits isRunning: false and willCloseAt: null when no manual fire is active', () => {
+        const summary = mapJoinedRowToSummary(summaryRow(), null, null);
+
+        expect(summary.isRunning).toBe(false);
+        expect(summary.willCloseAt).toBeNull();
+    });
+
+    it('emits isRunning: false and willCloseAt: null when a different zone is firing', () => {
+        const summary = mapJoinedRowToSummary(summaryRow({ zone: { id: 'zone-001' } }), null, {
+            zoneId: 'zone-other',
+            zoneName: 'Other',
+            since: new Date('2026-05-13T05:00:00.000Z'),
+            willCloseAt: new Date('2026-05-13T05:15:00.000Z'),
+        });
+
+        expect(summary.isRunning).toBe(false);
+        expect(summary.willCloseAt).toBeNull();
+    });
+
+    it('emits isRunning: true and the ISO willCloseAt when the row matches a timed run', () => {
+        const summary = mapJoinedRowToSummary(summaryRow({ zone: { id: 'zone-001' } }), null, {
+            zoneId: 'zone-001',
+            zoneName: 'Front Lawn',
+            since: new Date('2026-05-13T05:00:00.000Z'),
+            willCloseAt: new Date('2026-05-13T05:15:00.000Z'),
+        });
+
+        expect(summary.isRunning).toBe(true);
+        expect(summary.willCloseAt).toBe('2026-05-13T05:15:00.000Z');
+    });
+
+    it('emits isRunning: true and willCloseAt: null when the row matches a bare open (no auto-close)', () => {
+        const summary = mapJoinedRowToSummary(summaryRow({ zone: { id: 'zone-001' } }), null, {
+            zoneId: 'zone-001',
+            zoneName: 'Front Lawn',
+            since: new Date('2026-05-13T05:00:00.000Z'),
+            willCloseAt: null,
+        });
+
+        expect(summary.isRunning).toBe(true);
+        expect(summary.willCloseAt).toBeNull();
     });
 });
 
@@ -171,7 +214,7 @@ describe('getZoneSummaries', () => {
             }),
         });
 
-        const result = await getZoneSummaries();
+        const result = await getZoneSummaries(null);
 
         expect(result).toHaveLength(2);
         expect(result[0]?.name).toBe('North');
@@ -191,7 +234,7 @@ describe('getZoneSummaries', () => {
             }),
         });
 
-        const result = await getZoneSummaries();
+        const result = await getZoneSummaries(null);
 
         expect(result).toEqual([]);
     });
@@ -204,10 +247,34 @@ describe('getZoneSummaries', () => {
             }),
         });
 
-        const result = await getZoneSummaries();
+        const result = await getZoneSummaries(null);
 
         expect(result).toHaveLength(1);
         expect(result[0]?.lastFiredAt).toBeNull();
         expect(result[0]?.lastAppliedMm).toBeNull();
+    });
+
+    it('flips isRunning on the matching zone and leaves siblings untouched when a snapshot is passed', async () => {
+        bootZonesService({
+            repo: fakeRepo({
+                loadJoinedRowsForSummary: async () => [
+                    summaryRow({ zone: { id: 'zone-1', name: 'North' } }),
+                    summaryRow({ zone: { id: 'zone-2', name: 'South' } }),
+                ],
+                loadLatestFires: async () => [],
+            }),
+        });
+
+        const result = await getZoneSummaries({
+            zoneId: 'zone-2',
+            zoneName: 'South',
+            since: new Date('2026-05-13T05:00:00.000Z'),
+            willCloseAt: new Date('2026-05-13T05:15:00.000Z'),
+        });
+
+        expect(result[0]?.isRunning).toBe(false);
+        expect(result[0]?.willCloseAt).toBeNull();
+        expect(result[1]?.isRunning).toBe(true);
+        expect(result[1]?.willCloseAt).toBe('2026-05-13T05:15:00.000Z');
     });
 });
