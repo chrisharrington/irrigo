@@ -77,7 +77,7 @@ const styles = StyleSheet.create({
         paddingHorizontal: 14,
     },
     date: {
-        width: 64,
+        width: 120,
         fontFamily: FontFamily.monoMedium,
         fontSize: 11,
         lineHeight: 13,

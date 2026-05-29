@@ -73,6 +73,7 @@ describe('ZoneDetail', () => {
                 isActivityLoading={false}
                 onRunNow={jest.fn()}
                 onStopWatering={jest.fn()}
+                siteTimezone='America/Edmonton'
             />,
         );
 
@@ -91,6 +92,7 @@ describe('ZoneDetail', () => {
                 isActivityLoading={false}
                 onRunNow={jest.fn()}
                 onStopWatering={jest.fn()}
+                siteTimezone='America/Edmonton'
             />,
         );
 
@@ -120,6 +122,7 @@ describe('ZoneDetail', () => {
                 isActivityLoading={false}
                 onRunNow={jest.fn()}
                 onStopWatering={jest.fn()}
+                siteTimezone='America/Edmonton'
             />,
         );
 
@@ -136,6 +139,7 @@ describe('ZoneDetail', () => {
                 isActivityLoading={false}
                 onRunNow={jest.fn()}
                 onStopWatering={jest.fn()}
+                siteTimezone='America/Edmonton'
             />,
         );
 
@@ -151,6 +155,7 @@ describe('ZoneDetail', () => {
                 isActivityLoading={false}
                 onRunNow={jest.fn()}
                 onStopWatering={jest.fn()}
+                siteTimezone='America/Edmonton'
             />,
         );
 
@@ -158,9 +163,10 @@ describe('ZoneDetail', () => {
     });
 
     it('renders the recent-runs rows from the supplied activity.', () => {
+        // 2026-05-03T15:00Z = 09:00 MDT on May 3; 2026-05-02T15:00Z = 09:00 MDT on May 2.
         const activity = [
-            buildActivity({ id: 'a-1', date: '2026-05-03T05:00:00.000Z', appliedDepthMm: 9, durationMin: 30, depletionBeforeMm: 22, depletionAfterMm: 0 }),
-            buildActivity({ id: 'a-2', date: '2026-05-02T05:00:00.000Z', appliedDepthMm: 4.5, durationMin: 15, depletionBeforeMm: 13, depletionAfterMm: 0 }),
+            buildActivity({ id: 'a-1', date: '2026-05-03T15:00:00.000Z', appliedDepthMm: 9, durationMin: 30, depletionBeforeMm: 22, depletionAfterMm: 0 }),
+            buildActivity({ id: 'a-2', date: '2026-05-02T15:00:00.000Z', appliedDepthMm: 4.5, durationMin: 15, depletionBeforeMm: 13, depletionAfterMm: 0 }),
         ];
 
         render(
@@ -171,13 +177,38 @@ describe('ZoneDetail', () => {
                 isActivityLoading={false}
                 onRunNow={jest.fn()}
                 onStopWatering={jest.fn()}
+                siteTimezone='America/Edmonton'
             />,
         );
 
+        expect(screen.getByText('May 3 · 9:00 am')).toBeOnTheScreen();
         expect(screen.getByText('9.0 mm · 30 min')).toBeOnTheScreen();
         expect(screen.getByText('22.0 → 0.0 mm')).toBeOnTheScreen();
+        expect(screen.getByText('May 2 · 9:00 am')).toBeOnTheScreen();
         expect(screen.getByText('4.5 mm · 15 min')).toBeOnTheScreen();
         expect(screen.getByText('13.0 → 0.0 mm')).toBeOnTheScreen();
+    });
+
+    it('formats recent-run dates in the supplied site timezone, not UTC (APP-71).', () => {
+        // 2026-05-14T05:30Z = 23:30 MDT on 2026-05-13 — still May 13 locally,
+        // and the time should read 11:30 pm site-local.
+        const activity = [
+            buildActivity({ id: 'a-1', date: '2026-05-14T05:30:00.000Z' }),
+        ];
+
+        render(
+            <ZoneDetail
+                zone={buildZone()}
+                nextRun={undefined}
+                activity={activity}
+                isActivityLoading={false}
+                onRunNow={jest.fn()}
+                onStopWatering={jest.fn()}
+                siteTimezone='America/Edmonton'
+            />,
+        );
+
+        expect(screen.getByText('May 13 · 11:30 pm')).toBeOnTheScreen();
     });
 
     it('renders an empty state when activity is empty and not loading.', () => {
@@ -189,6 +220,7 @@ describe('ZoneDetail', () => {
                 isActivityLoading={false}
                 onRunNow={jest.fn()}
                 onStopWatering={jest.fn()}
+                siteTimezone='America/Edmonton'
             />,
         );
 
@@ -204,6 +236,7 @@ describe('ZoneDetail', () => {
                 isActivityLoading
                 onRunNow={jest.fn()}
                 onStopWatering={jest.fn()}
+                siteTimezone='America/Edmonton'
             />,
         );
 
@@ -220,6 +253,7 @@ describe('ZoneDetail', () => {
                 isActivityLoading={false}
                 onRunNow={onRunNow}
                 onStopWatering={jest.fn()}
+                siteTimezone='America/Edmonton'
             />,
         );
 
@@ -238,6 +272,7 @@ describe('ZoneDetail', () => {
                 isActivityLoading={false}
                 onRunNow={jest.fn()}
                 onStopWatering={jest.fn()}
+                siteTimezone='America/Edmonton'
                 onViewActivity={onViewActivity}
             />,
         );
@@ -256,6 +291,7 @@ describe('ZoneDetail', () => {
                 isActivityLoading={false}
                 onRunNow={jest.fn()}
                 onStopWatering={jest.fn()}
+                siteTimezone='America/Edmonton'
             />,
         );
 
@@ -271,6 +307,7 @@ describe('ZoneDetail', () => {
                 isActivityLoading={false}
                 onRunNow={jest.fn()}
                 onStopWatering={jest.fn()}
+                siteTimezone='America/Edmonton'
             />,
         );
 
@@ -287,6 +324,7 @@ describe('ZoneDetail', () => {
                 isActivityLoading={false}
                 onRunNow={jest.fn()}
                 onStopWatering={jest.fn()}
+                siteTimezone='America/Edmonton'
             />,
         );
 
@@ -305,6 +343,7 @@ describe('ZoneDetail', () => {
                 isActivityLoading={false}
                 onRunNow={onRunNow}
                 onStopWatering={onStopWatering}
+                siteTimezone='America/Edmonton'
             />,
         );
 
@@ -324,6 +363,7 @@ describe('ZoneDetail', () => {
                 isActivityLoading={false}
                 onRunNow={jest.fn()}
                 onStopWatering={onStopWatering}
+                siteTimezone='America/Edmonton'
                 isStopping
             />,
         );
