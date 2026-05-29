@@ -13,6 +13,7 @@ type JoinedRow = {
     entry: EntryRow;
     zone: { id: string; name: string; slug: string };
     durationMin: number;
+    startedAt: Date | null;
 };
 
 const NOW = new Date('2026-05-21T12:00:00.000Z');
@@ -37,6 +38,7 @@ function buildJoinedRow(overrides?: {
     entry?: Partial<EntryRow>;
     zone?: Partial<{ id: string; name: string; slug: string }>;
     durationMin?: number;
+    startedAt?: Date | null;
 }): JoinedRow {
     return {
         entry: buildEntry(overrides?.entry),
@@ -47,6 +49,7 @@ function buildJoinedRow(overrides?: {
             ...overrides?.zone,
         },
         durationMin: overrides?.durationMin ?? 0,
+        startedAt: overrides?.startedAt !== undefined ? overrides.startedAt : new Date('2026-05-20T05:00:00.000Z'),
     };
 }
 
@@ -111,6 +114,7 @@ describe('listActivity', () => {
                 entry: { id: 'e-1', appliedDepthMm: 7.5, depletionBeforeMm: 11.2, depletionAfterMm: 0.3, date: '2026-05-19' },
                 zone: { id: 'zone-7', name: 'Back Strip', slug: 'back-strip' },
                 durationMin: 42,
+                startedAt: new Date('2026-05-19T05:00:00.000Z'),
             }),
         ]);
 
@@ -122,10 +126,42 @@ describe('listActivity', () => {
             zone: { id: 'zone-7', name: 'Back Strip', slug: 'back-strip' },
             appliedDepthMm: 7.5,
             durationMin: 42,
+            startedAt: '2026-05-19T05:00:00.000Z',
             depletionBeforeMm: 11.2,
             depletionAfterMm: 0.3,
             source: 'planner',
         });
+    });
+
+    it('serialises startedAt as an ISO string when the joined row carries a fired-at instant', async () => {
+        const { db } = recordingDb([
+            buildJoinedRow({ entry: { id: 'fired' }, startedAt: new Date('2026-05-20T03:14:15.000Z') }),
+        ]);
+
+        const { activity } = await listActivity(db, { limit: 10 });
+
+        expect(activity[0]?.startedAt).toBe('2026-05-20T03:14:15.000Z');
+    });
+
+    it('serialises startedAt when the value comes from the planned start_time fallback', async () => {
+        // Same JS path as `firedAt`, but the DB-side COALESCE picked the
+        // planned `startTime`. Verifies the field flows through regardless of
+        // upstream source.
+        const { db } = recordingDb([
+            buildJoinedRow({ entry: { id: 'unfired' }, startedAt: new Date('2026-05-20T11:00:00.000Z') }),
+        ]);
+
+        const { activity } = await listActivity(db, { limit: 10 });
+
+        expect(activity[0]?.startedAt).toBe('2026-05-20T11:00:00.000Z');
+    });
+
+    it('emits startedAt: null when the entry has no associated cycles', async () => {
+        const { db } = recordingDb([buildJoinedRow({ entry: { id: 'deferred' }, startedAt: null })]);
+
+        const { activity } = await listActivity(db, { limit: 10 });
+
+        expect(activity[0]?.startedAt).toBeNull();
     });
 
     it('returns durationMin = 0 when the entry has no associated cycles', async () => {
