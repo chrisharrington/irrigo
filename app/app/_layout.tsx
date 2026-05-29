@@ -1,3 +1,9 @@
+// Side-effect import — must precede any module that may invoke dayjs's
+// timezone plugin (transitively, anything loading `@/lib/relative-time`).
+// Polyfills `Intl.DateTimeFormat` so site-local time renders correctly on
+// Hermes-on-Android. APP-77.
+import '@/lib/intl-polyfill';
+
 import { useState } from 'react';
 import { View } from 'react-native';
 import { DarkTheme, Stack, ThemeProvider, usePathname, useRouter } from 'expo-router';
