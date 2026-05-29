@@ -1,9 +1,14 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react-native';
+import { BackHandler, StyleSheet } from 'react-native';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react-native';
 
 import { buildApiWrapper, jsonResponse } from '@/api/test-utils';
 import { keys } from '@/api/query-keys';
 import type { ScheduleListItem } from '@/api/types/schedules';
 import { NavDrawer } from '.';
+
+jest.mock('react-native-safe-area-context', () => ({
+    useSafeAreaInsets: () => ({ top: 0, bottom: 34, left: 0, right: 0 }),
+}));
 
 const mockFetch = jest.fn();
 
@@ -179,6 +184,56 @@ describe('NavDrawer', () => {
 
         expect(onSelect).toHaveBeenCalledWith('schedules');
         expect(onClose).toHaveBeenCalledTimes(1);
+    });
+
+    it('stretches the panel from the top to the bottom of the window so its background fills the viewport.', () => {
+        const { wrapper, client } = buildApiWrapper();
+        client.setQueryData(keys.schedules.list(), [SAMPLE_ACTIVE]);
+
+        render(
+            <NavDrawer visible onClose={jest.fn()} activeId='home' onSelect={jest.fn()} />,
+            { wrapper },
+        );
+
+        // The panel is pinned top:0 / bottom:0 within the full-height overlay,
+        // so its background spans the whole window — including under the system
+        // bars — rather than stopping short at the nav bar (APP-73).
+        const panel = screen.getByLabelText('Navigation');
+        const flat = StyleSheet.flatten(panel.props.style as Parameters<typeof StyleSheet.flatten>[0]) as
+            | { top?: number; bottom?: number; paddingBottom?: number }
+            | undefined;
+        expect(flat?.top).toBe(0);
+        expect(flat?.bottom).toBe(0);
+        // The safe-area inset is mocked at 34; the panel pads its bottom by that
+        // amount so the footer clears the nav bar while the background still
+        // fills to the screen edge (padding sits inside the painted box).
+        expect(flat?.paddingBottom).toBe(34);
+    });
+
+    it('dismisses on Android hardware back while the drawer is open.', () => {
+        const onClose = jest.fn();
+        const { wrapper, client } = buildApiWrapper();
+        client.setQueryData(keys.schedules.list(), [SAMPLE_ACTIVE]);
+
+        const addListener = jest.spyOn(BackHandler, 'addEventListener');
+        render(
+            <NavDrawer visible onClose={onClose} activeId='home' onSelect={jest.fn()} />,
+            { wrapper },
+        );
+
+        const backPress = addListener.mock.calls.find(([event]) => event === 'hardwareBackPress')?.[1];
+        expect(backPress).toBeDefined();
+
+        // Simulate the hardware back press; the drawer should request dismissal
+        // and swallow the event so it doesn't also pop the route.
+        let handled: boolean | null | undefined;
+        act(() => {
+            handled = backPress?.();
+        });
+        expect(onClose).toHaveBeenCalledTimes(1);
+        expect(handled).toBe(true);
+
+        addListener.mockRestore();
     });
 
 });
