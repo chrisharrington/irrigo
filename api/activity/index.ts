@@ -68,7 +68,7 @@ type ActivityJoinedRow = {
     entry: typeof scheduleEntries.$inferSelect;
     zone: { id: string; name: string; slug: string };
     durationMin: number;
-    startedAt: Date | null;
+    startedAt: string | null;
 };
 
 /**
@@ -138,7 +138,7 @@ export async function listActivity(db: ActivityDb, params: ActivityListParams): 
             entry: scheduleEntries,
             zone: { id: zones.id, name: zones.name, slug: zones.slug },
             durationMin: sql<number>`COALESCE(SUM(${irrigationCycles.durationMin}), 0)`,
-            startedAt: sql<Date | null>`MIN(COALESCE(${irrigationCycles.firedAt}, ${irrigationCycles.startTime}))`,
+            startedAt: sql<string | null>`MIN(COALESCE(${irrigationCycles.firedAt}, ${irrigationCycles.startTime}))`,
         })
         .from(scheduleEntries)
         .innerJoin(zones, eq(scheduleEntries.zoneId, zones.id))
@@ -165,7 +165,12 @@ function rowToDto(row: ActivityJoinedRow): ActivityDto {
         zone: row.zone,
         appliedDepthMm: row.entry.appliedDepthMm,
         durationMin: row.durationMin,
-        startedAt: row.startedAt !== null ? row.startedAt.toISOString() : null,
+        // `startedAt` is a raw `sql<>` aggregate, so the driver hands back the
+        // libpq text form (e.g. `2026-05-30 06:06:00+00`), not an auto-deserialized
+        // Date like a plain timestamptz column would be. `new Date()` parses both
+        // that space-separated form and canonical ISO; `.toISOString()` normalizes
+        // to the canonical wire form the client expects. See API-84.
+        startedAt: row.startedAt !== null ? new Date(row.startedAt).toISOString() : null,
         depletionBeforeMm: row.entry.depletionBeforeMm,
         depletionAfterMm: row.entry.depletionAfterMm,
         source: row.entry.source === 'manual' ? 'manual' : 'planner',
