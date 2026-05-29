@@ -88,4 +88,36 @@ describe('Button', () => {
         // bare-child pass-through.
         expect(screen.getByLabelText('More glyph')).toBeOnTheScreen();
     });
+
+    it('marks the label Text as pointer-event transparent so taps reach the Pressable (APP-70).', () => {
+        render(<Button>Run now</Button>);
+
+        expect(screen.getByText('Run now').props.pointerEvents).toBe('none');
+    });
+
+    it('handles onPressIn / onPressOut without crashing (APP-70).', () => {
+        render(<Button>Run now</Button>);
+
+        const node = screen.getByRole('button');
+        fireEvent(node, 'pressIn');
+        fireEvent(node, 'pressOut');
+
+        expect(node).toBeOnTheScreen();
+    });
+
+    it('does not animate or fire onPress when disabled, even on press in/out (APP-70).', () => {
+        const onPress = jest.fn();
+        render(
+            <Button onPress={onPress} disabled>
+                Run now
+            </Button>,
+        );
+
+        const node = screen.getByRole('button');
+        fireEvent(node, 'pressIn');
+        fireEvent(node, 'pressOut');
+        fireEvent.press(node);
+
+        expect(onPress).not.toHaveBeenCalled();
+    });
 });

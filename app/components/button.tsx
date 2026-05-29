@@ -1,6 +1,46 @@
 import type { ReactNode } from 'react';
 import { Pressable, Text } from 'react-native';
+import Animated, {
+    Easing,
+    interpolateColor,
+    useAnimatedStyle,
+    useSharedValue,
+    withTiming,
+} from 'react-native-reanimated';
 import { tv, type VariantProps } from 'tailwind-variants';
+
+import config from '@/tailwind.config';
+
+const colors = config.theme.extend.colors;
+
+const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
+
+const PRESS_DURATION_MS = 100;
+const PRESS_EASING = Easing.out(Easing.ease);
+
+type PressColors = {
+    bg: string;
+    bgPressed: string;
+    border?: string;
+    borderPressed?: string;
+};
+
+const VARIANT_COLORS: Record<'primary' | 'secondary' | 'ghost', PressColors> = {
+    primary: {
+        bg: colors.accent,
+        bgPressed: colors['accent-press'],
+    },
+    secondary: {
+        bg: colors.surface,
+        bgPressed: colors['surface-2'],
+        border: colors.border,
+        borderPressed: colors['border-strong'],
+    },
+    ghost: {
+        bg: 'transparent',
+        bgPressed: colors.surface,
+    },
+};
 
 const button = tv({
     slots: {
@@ -12,16 +52,16 @@ const button = tv({
     variants: {
         variant: {
             primary: {
-                base: 'bg-accent active:bg-accent-deep shadow-glow-accent',
-                label: 'text-on-accent active:text-chalk-50',
+                base: 'shadow-glow-accent',
+                label: 'text-on-accent',
             },
             secondary: {
-                base: 'bg-surface border-border active:bg-surface-2 active:border-border-strong',
+                base: 'border-border',
                 label: 'text-fg',
             },
             ghost: {
-                base: 'active:bg-surface',
-                label: 'text-fg-soft active:text-fg',
+                base: '',
+                label: 'text-fg-soft',
             },
         },
         size: {
@@ -90,11 +130,13 @@ export type ButtonProps = {
 
 /**
  * The Irrigo button primitive. Mirrors the four CSS button recipes from
- * `app/design/irrigo/project/components.css`: primary (accent fill, deep on
- * press, glow shadow), secondary (surface fill, border, lifts to surface-2
- * on press), and ghost (transparent, fills to surface on press). The
- * `iconOnly` prop drops horizontal padding and locks the width equal to the
- * height for a square hit target.
+ * `app/design/irrigo/project/components.css`: primary (accent fill, lighter
+ * `accent-press` on press), secondary (surface fill, border, lifts to
+ * surface-2 on press), and ghost (transparent, fills to surface on press).
+ * Background (and the secondary's border) animate with a ~100 ms ease-out
+ * fade driven by Reanimated; transform and typography are static. The inner
+ * Text declares `pointerEvents='none'` so taps on the label reach the
+ * `Pressable` parent (a real-device issue jest's `fireEvent.press` masked).
  *
  * Web hover styling is intentionally not wired here — the design source's
  * "hover lifts surface" rule is web-only and reliably testing it across
@@ -110,22 +152,57 @@ export function Button({
     children,
 }: ButtonProps) {
     const styles = button({ variant, size, iconOnly, disabled });
+    const variantColors = VARIANT_COLORS[variant ?? 'primary'];
+    const pressed = useSharedValue<number>(0);
+
+    const animatedStyle = useAnimatedStyle(() => {
+        const style: { backgroundColor: string; borderColor?: string } = {
+            backgroundColor: interpolateColor(
+                pressed.value,
+                [0, 1],
+                [variantColors.bg, variantColors.bgPressed],
+            ),
+        };
+        if (variantColors.border && variantColors.borderPressed) {
+            style.borderColor = interpolateColor(
+                pressed.value,
+                [0, 1],
+                [variantColors.border, variantColors.borderPressed],
+            );
+        }
+        return style;
+    });
+
+    const handlePressIn = disabled
+        ? undefined
+        : () => {
+              pressed.value = withTiming(1, { duration: PRESS_DURATION_MS, easing: PRESS_EASING });
+          };
+    const handlePressOut = disabled
+        ? undefined
+        : () => {
+              pressed.value = withTiming(0, { duration: PRESS_DURATION_MS, easing: PRESS_EASING });
+          };
+
     return (
-        <Pressable
+        <AnimatedPressable
             onPress={disabled ? undefined : onPress}
+            onPressIn={handlePressIn}
+            onPressOut={handlePressOut}
             disabled={disabled}
             accessibilityRole='button'
             accessibilityState={{ disabled }}
             accessibilityLabel={accessibilityLabel}
             className={styles.base()}
+            style={animatedStyle}
         >
             {iconOnly ? (
                 children
             ) : (
-                <Text className={styles.label()} numberOfLines={1}>
+                <Text className={styles.label()} numberOfLines={1} pointerEvents='none'>
                     {children}
                 </Text>
             )}
-        </Pressable>
+        </AnimatedPressable>
     );
 }
