@@ -68,7 +68,13 @@ if [[ ! -d app/android ]]; then
 fi
 
 echo "==> building $BUILD_TYPE APK inside dev container..."
-docker compose exec -T dev bash -c "cd /app/app/android && ./gradlew $GRADLE_TASK"
+# --no-daemon: GRADLE_USER_HOME is the shared external `irrigo-gradle` volume,
+# so the daemon registry is shared across every worktree stack's dev container.
+# gradlew can then connect to a stale or foreign-namespace daemon and fail with
+# "Cannot lock Build Output Cleanup Cache ... already been locked by this
+# process". Building daemonless avoids the collision; the file-based caches in
+# the shared volume still provide incremental builds.
+docker compose exec -T dev bash -c "cd /app/app/android && ./gradlew --no-daemon $GRADLE_TASK"
 
 if [[ ! -f "$APK_SRC" ]]; then
     echo "error: build succeeded but APK not found at $APK_SRC" >&2
