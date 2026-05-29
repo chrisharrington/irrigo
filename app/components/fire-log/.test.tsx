@@ -16,6 +16,7 @@ function buildActivity(overrides?: Partial<ActivityDto>): ActivityDto {
         zone: { id: 'z-1', name: 'North', slug: 'north' },
         appliedDepthMm: 14,
         durationMin: 62,
+        startedAt: null,
         depletionBeforeMm: 30,
         depletionAfterMm: 16,
         source: 'planner',

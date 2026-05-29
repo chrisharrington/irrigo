@@ -17,6 +17,13 @@ export type ActivitySource = 'planner' | 'manual';
  * `durationMin` is the SUM of associated `irrigation_cycles.duration_min`
  * rows (0 when an entry has no cycles, e.g. a planner entry that was deferred
  * by restrictions).
+ *
+ * `startedAt` is the ISO-8601 instant of the earliest cycle for this entry —
+ * `MIN(COALESCE(fired_at, start_time))` across the joined irrigation_cycles.
+ * `firedAt` first so the wire reports the actual HA-ack instant when present;
+ * falls back to the planned `startTime` for cycles that haven't fired yet.
+ * `null` when the entry has no cycles at all (deferred planner entries). The
+ * sibling `date` field stays the calendar-day cursor key. APP-71 / APP-78.
  */
 export type ActivityDto = {
     id: string;
@@ -24,6 +31,7 @@ export type ActivityDto = {
     zone: { id: string; name: string; slug: string };
     appliedDepthMm: number;
     durationMin: number;
+    startedAt: string | null;
     depletionBeforeMm: number;
     depletionAfterMm: number;
     source: ActivitySource;
@@ -60,6 +68,7 @@ type ActivityJoinedRow = {
     entry: typeof scheduleEntries.$inferSelect;
     zone: { id: string; name: string; slug: string };
     durationMin: number;
+    startedAt: Date | null;
 };
 
 /**
@@ -71,6 +80,7 @@ export type ActivityDb = {
         entry: typeof scheduleEntries;
         zone: { id: typeof zones.id; name: typeof zones.name; slug: typeof zones.slug };
         durationMin: unknown;
+        startedAt: unknown;
     }) => {
         from: (table: typeof scheduleEntries) => {
             innerJoin: (table: typeof zones, on: unknown) => {
@@ -128,6 +138,7 @@ export async function listActivity(db: ActivityDb, params: ActivityListParams): 
             entry: scheduleEntries,
             zone: { id: zones.id, name: zones.name, slug: zones.slug },
             durationMin: sql<number>`COALESCE(SUM(${irrigationCycles.durationMin}), 0)`,
+            startedAt: sql<Date | null>`MIN(COALESCE(${irrigationCycles.firedAt}, ${irrigationCycles.startTime}))`,
         })
         .from(scheduleEntries)
         .innerJoin(zones, eq(scheduleEntries.zoneId, zones.id))
@@ -154,6 +165,7 @@ function rowToDto(row: ActivityJoinedRow): ActivityDto {
         zone: row.zone,
         appliedDepthMm: row.entry.appliedDepthMm,
         durationMin: row.durationMin,
+        startedAt: row.startedAt !== null ? row.startedAt.toISOString() : null,
         depletionBeforeMm: row.entry.depletionBeforeMm,
         depletionAfterMm: row.entry.depletionAfterMm,
         source: row.entry.source === 'manual' ? 'manual' : 'planner',

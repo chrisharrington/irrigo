@@ -10,6 +10,8 @@ export type ActivityDto = {
     zone: { id: string; name: string; slug: string };
     appliedDepthMm: number;
     durationMin: number;
+    /** ISO-8601 instant of the earliest cycle for this entry — MIN(COALESCE(firedAt, startTime)) on the api. `null` when the entry has no cycles. APP-78 / API-83. */
+    startedAt: string | null;
     depletionBeforeMm: number;
     depletionAfterMm: number;
     source: ActivitySource;
