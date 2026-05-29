@@ -70,7 +70,7 @@ export function AlertCard({ alert, now, timezone }: AlertCardProps) {
                     <Text style={styles.time}>{timestamp}</Text>
                     {unread && (
                         <View
-                            accessibilityLabel='Unread'
+                            accessibilityLabel='Unread alert'
                             style={[styles.dot, { backgroundColor: palette.accent }]}
                         />
                     )}

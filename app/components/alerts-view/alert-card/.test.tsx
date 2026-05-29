@@ -41,7 +41,7 @@ describe('AlertCard', () => {
     it('shows the unread dot and a brighter title for unread alerts.', () => {
         render(<AlertCard alert={buildAlert({ ack: false })} now={NOW} timezone={TZ} />);
 
-        expect(screen.getByLabelText('Unread')).toBeOnTheScreen();
+        expect(screen.getByLabelText('Unread alert')).toBeOnTheScreen();
         const titleStyle = StyleSheet.flatten(
             screen.getByText('Controller unreachable').props.style,
         ) as TextStyle;
@@ -51,7 +51,7 @@ describe('AlertCard', () => {
     it('omits the unread dot and dims the title for read alerts.', () => {
         render(<AlertCard alert={buildAlert({ ack: true })} now={NOW} timezone={TZ} />);
 
-        expect(screen.queryByLabelText('Unread')).toBeNull();
+        expect(screen.queryByLabelText('Unread alert')).toBeNull();
         const titleStyle = StyleSheet.flatten(
             screen.getByText('Controller unreachable').props.style,
         ) as TextStyle;
