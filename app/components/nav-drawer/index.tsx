@@ -1,6 +1,6 @@
 import { memo, useCallback, useEffect, useState } from 'react';
 import {
-    Modal as RNModal,
+    BackHandler,
     Pressable,
     StyleSheet,
     Text,
@@ -128,6 +128,20 @@ export function NavDrawer({ visible, onClose, activeId, onSelect }: NavDrawerPro
         if (visible) setMounted(true);
     }, [visible]);
 
+    // The drawer is no longer an RN Modal (whose separate OS window negotiates
+    // its own system-bar insets and wouldn't reliably extend under the Android
+    // navigation bar — APP-73). Rendering it as an in-tree overlay means it
+    // fills the edge-to-edge activity window, but we lose Modal's automatic
+    // hardware-back dismissal, so wire it up explicitly while the drawer is open.
+    useEffect(() => {
+        if (!visible) return;
+        const subscription = BackHandler.addEventListener('hardwareBackPress', () => {
+            onClose();
+            return true;
+        });
+        return () => subscription.remove();
+    }, [visible, onClose]);
+
     const handleSelect = useCallback((id: NavItemId) => {
         onSelect(id);
         onClose();
@@ -156,16 +170,13 @@ export function NavDrawer({ visible, onClose, activeId, onSelect }: NavDrawerPro
         .duration(Duration.default)
         .easing(REANIMATED_EASING_STANDARD);
 
+    // While the drawer is fully closed nothing is mounted; `mounted` stays true
+    // through the slide-out so the exit animation can play, then the Reanimated
+    // exit callback flips it back to false.
+    if (!mounted) return null;
+
     return (
-        <RNModal
-            visible={mounted}
-            onRequestClose={onClose}
-            transparent
-            animationType='none'
-            statusBarTranslucent
-            navigationBarTranslucent
-        >
-            <View style={styles.overlay}>
+        <View style={styles.overlay} pointerEvents={visible ? 'auto' : 'none'}>
                 {visible && <Animated.View
                     entering={backdropEnter}
                     exiting={backdropExit}
@@ -226,8 +237,7 @@ export function NavDrawer({ visible, onClose, activeId, onSelect }: NavDrawerPro
                         />
                     </View>
                 </Animated.View>}
-            </View>
-        </RNModal>
+        </View>
     );
 }
 
@@ -287,7 +297,18 @@ const ActiveScheduleCard = memo(function ActiveScheduleCard({
 
 const styles = StyleSheet.create({
     overlay: {
-        flex: 1,
+        // Absolutely fills the parent (the edge-to-edge root view in
+        // `app/_layout.tsx`), so the drawer spans the full window height —
+        // including under the status bar and navigation bar — without the
+        // separate-window inset problems an RN Modal had (APP-73). `zIndex` +
+        // `elevation` keep it above the header and routed screens it overlays.
+        position: 'absolute',
+        top: 0,
+        right: 0,
+        bottom: 0,
+        left: 0,
+        zIndex: 50,
+        elevation: 50,
     },
     scrim: {
         position: 'absolute',
