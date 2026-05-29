@@ -1,4 +1,3 @@
-import dayjs from 'dayjs';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import type { ActivityDto } from '@/api/types/activity';
@@ -8,6 +7,7 @@ import { Battery, computeBatteryGeometry } from '@/components/battery';
 import { Button } from '@/components/button';
 import { LawnPatch, type LawnPatchSlug } from '@/components/lawn-patch';
 import { FontFamily } from '@/constants/fonts';
+import { formatActivityDate } from '@/lib/relative-time';
 import config from '@/tailwind.config';
 
 import { computeZoneStatusCopy } from './zone-status';
@@ -36,6 +36,9 @@ export type ZoneDetailProps = {
     /** Required. Whether the activity query is still in its first load. The component renders a hint when this is true and `activity` is empty. */
     isActivityLoading: boolean;
 
+    /** Required. IANA timezone used to format each recent-run row's date and start time. Sourced from `useNextRun().data?.timezone` by the route. APP-71. */
+    siteTimezone: string;
+
     /** Required. Fires when the user taps "Run now". Hidden when `zone.isRunning` is true (the Stop-watering button takes its place). */
     onRunNow: () => void;
 
@@ -60,6 +63,7 @@ export function ZoneDetail({
     nextRun,
     activity,
     isActivityLoading,
+    siteTimezone,
     onRunNow,
     onStopWatering,
     isStopping = false,
@@ -145,7 +149,7 @@ export function ZoneDetail({
                     <Text style={styles.emptyState}>No runs recorded yet.</Text>
                 :   <View style={styles.fireLog}>
                         {activity.map(row => (
-                            <RecentRunRow key={row.id} row={row} />
+                            <RecentRunRow key={row.id} row={row} siteTimezone={siteTimezone} />
                         ))}
                     </View>
                 }
@@ -163,10 +167,10 @@ function AttrRow({ label, value, mono = false }: { label: string; value: string;
     );
 }
 
-function RecentRunRow({ row }: { row: ActivityDto }) {
+function RecentRunRow({ row, siteTimezone }: { row: ActivityDto; siteTimezone: string }) {
     return (
         <View style={styles.fireRow}>
-            <Text style={styles.fireDate}>{dayjs(row.date).format('MMM D')}</Text>
+            <Text style={styles.fireDate}>{formatActivityDate(row.date, siteTimezone)}</Text>
             <Text style={styles.fireApplied}>
                 {row.appliedDepthMm.toFixed(1)} mm · {row.durationMin} min
             </Text>
@@ -341,7 +345,7 @@ const styles = StyleSheet.create({
         fontSize: 13,
         lineHeight: 17,
         color: colors.fg,
-        width: 64,
+        width: 130,
     },
     fireApplied: {
         flex: 1,

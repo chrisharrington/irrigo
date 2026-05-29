@@ -57,6 +57,7 @@ export default function ZoneScreen() {
                 nextRun={nextRun.data}
                 activity={flattened}
                 isActivityLoading={activity.isPending}
+                siteTimezone={nextRun.data?.timezone ?? 'UTC'}
                 onRunNow={() => setFireSheetOpen(true)}
                 onStopWatering={() => closeZone.mutate(zone.id)}
                 isStopping={closeZone.isPending}

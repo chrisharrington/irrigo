@@ -79,15 +79,15 @@ describe('formatTimeOfDay', () => {
 });
 
 describe('formatActivityDate', () => {
-    it(`formats an iso instant as 'MMM D' in the supplied site timezone.`, () => {
-        // 2026-05-13T15:00:00Z = 09:00 MDT on 2026-05-13. Locally May 13.
-        expect(formatActivityDate('2026-05-13T15:00:00.000Z', TZ)).toBe('May 13');
+    it(`formats an iso instant as 'MMM D · h:mm a' in the supplied site timezone.`, () => {
+        // 2026-05-13T15:00:00Z = 09:00 MDT on 2026-05-13.
+        expect(formatActivityDate('2026-05-13T15:00:00.000Z', TZ)).toBe('May 13 · 9:00 am');
     });
 
-    it(`uses the site timezone for the calendar-day, not UTC.`, () => {
-        // 2026-05-14T05:30:00Z = 23:30 MDT on 2026-05-13 (still May 13 locally).
-        // A UTC-anchored format would slip to May 14.
-        expect(formatActivityDate('2026-05-14T05:30:00.000Z', TZ)).toBe('May 13');
+    it(`uses the site timezone for both the calendar-day and the time-of-day, not UTC.`, () => {
+        // 2026-05-14T05:30:00Z = 23:30 MDT on 2026-05-13 — still May 13 locally,
+        // and the time should read 11:30 pm site-local, not 5:30 am UTC.
+        expect(formatActivityDate('2026-05-14T05:30:00.000Z', TZ)).toBe('May 13 · 11:30 pm');
     });
 });
 

@@ -67,8 +67,8 @@ describe('FireLog', () => {
         expect(screen.getByText('30 → 16 mm')).toBeOnTheScreen();
     });
 
-    it('formats the date label via formatActivityDate (site-local MMM D).', () => {
-        // 2026-05-13T15:00Z = 09:00 MDT on 2026-05-13 → 'May 13'.
+    it('formats the date label via formatActivityDate (site-local MMM D · h:mm a).', () => {
+        // 2026-05-13T15:00Z = 09:00 MDT on 2026-05-13 → 'May 13 · 9:00 am'.
         render(
             <FireLog
                 rows={[buildActivity({ date: '2026-05-13T15:00:00.000Z' })]}
@@ -76,7 +76,7 @@ describe('FireLog', () => {
             />,
         );
 
-        expect(screen.getByText('May 13')).toBeOnTheScreen();
+        expect(screen.getByText('May 13 · 9:00 am')).toBeOnTheScreen();
     });
 
     it('inserts hairline dividers between rows but not before the first.', () => {

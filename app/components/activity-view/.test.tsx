@@ -175,7 +175,7 @@ describe('ActivityView', () => {
             if (url.includes('/activity')) {
                 return jsonResponse(activityResult([
                     // 03:00 UTC on 2026-05-14 — same instant is 21:00 May 13
-                    // in Edmonton. A UTC fallback renders it as 'May 14'.
+                    // in Edmonton. A UTC fallback renders it as 'May 14 · 3:00 am'.
                     buildActivity({ id: 'a-1', date: '2026-05-14T03:00:00.000Z' }),
                 ]));
             }
@@ -184,7 +184,7 @@ describe('ActivityView', () => {
 
         render(<ActivityView />, { wrapper });
 
-        await waitFor(() => expect(screen.getByText('May 14')).toBeOnTheScreen());
+        await waitFor(() => expect(screen.getByText('May 14 · 3:00 am')).toBeOnTheScreen());
     });
 
     it('flattens multi-page infinite-query results into a single visible list.', () => {
