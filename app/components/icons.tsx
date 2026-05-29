@@ -138,3 +138,11 @@ export function X({ size = DEFAULT_SIZE, color = DEFAULT_COLOR, strokeWidth = 1.
         </Svg>
     );
 }
+
+export function Check({ size = DEFAULT_SIZE, color = DEFAULT_COLOR, strokeWidth = 1.6, accessibilityLabel }: IconProps) {
+    return (
+        <Svg width={size} height={size} viewBox='0 0 16 16' fill='none' stroke={color} strokeWidth={strokeWidth} strokeLinecap='round' strokeLinejoin='round' accessibilityLabel={accessibilityLabel}>
+            <Path d='M3 8.5 l 3 3 l 7 -7' />
+        </Svg>
+    );
+}
