@@ -7,7 +7,7 @@ import { Battery, computeBatteryGeometry } from '@/components/battery';
 import { Button } from '@/components/button';
 import { LawnPatch, type LawnPatchSlug } from '@/components/lawn-patch';
 import { FontFamily } from '@/constants/fonts';
-import { formatActivityDate } from '@/lib/relative-time';
+import { formatActivityRowDate } from '@/lib/relative-time';
 import config from '@/tailwind.config';
 
 import { computeZoneStatusCopy } from './zone-status';
@@ -170,7 +170,7 @@ function AttrRow({ label, value, mono = false }: { label: string; value: string;
 function RecentRunRow({ row, siteTimezone }: { row: ActivityDto; siteTimezone: string }) {
     return (
         <View style={styles.fireRow}>
-            <Text style={styles.fireDate}>{formatActivityDate(row.date, siteTimezone)}</Text>
+            <Text style={styles.fireDate}>{formatActivityRowDate(row.date, row.startedAt, siteTimezone)}</Text>
             <Text style={styles.fireApplied}>
                 {row.appliedDepthMm.toFixed(1)} mm · {row.durationMin} min
             </Text>

@@ -12,11 +12,12 @@ const TZ = 'America/Edmonton';
 function buildActivity(overrides?: Partial<ActivityDto>): ActivityDto {
     return {
         id: 'a-1',
-        date: '2026-05-13T15:00:00.000Z',
+        date: '2026-05-13',
         zone: { id: 'z-1', name: 'North', slug: 'north' },
         appliedDepthMm: 14,
         durationMin: 62,
-        startedAt: null,
+        // 09:00 MDT on 2026-05-13 → 'May 13 · 9:00 am'.
+        startedAt: '2026-05-13T15:00:00.000Z',
         depletionBeforeMm: 30,
         depletionAfterMm: 16,
         source: 'planner',
@@ -68,16 +69,27 @@ describe('FireLog', () => {
         expect(screen.getByText('30 → 16 mm')).toBeOnTheScreen();
     });
 
-    it('formats the date label via formatActivityDate (site-local MMM D · h:mm a).', () => {
+    it('formats the date label via formatActivityRowDate (site-local MMM D · h:mm a) when startedAt is present.', () => {
         // 2026-05-13T15:00Z = 09:00 MDT on 2026-05-13 → 'May 13 · 9:00 am'.
         render(
             <FireLog
-                rows={[buildActivity({ date: '2026-05-13T15:00:00.000Z' })]}
+                rows={[buildActivity({ date: '2026-05-13', startedAt: '2026-05-13T15:00:00.000Z' })]}
                 siteTimezone={TZ}
             />,
         );
 
         expect(screen.getByText('May 13 · 9:00 am')).toBeOnTheScreen();
+    });
+
+    it('falls back to date-only `MMM D` when startedAt is null (APP-78).', () => {
+        render(
+            <FireLog
+                rows={[buildActivity({ date: '2026-05-13', startedAt: null })]}
+                siteTimezone={TZ}
+            />,
+        );
+
+        expect(screen.getByText('May 13')).toBeOnTheScreen();
     });
 
     it('inserts hairline dividers between rows but not before the first.', () => {

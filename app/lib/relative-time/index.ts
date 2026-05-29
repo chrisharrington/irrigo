@@ -62,14 +62,21 @@ export function formatTimeOfDay(iso: string, timezoneName: string): string {
 }
 
 /**
- * Formats `iso` as `'MMM D · h:mm a'` (e.g. `'May 13 · 9:00 am'`) in the
- * supplied IANA timezone. Used by the Activity screen's FireLog and the
- * Zone detail "Recent runs" rows. Site-local so a UTC-late instant that
- * still lands on "today" locally doesn't slip to the next calendar day,
- * and so the time-of-day reads correctly to the operator. APP-71.
+ * Formats an activity-row label using the real start instant when available
+ * and falling back to the entry's calendar day when not.
+ *
+ * When `startedAt` is non-null, both the day and the time-of-day come from
+ * the real instant (`'May 13 · 9:00 am'`) in the supplied IANA timezone —
+ * the label stays internally consistent across midnight-rollover edge
+ * cases. When `startedAt` is null (deferred planner entries with no
+ * cycles), falls back to date-only (`'May 13'`) formatted directly from
+ * the day-only `date` string without timezone math. APP-71 / APP-78.
  */
-export function formatActivityDate(iso: string, timezoneName: string): string {
-    return dayjs(iso).tz(timezoneName).format('MMM D · h:mm a');
+export function formatActivityRowDate(date: string, startedAt: string | null, timezoneName: string): string {
+    if (startedAt !== null) {
+        return dayjs(startedAt).tz(timezoneName).format('MMM D · h:mm a');
+    }
+    return dayjs(date).format('MMM D');
 }
 
 /**

@@ -177,7 +177,7 @@ describe('ActivityView', () => {
                 return jsonResponse(activityResult([
                     // 03:00 UTC on 2026-05-14 — same instant is 21:00 May 13
                     // in Edmonton. A UTC fallback renders it as 'May 14 · 3:00 am'.
-                    buildActivity({ id: 'a-1', date: '2026-05-14T03:00:00.000Z' }),
+                    buildActivity({ id: 'a-1', date: '2026-05-14', startedAt: '2026-05-14T03:00:00.000Z' }),
                 ]));
             }
             return jsonResponse({ error: 'unhandled' }, 500);
