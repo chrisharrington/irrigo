@@ -15,6 +15,7 @@ import Animated, {
     SlideOutLeft,
 } from 'react-native-reanimated';
 import { scheduleOnRN } from 'react-native-worklets';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { BlurView } from 'expo-blur';
 
 import { BrandGlyph } from '@/components/brand-glyph';
@@ -118,6 +119,11 @@ export function NavDrawer({ visible, onClose, activeId, onSelect }: NavDrawerPro
     // unmount is synchronized with the slide finishing.
     const [mounted, setMounted] = useState(visible);
 
+    // Bottom safe-area inset pads the panel so the footer card clears the
+    // system navigation bar once `navigationBarTranslucent` lets the modal
+    // draw underneath it (APP-73).
+    const insets = useSafeAreaInsets();
+
     useEffect(() => {
         if (visible) setMounted(true);
     }, [visible]);
@@ -157,6 +163,7 @@ export function NavDrawer({ visible, onClose, activeId, onSelect }: NavDrawerPro
             transparent
             animationType='none'
             statusBarTranslucent
+            navigationBarTranslucent
         >
             <View style={styles.overlay}>
                 {visible && <Animated.View
@@ -178,7 +185,7 @@ export function NavDrawer({ visible, onClose, activeId, onSelect }: NavDrawerPro
                 {visible && <Animated.View
                     entering={enterAnimation}
                     exiting={exitAnimation}
-                    style={styles.panel}
+                    style={[styles.panel, { paddingBottom: insets.bottom }]}
                     accessibilityViewIsModal
                     accessibilityLabel='Navigation'
                 >

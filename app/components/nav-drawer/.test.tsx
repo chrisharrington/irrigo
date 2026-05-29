@@ -1,9 +1,14 @@
+import { StyleSheet } from 'react-native';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react-native';
 
 import { buildApiWrapper, jsonResponse } from '@/api/test-utils';
 import { keys } from '@/api/query-keys';
 import type { ScheduleListItem } from '@/api/types/schedules';
 import { NavDrawer } from '.';
+
+jest.mock('react-native-safe-area-context', () => ({
+    useSafeAreaInsets: () => ({ top: 0, bottom: 34, left: 0, right: 0 }),
+}));
 
 const mockFetch = jest.fn();
 
@@ -179,6 +184,40 @@ describe('NavDrawer', () => {
 
         expect(onSelect).toHaveBeenCalledWith('schedules');
         expect(onClose).toHaveBeenCalledTimes(1);
+    });
+
+    it('draws the modal edge-to-edge under the top and bottom system bars.', () => {
+        const { wrapper, client } = buildApiWrapper();
+        client.setQueryData(keys.schedules.list(), [SAMPLE_ACTIVE]);
+
+        const { root } = render(
+            <NavDrawer visible onClose={jest.fn()} activeId='home' onSelect={jest.fn()} />,
+            { wrapper },
+        );
+
+        // The modal must extend under both the status bar and the navigation
+        // bar so its background fills the full viewport (APP-73).
+        const modal = root.find(node => node.props.navigationBarTranslucent !== undefined);
+        expect(modal.props.navigationBarTranslucent).toBe(true);
+        expect(modal.props.statusBarTranslucent).toBe(true);
+    });
+
+    it('insets the panel background by the bottom safe-area so the footer clears the nav bar.', () => {
+        const { wrapper, client } = buildApiWrapper();
+        client.setQueryData(keys.schedules.list(), [SAMPLE_ACTIVE]);
+
+        render(
+            <NavDrawer visible onClose={jest.fn()} activeId='home' onSelect={jest.fn()} />,
+            { wrapper },
+        );
+
+        // The safe-area inset is mocked at 34; the panel pads its bottom by
+        // that amount while its background still fills to the screen edge.
+        const panel = screen.getByLabelText('Navigation');
+        const flat = StyleSheet.flatten(panel.props.style as Parameters<typeof StyleSheet.flatten>[0]) as
+            | { paddingBottom?: number }
+            | undefined;
+        expect(flat?.paddingBottom).toBe(34);
     });
 
 });
