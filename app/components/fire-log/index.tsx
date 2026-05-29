@@ -3,7 +3,7 @@ import { StyleSheet, Text, View } from 'react-native';
 
 import type { ActivityDto } from '@/api/types/activity';
 import { FontFamily } from '@/constants/fonts';
-import { formatActivityDate } from '@/lib/relative-time';
+import { formatActivityRowDate } from '@/lib/relative-time';
 import config from '@/tailwind.config';
 
 const colors = config.theme.extend.colors;
@@ -42,7 +42,7 @@ export function FireLog({ rows, siteTimezone }: FireLogProps) {
 }
 
 function FireLogRow({ row, siteTimezone }: { row: ActivityDto; siteTimezone: string }) {
-    const date = formatActivityDate(row.date, siteTimezone);
+    const date = formatActivityRowDate(row.date, row.startedAt, siteTimezone);
     const headline = `${row.appliedDepthMm.toFixed(1)} mm · ${row.durationMin} min`;
     const sub = `${row.depletionBeforeMm} → ${row.depletionAfterMm} mm`;
 

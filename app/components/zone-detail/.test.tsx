@@ -166,8 +166,8 @@ describe('ZoneDetail', () => {
     it('renders the recent-runs rows from the supplied activity.', () => {
         // 2026-05-03T15:00Z = 09:00 MDT on May 3; 2026-05-02T15:00Z = 09:00 MDT on May 2.
         const activity = [
-            buildActivity({ id: 'a-1', date: '2026-05-03T15:00:00.000Z', appliedDepthMm: 9, durationMin: 30, depletionBeforeMm: 22, depletionAfterMm: 0 }),
-            buildActivity({ id: 'a-2', date: '2026-05-02T15:00:00.000Z', appliedDepthMm: 4.5, durationMin: 15, depletionBeforeMm: 13, depletionAfterMm: 0 }),
+            buildActivity({ id: 'a-1', date: '2026-05-03', startedAt: '2026-05-03T15:00:00.000Z', appliedDepthMm: 9, durationMin: 30, depletionBeforeMm: 22, depletionAfterMm: 0 }),
+            buildActivity({ id: 'a-2', date: '2026-05-02', startedAt: '2026-05-02T15:00:00.000Z', appliedDepthMm: 4.5, durationMin: 15, depletionBeforeMm: 13, depletionAfterMm: 0 }),
         ];
 
         render(
@@ -190,11 +190,13 @@ describe('ZoneDetail', () => {
         expect(screen.getByText('13.0 → 0.0 mm')).toBeOnTheScreen();
     });
 
-    it('formats recent-run dates in the supplied site timezone, not UTC (APP-71).', () => {
+    it('formats recent-run dates in the supplied site timezone from startedAt (APP-71 / APP-78).', () => {
         // 2026-05-14T05:30Z = 23:30 MDT on 2026-05-13 — still May 13 locally,
-        // and the time should read 11:30 pm site-local.
+        // and the time should read 11:30 pm site-local. The `date` field
+        // says May 14 (planner's scheduled-night bucket); the formatter
+        // prefers `startedAt` and shows the actual local day.
         const activity = [
-            buildActivity({ id: 'a-1', date: '2026-05-14T05:30:00.000Z' }),
+            buildActivity({ id: 'a-1', date: '2026-05-14', startedAt: '2026-05-14T05:30:00.000Z' }),
         ];
 
         render(
@@ -210,6 +212,26 @@ describe('ZoneDetail', () => {
         );
 
         expect(screen.getByText('May 13 · 11:30 pm')).toBeOnTheScreen();
+    });
+
+    it('falls back to date-only `MMM D` on recent-run rows when startedAt is null (APP-78).', () => {
+        const activity = [
+            buildActivity({ id: 'a-1', date: '2026-05-13', startedAt: null }),
+        ];
+
+        render(
+            <ZoneDetail
+                zone={buildZone()}
+                nextRun={undefined}
+                activity={activity}
+                isActivityLoading={false}
+                onRunNow={jest.fn()}
+                onStopWatering={jest.fn()}
+                siteTimezone='America/Edmonton'
+            />,
+        );
+
+        expect(screen.getByText('May 13')).toBeOnTheScreen();
     });
 
     it('renders an empty state when activity is empty and not loading.', () => {
