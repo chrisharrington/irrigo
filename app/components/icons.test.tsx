@@ -4,6 +4,7 @@ import type { ComponentType } from 'react';
 import {
     Bell,
     Cal,
+    Check,
     ChevL,
     ChevR,
     Drop,
@@ -34,6 +35,7 @@ const icons: ReadonlyArray<readonly [string, ComponentType<IconProps>]> = [
     ['Home', Home],
     ['Menu', Menu],
     ['X', X],
+    ['Check', Check],
 ];
 
 describe('Irrigo icons', () => {
@@ -97,6 +99,7 @@ describe('Irrigo icons', () => {
                 <ChevL accessibilityLabel='ChevL' />
                 <Menu accessibilityLabel='Menu' />
                 <X accessibilityLabel='X' />
+                <Check accessibilityLabel='Check' />
             </>,
         );
 
@@ -104,6 +107,7 @@ describe('Irrigo icons', () => {
         expect(screen.getByLabelText('ChevL').props.strokeWidth).toBe(1.6);
         expect(screen.getByLabelText('Menu').props.strokeWidth).toBe(1.6);
         expect(screen.getByLabelText('X').props.strokeWidth).toBe(1.6);
+        expect(screen.getByLabelText('Check').props.strokeWidth).toBe(1.6);
     });
 
     it('uses the source 1.4 stroke weight by default on the rest of the stroke-based icons.', () => {
