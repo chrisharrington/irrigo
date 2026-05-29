@@ -256,6 +256,14 @@ describe('RootLayout', () => {
         expect(screen.getByText('active:home')).toBeOnTheScreen();
     });
 
+    it('routes to the alerts screen when the header bell is pressed (APP-79).', () => {
+        render(<RootLayout />);
+
+        fireEvent.press(screen.getByLabelText('Alerts'));
+
+        expect(mockRouterPush).toHaveBeenCalledWith('/alerts');
+    });
+
     it('routes via expo-router when the drawer selects a destination (APP-58).', () => {
         render(<RootLayout />);
 

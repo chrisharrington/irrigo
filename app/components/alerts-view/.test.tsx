@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react-native';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react-native';
 
 import { buildApiWrapper, jsonResponse } from '@/api/test-utils';
 import { keys } from '@/api/query-keys';
@@ -79,6 +79,20 @@ describe('AlertsView', () => {
 
         expect(screen.getByText('Recent alerts')).toBeOnTheScreen();
         expect(screen.getByText('1 unread · 2 total')).toBeOnTheScreen();
+    });
+
+    it('shows a per-filter count on each chip.', () => {
+        const wrapper = seed([
+            buildAlert({ id: 'a-1', tone: 'danger', ack: false }), // unread + critical
+            buildAlert({ id: 'a-2', tone: 'warn', class: 'weather-stale', ack: true }), // neither
+        ]);
+
+        render(<AlertsView now={NOW} />, { wrapper });
+
+        // All = 2, Unread = 1, Critical (danger-only) = 1.
+        expect(within(screen.getByLabelText('All')).getByText('2')).toBeOnTheScreen();
+        expect(within(screen.getByLabelText('Unread')).getByText('1')).toBeOnTheScreen();
+        expect(within(screen.getByLabelText('Critical')).getByText('1')).toBeOnTheScreen();
     });
 
     it('shows every alert under the All filter by default.', () => {
