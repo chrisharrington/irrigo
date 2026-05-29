@@ -60,7 +60,7 @@ services:
             EXPO_ACCESS_TOKEN: ${EXPO_ACCESS_TOKEN}
         ports:
             - "${PORT}:9753"
-        command: sh -c "bun run start"
+        command: sh -c "bun run dev"
         networks:
             - backend
             - frontend
