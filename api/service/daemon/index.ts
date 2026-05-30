@@ -47,7 +47,7 @@ dayjs.extend(timezone);
 
 /**
  * Default hour-of-day (site-local) for the daily re-plan. 20:00 is chosen
- * so Open-Meteo's day-0 `rain_sum` reflects ~20 hours of *observed* rain by
+ * so Open-Meteo's day-0 `precipitation_sum` reflects ~20 hours of *observed* rain by
  * the time the planner places tonight's cycles — same-day rainfall lands in
  * the depletion balance before it can influence cycle placement. Forecast
  * rain after 20:00 still flows through day-0's remaining forecast hours and

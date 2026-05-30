@@ -35,8 +35,8 @@ const emptyOpenMeteoResponse = {
     timezone: 'GMT',
     timezone_abbreviation: 'GMT',
     elevation: 0,
-    daily_units: { time: 'iso8601', sunrise: 'iso8601', sunset: 'iso8601', rain_sum: 'mm', et0_fao_evapotranspiration: 'mm' },
-    daily: { time: [], sunrise: [], sunset: [], rain_sum: [], et0_fao_evapotranspiration: [] },
+    daily_units: { time: 'iso8601', sunrise: 'iso8601', sunset: 'iso8601', precipitation_sum: 'mm', et0_fao_evapotranspiration: 'mm' },
+    daily: { time: [], sunrise: [], sunset: [], precipitation_sum: [], et0_fao_evapotranspiration: [] },
     hourly: { time: [], precipitation: [], et0_fao_evapotranspiration: [] },
 };
 const mockFetch = mock(() => Promise.resolve({
