@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, mock } from 'bun:test';
-import { runScheduleForZone } from '.';
+import { runScheduleForZone, resolveRainSkipLookaheadDays } from '.';
+import { DEFAULT_RAIN_SKIP_LOOKAHEAD_DAYS } from './dynamic';
 import { __resetWeatherCacheForTests } from '../data/weather';
 import { createTestZone } from '../mock/zone';
 
@@ -230,5 +231,27 @@ describe('runScheduleForZone', () => {
         const { entries: schedule } = await runScheduleForZone(zone);
 
         expect(schedule).toHaveLength(0);
+    });
+});
+
+describe('resolveRainSkipLookaheadDays', () => {
+    it('falls back to the default when the env var is unset', () => {
+        expect(resolveRainSkipLookaheadDays(undefined)).toBe(DEFAULT_RAIN_SKIP_LOOKAHEAD_DAYS);
+    });
+
+    it('parses a positive integer', () => {
+        expect(resolveRainSkipLookaheadDays('5')).toBe(5);
+    });
+
+    it('accepts 0 to disable the rain-skip', () => {
+        expect(resolveRainSkipLookaheadDays('0')).toBe(0);
+    });
+
+    it('falls back to the default on non-numeric input', () => {
+        expect(resolveRainSkipLookaheadDays('soon')).toBe(DEFAULT_RAIN_SKIP_LOOKAHEAD_DAYS);
+    });
+
+    it('falls back to the default on a negative value', () => {
+        expect(resolveRainSkipLookaheadDays('-2')).toBe(DEFAULT_RAIN_SKIP_LOOKAHEAD_DAYS);
     });
 });

@@ -129,7 +129,10 @@ describe('planZoneSchedule', () => {
             expect(schedule).toHaveLength(0);
         });
 
-        it('should handle rainfall after scheduled irrigation', () => {
+        it('should defer irrigation when significant rain is forecast the next day (rain-skip)', () => {
+            // Above the 22.5mm trigger on day 0, but 10mm rain (8mm effective)
+            // is forecast for day 1 — enough to bring depletion below trigger,
+            // so the planner should rain-skip rather than water then overflow.
             const zone = createTestZone({ currentDepletionMm: 23 });
             const weather = createWeatherDays([
                 { evapotranspirationMmPerDay: 2.0, rainfallMm: 0 },
@@ -139,7 +142,7 @@ describe('planZoneSchedule', () => {
 
             const { entries: schedule } = planZoneSchedule(zone, weather);
 
-            expect(schedule.length).toBeGreaterThan(0);
+            expect(schedule).toHaveLength(0);
         });
 
         it('should handle intermittent rainfall pattern', () => {
@@ -172,6 +175,130 @@ describe('planZoneSchedule', () => {
             // 2mm * 0.8 = 1.6mm effective rainfall, less than 2mm ET.
             // Depletion: 20 + 2 - 1.6 = 20.4mm (still below 22.5mm threshold).
             expect(schedule).toHaveLength(0);
+        });
+    });
+
+    // Forecast rain-skip lookahead (API-85).
+    describe('Forecast rain-skip lookahead', () => {
+        it('defers tonight when rain within the lookahead window will cover the deficit', () => {
+            // Day 0 is above the 22.5mm trigger, but 12mm rain (9.6mm effective)
+            // is forecast two days out — inside the 3-day lookahead — so the
+            // planner should defer rather than water then let the rain overflow.
+            const zone = createTestZone({ currentDepletionMm: 30 });
+            const weather = createWeatherDays([
+                { evapotranspirationMmPerDay: 0, rainfallMm: 0 },
+                { evapotranspirationMmPerDay: 0, rainfallMm: 0 },
+                { evapotranspirationMmPerDay: 0, rainfallMm: 12.0 },
+                { evapotranspirationMmPerDay: 0, rainfallMm: 0 },
+            ]);
+
+            const { entries: schedule } = planZoneSchedule(zone, weather);
+
+            expect(schedule).toHaveLength(0);
+        });
+
+        it('still waters when forecast rain is too small to cover the deficit', () => {
+            // 3mm rain (2.4mm effective) doesn't bring 30mm depletion below the
+            // 22.5mm trigger, so the planner waters tonight as usual.
+            const zone = createTestZone({ currentDepletionMm: 30 });
+            const weather = createWeatherDays([
+                { evapotranspirationMmPerDay: 0, rainfallMm: 0 },
+                { evapotranspirationMmPerDay: 0, rainfallMm: 3.0 },
+                { evapotranspirationMmPerDay: 0, rainfallMm: 0 },
+                { evapotranspirationMmPerDay: 0, rainfallMm: 0 },
+            ]);
+
+            const { entries: schedule } = planZoneSchedule(zone, weather);
+
+            expect(schedule.length).toBeGreaterThan(0);
+            expect(schedule[0]!.date.format('YYYY-MM-DD')).toBe(weather[0]!.date.format('YYYY-MM-DD'));
+        });
+
+        it('still waters when rain falls beyond the lookahead window', () => {
+            // Heavy rain on day 5 is outside the 3-day lookahead from day 0, so
+            // it must not suppress tonight's watering.
+            const zone = createTestZone({ currentDepletionMm: 25 });
+            const weather = createWeatherDays([
+                { evapotranspirationMmPerDay: 0, rainfallMm: 0 },
+                { evapotranspirationMmPerDay: 0, rainfallMm: 0 },
+                { evapotranspirationMmPerDay: 0, rainfallMm: 0 },
+                { evapotranspirationMmPerDay: 0, rainfallMm: 0 },
+                { evapotranspirationMmPerDay: 0, rainfallMm: 0 },
+                { evapotranspirationMmPerDay: 0, rainfallMm: 20.0 },
+                { evapotranspirationMmPerDay: 0, rainfallMm: 0 },
+            ]);
+
+            const { entries: schedule } = planZoneSchedule(zone, weather);
+
+            expect(schedule.length).toBeGreaterThan(0);
+            expect(schedule[0]!.date.format('YYYY-MM-DD')).toBe(weather[0]!.date.format('YYYY-MM-DD'));
+        });
+
+        it('ignores sub-2mm forecast rain when deciding whether to skip', () => {
+            // Drizzle (<2mm) is treated as zero effective rain, so it can't
+            // trigger a rain-skip — the planner waters tonight.
+            const zone = createTestZone({ currentDepletionMm: 25 });
+            const weather = createWeatherDays([
+                { evapotranspirationMmPerDay: 0, rainfallMm: 0 },
+                { evapotranspirationMmPerDay: 0, rainfallMm: 1.5 },
+                { evapotranspirationMmPerDay: 0, rainfallMm: 1.9 },
+                { evapotranspirationMmPerDay: 0, rainfallMm: 0 },
+            ]);
+
+            const { entries: schedule } = planZoneSchedule(zone, weather);
+
+            expect(schedule.length).toBeGreaterThan(0);
+            expect(schedule[0]!.date.format('YYYY-MM-DD')).toBe(weather[0]!.date.format('YYYY-MM-DD'));
+        });
+
+        it('honors a narrowed lookahead window — rain beyond it no longer suppresses watering', () => {
+            // 12mm rain (9.6mm effective) two days out would trigger a skip
+            // under the default 3-day window, but with a 1-day lookahead it sits
+            // outside the window, so the planner waters tonight.
+            const zone = createTestZone({ currentDepletionMm: 30 });
+            const weather = createWeatherDays([
+                { evapotranspirationMmPerDay: 0, rainfallMm: 0 },
+                { evapotranspirationMmPerDay: 0, rainfallMm: 0 },
+                { evapotranspirationMmPerDay: 0, rainfallMm: 12.0 },
+                { evapotranspirationMmPerDay: 0, rainfallMm: 0 },
+            ]);
+
+            const { entries: schedule } = planZoneSchedule(zone, weather, [], undefined, undefined, 1);
+
+            expect(schedule.length).toBeGreaterThan(0);
+            expect(schedule[0]!.date.format('YYYY-MM-DD')).toBe(weather[0]!.date.format('YYYY-MM-DD'));
+        });
+
+        it('disables the rain-skip entirely when the lookahead is 0', () => {
+            // Even heavy imminent rain can't defer watering when the lookahead
+            // window is zero days — the escape hatch for `RAIN_SKIP_LOOKAHEAD_DAYS=0`.
+            const zone = createTestZone({ currentDepletionMm: 30 });
+            const weather = createWeatherDays([
+                { evapotranspirationMmPerDay: 0, rainfallMm: 0 },
+                { evapotranspirationMmPerDay: 0, rainfallMm: 20.0 },
+                { evapotranspirationMmPerDay: 0, rainfallMm: 0 },
+            ]);
+
+            const { entries: schedule } = planZoneSchedule(zone, weather, [], undefined, undefined, 0);
+
+            expect(schedule.length).toBeGreaterThan(0);
+            expect(schedule[0]!.date.format('YYYY-MM-DD')).toBe(weather[0]!.date.format('YYYY-MM-DD'));
+        });
+
+        it('carries depletion forward unchanged after a day-0 rain-skip', () => {
+            // Skipping day 0 must leave the projected next-day depletion at the
+            // un-watered value so tomorrow's re-plan starts from reality.
+            const zone = createTestZone({ currentDepletionMm: 24 });
+            const weather = createWeatherDays([
+                { evapotranspirationMmPerDay: 0, rainfallMm: 0 },
+                { evapotranspirationMmPerDay: 0, rainfallMm: 20.0 },
+                { evapotranspirationMmPerDay: 0, rainfallMm: 0 },
+            ]);
+
+            const { entries: schedule, projectedNextDepletionMm } = planZoneSchedule(zone, weather);
+
+            expect(schedule).toHaveLength(0);
+            expect(projectedNextDepletionMm).toBeCloseTo(24, 1);
         });
     });
 

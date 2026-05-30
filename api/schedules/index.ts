@@ -1,8 +1,21 @@
 import dayjs from 'dayjs';
 import { getWeatherData } from '../data/weather';
 import type { Zone } from '../models';
-import { planZoneSchedule, type BusyWindow, type PlanZoneScheduleResult, type ScheduleOverrides } from './dynamic';
+import { DEFAULT_RAIN_SKIP_LOOKAHEAD_DAYS, planZoneSchedule, type BusyWindow, type PlanZoneScheduleResult, type ScheduleOverrides } from './dynamic';
 import type { ScheduleRestrictions } from './dynamic/restrictions';
+
+/**
+ * Resolves the planner's rain-skip lookahead horizon from the
+ * `RAIN_SKIP_LOOKAHEAD_DAYS` environment variable. Accepts any non-negative
+ * integer (0 disables the rain-skip); falls back to
+ * `DEFAULT_RAIN_SKIP_LOOKAHEAD_DAYS` when unset, non-numeric, or negative.
+ * Exported for direct testing.
+ */
+export function resolveRainSkipLookaheadDays(raw: string | undefined): number {
+    if (raw === undefined) return DEFAULT_RAIN_SKIP_LOOKAHEAD_DAYS;
+    const parsed = Number.parseInt(raw, 10);
+    return Number.isFinite(parsed) && parsed >= 0 ? parsed : DEFAULT_RAIN_SKIP_LOOKAHEAD_DAYS;
+}
 
 export type RunScheduleForZoneOptions = {
     /** Optional. Number of days of forecast weather to plan against. Default 7. */
@@ -66,5 +79,7 @@ export async function runScheduleForZone(
         end: dayjs(w.end),
     }));
 
-    return planZoneSchedule(zone, daily, busyWindows, options?.restrictions, options?.overrides);
+    const rainSkipLookaheadDays = resolveRainSkipLookaheadDays(process.env.RAIN_SKIP_LOOKAHEAD_DAYS);
+
+    return planZoneSchedule(zone, daily, busyWindows, options?.restrictions, options?.overrides, rainSkipLookaheadDays);
 }
