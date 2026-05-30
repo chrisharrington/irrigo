@@ -22,6 +22,53 @@ export type ScheduleOverrides = {
 const NO_OVERRIDES: ScheduleOverrides = {};
 
 /**
+ * Default forecast horizon (in days, starting tomorrow) the planner looks
+ * ahead for rain before committing a night's irrigation. When the effective
+ * rainfall forecast over this window would by itself bring depletion back
+ * below the trigger, the night is skipped and depletion carries forward — the
+ * standard smart-controller "rain delay". Conservative by design: the daemon
+ * re-plans every evening, so a skip is reconsidered the next day if the rain
+ * fails to materialise.
+ *
+ * Overridable per planning run via `planZoneSchedule`'s `rainSkipLookaheadDays`
+ * argument, which the daemon sources from the `RAIN_SKIP_LOOKAHEAD_DAYS`
+ * environment variable. A value of 0 disables the rain-skip entirely. Pairs
+ * with the precipitation-source accuracy work tracked separately. API-85.
+ */
+export const DEFAULT_RAIN_SKIP_LOOKAHEAD_DAYS = 3;
+
+/**
+ * Converts gross daily rainfall into the depth that actually counts against
+ * soil depletion: rain under 2 mm is treated as zero (intercepted / evaporated
+ * before it infiltrates), and the rest is discounted to 80% to approximate
+ * runoff and canopy interception. Used both for the day-by-day soil balance
+ * and the forward-looking rain-skip lookahead so the credit math is identical.
+ */
+function effectiveRainfall(rainfallMm: number): number {
+    return rainfallMm < 2 ? 0 : 0.8 * rainfallMm;
+}
+
+/**
+ * Sums the effective forecast rainfall over the `lookaheadDays` days that
+ * follow `dayIndex` (the window starts at the *next* day — `dayIndex`'s own
+ * rain is already folded into the running depletion before this is consulted).
+ * The window is clamped to the end of `weatherHistory`, so a short forecast
+ * tail simply contributes fewer days. Drives the planner's rain-skip decision.
+ */
+function forecastEffectiveRainfall(
+    weatherHistory: DailyWeather[],
+    dayIndex: number,
+    lookaheadDays: number,
+): number {
+    let total = 0;
+    const lastIndex = Math.min(dayIndex + lookaheadDays, weatherHistory.length - 1);
+    for (let i = dayIndex + 1; i <= lastIndex; i++) {
+        total += effectiveRainfall(weatherHistory[i]!.rainfallMm ?? 0);
+    }
+    return total;
+}
+
+/**
  * A time interval the planner must avoid placing cycles inside. Used by the
  * daemon's sequential per-zone planning to prevent cross-zone overlap: each
  * zone's persisted cycles become busy windows for subsequent zones.
@@ -61,6 +108,11 @@ export type PlanZoneScheduleResult = {
  *   the planner uses these in place of the zone's own `rootDepthM` /
  *   `allowableDepletionFraction`. Zone rows stay untouched — overrides
  *   express the temporary planning mode (e.g. overseeding vs. maintenance).
+ * @param rainSkipLookaheadDays - Forecast horizon (days, starting tomorrow)
+ *   for the rain-skip. When forecast effective rain over this window would by
+ *   itself bring depletion below the trigger, the night is deferred. 0 disables
+ *   the rain-skip. Defaults to `DEFAULT_RAIN_SKIP_LOOKAHEAD_DAYS`; the daemon
+ *   sources it from the `RAIN_SKIP_LOOKAHEAD_DAYS` env var. API-85.
  * @returns Per-day entries plus the projected next-day starting depletion.
  */
 export function planZoneSchedule(
@@ -69,6 +121,7 @@ export function planZoneSchedule(
     busyWindows: ReadonlyArray<BusyWindow> = [],
     restrictions: ScheduleRestrictions = NO_RESTRICTIONS,
     overrides: ScheduleOverrides = NO_OVERRIDES,
+    rainSkipLookaheadDays: number = DEFAULT_RAIN_SKIP_LOOKAHEAD_DAYS,
 ): PlanZoneScheduleResult {
     const effectiveRootDepthM = overrides.rootDepthM ?? zone.rootDepthM,
         effectiveAllowableDepletionFraction = overrides.allowableDepletionFraction ?? zone.allowableDepletionFraction;
@@ -116,7 +169,7 @@ export function planZoneSchedule(
             microclimateFactor = zone.microclimateFactor ?? 1,
             cropEvapotranspiration = cropCoefficient * microclimateFactor * referenceEvapotranspiration,
             rainfallMillimeters = weatherDay.rainfallMm ?? 0,
-            effectiveRainfallMillimeters = rainfallMillimeters < 2 ? 0 : 0.8 * rainfallMillimeters; // If rainfall is less than 2mm, treat as zero.
+            effectiveRainfallMillimeters = effectiveRainfall(rainfallMillimeters);
 
         // Update soil depletion based on ET and rainfall.
         currentDepletionMillimeters = clampValue(
@@ -127,56 +180,72 @@ export function planZoneSchedule(
 
         // Check if irrigation is needed.
         if (currentDepletionMillimeters >= readilyAvailableWaterMillimeters) {
-            // Anchor each planning day's overnight block to the *next* day's
-            // sunrise — i.e. the block runs [midnight day i+1, sunrise day i+1],
-            // the overnight starting tonight and ending tomorrow morning. The
-            // last day of the horizon has no successor and is therefore dropped
-            // (no anchor). See API-76.
-            const nextDay = weatherHistory[dayIndex + 1];
-            if (nextDay === undefined) {
-                console.warn(`planner: zone ${zone.id} (${zone.name}): day ${date.format('YYYY-MM-DD')} is the last weather day — no next-day sunrise to anchor to, deferring irrigation.`);
-                continue;
-            }
-            const sunrise = nextDay.sunrise ?? nextDay.date.hour(6).minute(0).second(0).millisecond(0);
+            // Forward-looking rain-skip (API-85). Before committing tonight's
+            // cycles, look ahead at the forecast: if the effective rainfall over
+            // the next few days would by itself bring depletion back below the
+            // trigger, skip tonight and carry depletion forward. Watering now
+            // would only refill the soil for the rain to overflow — pure waste.
+            // The daemon re-plans every evening, so this skip is reconsidered
+            // tomorrow if the forecast rain doesn't arrive.
+            const upcomingEffectiveRainfallMillimeters = forecastEffectiveRainfall(weatherHistory, dayIndex, rainSkipLookaheadDays);
+            const rainWillCoverDeficit = currentDepletionMillimeters - upcomingEffectiveRainfallMillimeters < readilyAvailableWaterMillimeters;
 
-            const irrigationOutcome = tryPlaceIrrigationForDay({
-                date,
-                sunrise,
-                zone,
-                currentDepletionMillimeters,
-                totalAvailableWaterMillimeters,
-                precipitationRateMillimetersPerHour,
-                infiltrationRateMillimetersPerHour,
-                soakTimeMinutes,
-                busyWindowsSoFar,
-                restrictions,
-            });
+            if (rainWillCoverDeficit) {
+                console.log(`planner: zone ${zone.id} (${zone.name}): rain-skip on ${date.format('YYYY-MM-DD')} — depletion ${currentDepletionMillimeters.toFixed(1)} mm ≥ trigger ${readilyAvailableWaterMillimeters.toFixed(1)} mm, but ${upcomingEffectiveRainfallMillimeters.toFixed(1)} mm effective rain forecast over the next ${rainSkipLookaheadDays} day(s) will bring it below trigger — deferring irrigation.`);
+                // Fall through: depletion carries forward unchanged and the
+                // day-0 projection is still captured below.
+            } else {
+                // Anchor each planning day's overnight block to the *next* day's
+                // sunrise — i.e. the block runs [midnight day i+1, sunrise day i+1],
+                // the overnight starting tonight and ending tomorrow morning. The
+                // last day of the horizon has no successor and is therefore dropped
+                // (no anchor). See API-76.
+                const nextDay = weatherHistory[dayIndex + 1];
+                if (nextDay === undefined) {
+                    console.warn(`planner: zone ${zone.id} (${zone.name}): day ${date.format('YYYY-MM-DD')} is the last weather day — no next-day sunrise to anchor to, deferring irrigation.`);
+                } else {
+                    const sunrise = nextDay.sunrise ?? nextDay.date.hour(6).minute(0).second(0).millisecond(0);
 
-            if (irrigationOutcome !== null) {
-                // Each placed cycle becomes a busy window for the rest of
-                // the planning horizon.
-                for (const cycle of irrigationOutcome.cycles) {
-                    busyWindowsSoFar.push({
-                        start: cycle.startTime,
-                        end: cycle.startTime.add(cycle.durationMin, 'minute'),
+                    const irrigationOutcome = tryPlaceIrrigationForDay({
+                        date,
+                        sunrise,
+                        zone,
+                        currentDepletionMillimeters,
+                        totalAvailableWaterMillimeters,
+                        precipitationRateMillimetersPerHour,
+                        infiltrationRateMillimetersPerHour,
+                        soakTimeMinutes,
+                        busyWindowsSoFar,
+                        restrictions,
                     });
+
+                    if (irrigationOutcome !== null) {
+                        // Each placed cycle becomes a busy window for the rest of
+                        // the planning horizon.
+                        for (const cycle of irrigationOutcome.cycles) {
+                            busyWindowsSoFar.push({
+                                start: cycle.startTime,
+                                end: cycle.startTime.add(cycle.durationMin, 'minute'),
+                            });
+                        }
+
+                        irrigationSchedule.push(irrigationOutcome.entry);
+
+                        // Start the post-irrigation portion from the entry's residual
+                        // depletion (zero on a full refill, positive on a partial
+                        // refill clamped by the overnight window — see API-75), then
+                        // re-apply the day's net ET for the post-irrigation hours.
+                        currentDepletionMillimeters = clampValue(
+                            irrigationOutcome.entry.depletionAfterMm + cropEvapotranspiration - effectiveRainfallMillimeters,
+                            0,
+                            totalAvailableWaterMillimeters
+                        );
+                    }
+                    // When `irrigationOutcome === null`, the day was skipped due to
+                    // restrictions. Depletion carries forward unchanged — the next
+                    // allowed day will see the larger accumulated value.
                 }
-
-                irrigationSchedule.push(irrigationOutcome.entry);
-
-                // Start the post-irrigation portion from the entry's residual
-                // depletion (zero on a full refill, positive on a partial
-                // refill clamped by the overnight window — see API-75), then
-                // re-apply the day's net ET for the post-irrigation hours.
-                currentDepletionMillimeters = clampValue(
-                    irrigationOutcome.entry.depletionAfterMm + cropEvapotranspiration - effectiveRainfallMillimeters,
-                    0,
-                    totalAvailableWaterMillimeters
-                );
             }
-            // When `irrigationOutcome === null`, the day was skipped due to
-            // restrictions. Depletion carries forward unchanged — the next
-            // allowed day will see the larger accumulated value.
         }
 
         // Ensure depletion stays within valid bounds.
