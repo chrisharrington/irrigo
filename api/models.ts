@@ -7,7 +7,7 @@ export type DailyWeather = {
     /** Optional. The reference evapotranspiration. */
     evapotranspirationMmPerDay?: number;
 
-    /** Optional. The total daily rainfall. */
+    /** Optional. The total daily precipitation (rain + showers + snow water-equivalent), per Open-Meteo's `precipitation_sum`. */
     rainfallMm?: number;
 
     /** Optional. The local sunrise time as Dayjs object. */

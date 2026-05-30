@@ -19,14 +19,14 @@ type OpenMeteoResponse = {
         time: string;
         sunrise: string;
         sunset: string;
-        rain_sum: string;
+        precipitation_sum: string;
         et0_fao_evapotranspiration: string;
     };
     daily: {
         time: string[];
         sunrise: string[];
         sunset: string[];
-        rain_sum: number[];
+        precipitation_sum: number[];
         et0_fao_evapotranspiration: number[];
     };
     hourly: {
@@ -207,7 +207,7 @@ export async function getWeatherData(
     const url = new URL(baseUrl);
     url.searchParams.set('latitude', latitude.toString());
     url.searchParams.set('longitude', longitude.toString());
-    url.searchParams.set('daily', 'sunrise,sunset,rain_sum,et0_fao_evapotranspiration');
+    url.searchParams.set('daily', 'sunrise,sunset,precipitation_sum,et0_fao_evapotranspiration');
     url.searchParams.set('hourly', 'precipitation,et0_fao_evapotranspiration');
     url.searchParams.set('forecast_days', forecastDays.toString());
     url.searchParams.set('past_days', pastDays.toString());
@@ -234,7 +234,7 @@ export async function getWeatherData(
             date: parseTime(time),
             sunrise: parseTime(data.daily.sunrise[index]!),
             sunset: parseTime(data.daily.sunset[index]!),
-            rainfallMm: data.daily.rain_sum[index],
+            rainfallMm: data.daily.precipitation_sum[index],
             evapotranspirationMmPerDay: data.daily.et0_fao_evapotranspiration[index],
         }));
 

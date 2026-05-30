@@ -27,14 +27,14 @@ describe('Weather Data', () => {
             time: 'iso8601',
             sunrise: 'iso8601',
             sunset: 'iso8601',
-            rain_sum: 'mm',
+            precipitation_sum: 'mm',
             et0_fao_evapotranspiration: 'mm',
         },
         daily: {
             time: ['2025-10-20', '2025-10-21', '2025-10-22'],
             sunrise: ['2025-10-20T05:41', '2025-10-21T05:43', '2025-10-22T05:45'],
             sunset: ['2025-10-20T18:10', '2025-10-21T18:08', '2025-10-22T18:06'],
-            rain_sum: [0.2, 0.5, 0.0],
+            precipitation_sum: [0.2, 0.5, 0.0],
             et0_fao_evapotranspiration: [1.63, 1.62, 1.04],
         },
         hourly: {
@@ -80,7 +80,7 @@ describe('Weather Data', () => {
         expect(calledUrl.searchParams.get('longitude')).toBe('13.41');
         expect(calledUrl.searchParams.get('forecast_days')).toBe('7');
         expect(calledUrl.searchParams.get('past_days')).toBe('1');
-        expect(calledUrl.searchParams.get('daily')).toBe('sunrise,sunset,rain_sum,et0_fao_evapotranspiration');
+        expect(calledUrl.searchParams.get('daily')).toBe('sunrise,sunset,precipitation_sum,et0_fao_evapotranspiration');
         expect(calledUrl.searchParams.get('hourly')).toBe('precipitation,et0_fao_evapotranspiration');
         expect(calledUrl.searchParams.get('timezone')).toBeNull();
     });
@@ -142,6 +142,31 @@ describe('Weather Data', () => {
         expect(hourly[0]!.evapotranspirationMm).toBe(0.02);
         expect(hourly[2]!.precipitationMm).toBe(0.2);
         expect(hourly[2]!.evapotranspirationMm).toBe(0.05);
+    });
+
+    it('credits showers-dominated precipitation as rainfall (precipitation_sum, not rain-only)', async () => {
+        // Open-Meteo's `precipitation_sum` is the all-inclusive total (rain +
+        // showers + snow water-equivalent). A day whose precipitation is
+        // entirely convective showers — `rain_sum` would report 0 — must still
+        // surface as rainfall the planner can act on (API-86).
+        const showersResponse = {
+            ...mockWeatherResponse,
+            daily: {
+                time: ['2025-10-20'],
+                sunrise: ['2025-10-20T05:41'],
+                sunset: ['2025-10-20T18:10'],
+                precipitation_sum: [8.0],
+                et0_fao_evapotranspiration: [1.63],
+            },
+        };
+        mockFetch.mockResolvedValueOnce({
+            ok: true,
+            json: async () => showersResponse,
+        } as Response);
+
+        const { daily } = await getWeatherData({ latitude: 52.52, longitude: 13.41 });
+
+        expect(daily[0]!.rainfallMm).toBe(8.0);
     });
 
     it('should throw immediately on a 4xx response without retrying', async () => {
@@ -207,7 +232,7 @@ describe('Weather Data', () => {
             daily: {
                 time: [],
                 sunrise: [],
-                rain_sum: [],
+                precipitation_sum: [],
                 et0_fao_evapotranspiration: [],
             },
             hourly: {
@@ -259,7 +284,7 @@ describe('Weather Data', () => {
             daily: {
                 // Missing time array
                 sunrise: ['2025-10-20T05:41'],
-                rain_sum: [0.2],
+                precipitation_sum: [0.2],
                 et0_fao_evapotranspiration: [1.63],
             },
         };
@@ -353,14 +378,14 @@ describe('Weather caching', () => {
             time: 'iso8601',
             sunrise: 'iso8601',
             sunset: 'iso8601',
-            rain_sum: 'mm',
+            precipitation_sum: 'mm',
             et0_fao_evapotranspiration: 'mm',
         },
         daily: {
             time: ['2026-05-24', '2026-05-25'],
             sunrise: ['2026-05-24T05:41', '2026-05-25T05:40'],
             sunset: ['2026-05-24T21:24', '2026-05-25T21:25'],
-            rain_sum: [0, 0],
+            precipitation_sum: [0, 0],
             et0_fao_evapotranspiration: [4.0, 4.0],
         },
         hourly: {
