@@ -13,6 +13,7 @@ import type { FutureCyclePair, PersistedCycle } from '@/models/cycle';
 import type { ScheduleEntriesRepository } from '@/repositories/schedule-entries';
 import type { Schedule, SchedulesRepository } from '@/repositories/schedules';
 import type { SitesRepository } from '@/repositories/sites';
+import type { WeatherSnapshotsRepository } from '@/repositories/weather-snapshots';
 import type { WeatherStateRepository } from '@/repositories/weather-state';
 import type { ZoneJoinedRow, ZonesRepository } from '@/repositories/zones';
 import { joinedRowToZone } from '@/repositories/zones';
@@ -316,6 +317,14 @@ function createDaemonReposStub(inputs?: DaemonStubInputs) {
         },
     };
 
+    const weatherSnapshotRecords: Array<Record<string, unknown>> = [];
+    const weatherSnapshotsRepo: WeatherSnapshotsRepository = {
+        record: async (input) => {
+            weatherSnapshotRecords.push({ ...input });
+            return 'snapshot-test';
+        },
+    };
+
     const schedulesRepo: SchedulesRepository = {
         listAll: async () => [],
         loadActiveBySite: async () => {
@@ -414,13 +423,14 @@ function createDaemonReposStub(inputs?: DaemonStubInputs) {
     } as unknown as AlertsDb;
 
     return {
-        repos: { zones: zonesRepo, sites: sitesRepo, schedules: schedulesRepo, scheduleEntries: scheduleEntriesRepo, weatherState: weatherStateRepo },
+        repos: { zones: zonesRepo, sites: sitesRepo, schedules: schedulesRepo, scheduleEntries: scheduleEntriesRepo, weatherState: weatherStateRepo, weatherSnapshots: weatherSnapshotsRepo },
         alertsDb,
         cycleUpdates,
         depletionAdvances,
         inserts,
         deletes,
         weatherStateUpserts,
+        weatherSnapshotRecords,
         alertTableUpdates,
         schedulesTableUpdates,
         todayArgs,

@@ -8,6 +8,7 @@ import type { WeatherData, Zone } from '@/models';
 import type { PersistedCycle } from '@/models/cycle';
 import type { ScheduleEntriesRepository } from '@/repositories/schedule-entries';
 import type { Schedule } from '@/repositories/schedules';
+import type { WeatherSnapshotsRepository } from '@/repositories/weather-snapshots';
 import type { WeatherStateRepository } from '@/repositories/weather-state';
 import type { ZonesRepository } from '@/repositories/zones';
 import type { RunScheduleForZoneOptions } from '@/schedules';
@@ -31,6 +32,7 @@ export type TickDeps = {
     zonesRepo: ZonesRepository;
     scheduleEntriesRepo: ScheduleEntriesRepository;
     weatherStateRepo: WeatherStateRepository;
+    weatherSnapshotsRepo: WeatherSnapshotsRepository;
     getAlertsDb: () => AlertsDb | null;
 };
 
@@ -94,7 +96,7 @@ export async function runTickForZone(input: RunTickForZoneInput): Promise<RunTic
         tickKind, isScheduledTick, irrigationEnabled,
         morningTickMinutesAfterSunrise, deps,
     } = input;
-    const { clock, alerter, runPlan, getWeather, getZoneActuationHistory, zonesRepo, scheduleEntriesRepo, weatherStateRepo, getAlertsDb } = deps;
+    const { clock, alerter, runPlan, getWeather, getZoneActuationHistory, zonesRepo, scheduleEntriesRepo, weatherStateRepo, weatherSnapshotsRepo, getAlertsDb } = deps;
 
     const tickNow = clock.now();
     let observedSunrise: Date | null = null;
@@ -104,6 +106,24 @@ export async function runTickForZone(input: RunTickForZoneInput): Promise<RunTic
     } catch (err) {
         await emitWeatherStaleIfStale(err, zone, weatherStateRepo, alerter, clock);
         return EMPTY_RESULT;
+    }
+
+    // Persist the fetched forecast for scheduling retrospectives — best-effort,
+    // so a snapshot-write failure never stops reconciliation or planning. Only
+    // when the zone has coordinates (it must, to have fetched weather). API-87.
+    if (zone.location) {
+        try {
+            await weatherSnapshotsRepo.record({
+                zoneId: zone.id,
+                latitude: zone.location.lat,
+                longitude: zone.location.lon,
+                timezone: zone.siteTimezone,
+                fetchedAt: tickNow,
+                weather,
+            });
+        } catch (err) {
+            console.error(`daemon: failed to persist weather snapshot for zone ${zone.id} (${zone.name}); continuing.`, err);
+        }
     }
 
     // Refresh the morning-tick anchor with the soonest upcoming sunrise

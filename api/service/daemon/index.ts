@@ -35,6 +35,7 @@ import {
     getScheduleEntriesRepo,
     getSchedulesRepo,
     getSitesRepo,
+    getWeatherSnapshotsRepo,
     getWeatherStateRepo,
     getZonesRepo,
     setDaemonRepos,
@@ -159,6 +160,7 @@ export async function start(options?: DaemonOptions): Promise<DaemonControl> {
     const schedulesRepo = getSchedulesRepo();
     const scheduleEntriesRepo = getScheduleEntriesRepo();
     const weatherStateRepo = getWeatherStateRepo();
+    const weatherSnapshotsRepo = getWeatherSnapshotsRepo();
 
     const siteTimezone = options?.siteTimezone ?? await sitesRepo.loadTimezone();
 
@@ -201,7 +203,7 @@ export async function start(options?: DaemonOptions): Promise<DaemonControl> {
     const tickDeps = {
         clock, alerter,
         runPlan, getWeather, getZoneActuationHistory,
-        zonesRepo, scheduleEntriesRepo, weatherStateRepo, getAlertsDb,
+        zonesRepo, scheduleEntriesRepo, weatherStateRepo, weatherSnapshotsRepo, getAlertsDb,
     };
 
     // Private implementation. `isScheduledTick` distinguishes the nightly

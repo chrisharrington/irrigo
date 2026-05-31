@@ -104,6 +104,9 @@ function defaultRepos(scheduleEntries: ScheduleEntriesRepository): DaemonService
             markFetchSuccessful: async () => undefined,
             isStale: async () => false,
         },
+        weatherSnapshots: {
+            record: async () => 'snapshot-test',
+        },
     };
 }
 
