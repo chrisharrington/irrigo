@@ -138,6 +138,9 @@ function defaultRepos(scheduleEntries: ScheduleEntriesRepository, onAdvanceDeple
             markFetchSuccessful: async () => undefined,
             isStale: async () => false,
         },
+        weatherSnapshots: {
+            record: async () => 'snapshot-test',
+        },
     };
 }
 

@@ -7,6 +7,7 @@ import type { HourlyWeather, WeatherData, Zone } from '@/models';
 import type { PersistedCycle } from '@/models/cycle';
 import type { ScheduleEntriesRepository } from '@/repositories/schedule-entries';
 import type { Schedule } from '@/repositories/schedules';
+import type { RecordWeatherSnapshotInput, WeatherSnapshotsRepository } from '@/repositories/weather-snapshots';
 import type { WeatherStateRepository } from '@/repositories/weather-state';
 import type { ZonesRepository } from '@/repositories/zones';
 import type { Clock } from '../runtime';
@@ -58,7 +59,8 @@ function buildDeps(overrides?: {
     weatherIsStale?: boolean;
     onAdvanceDepletion?: (advance: DepletionAdvance) => void;
     onReplaceForZone?: () => Array<PersistedCycle>;
-}): { deps: TickDeps; depletionAdvances: DepletionAdvance[]; alertCalls: AlertEvent[] } {
+    snapshotRecordThrows?: boolean;
+}): { deps: TickDeps; depletionAdvances: DepletionAdvance[]; alertCalls: AlertEvent[]; snapshotRecords: RecordWeatherSnapshotInput[] } {
     const depletionAdvances: DepletionAdvance[] = [];
     const { alerter, calls: alertCalls } = overrides?.alerter ? { alerter: overrides.alerter, calls: [] as AlertEvent[] } : recordingAlerter();
     const zonesRepo: ZonesRepository = {
@@ -85,6 +87,14 @@ function buildDeps(overrides?: {
         markFetchSuccessful: async () => {},
         isStale: async () => overrides?.weatherIsStale ?? false,
     };
+    const snapshotRecords: RecordWeatherSnapshotInput[] = [];
+    const weatherSnapshotsRepo: WeatherSnapshotsRepository = {
+        record: async (input) => {
+            if (overrides?.snapshotRecordThrows) throw new Error('snapshot write failed');
+            snapshotRecords.push(input);
+            return 'snapshot-test';
+        },
+    };
     return {
         deps: {
             clock: buildClock(),
@@ -95,10 +105,12 @@ function buildDeps(overrides?: {
             zonesRepo,
             scheduleEntriesRepo,
             weatherStateRepo,
+            weatherSnapshotsRepo,
             getAlertsDb: () => null as unknown as AlertsDb,
         },
         depletionAdvances,
         alertCalls,
+        snapshotRecords,
     };
 }
 
@@ -394,5 +406,73 @@ describe('runTickForZone — observedSunrise reporting', () => {
         });
 
         expect(result.observedSunrise?.toISOString()).toBe('2026-05-05T11:41:00.000Z');
+    });
+});
+
+describe('runTickForZone — weather-snapshot persistence', () => {
+    const baseInput = (zone: Zone, deps: TickDeps) => ({
+        zone,
+        activeSchedule: buildSchedule(),
+        today: dayjs(NOW).tz(SITE_TIMEZONE),
+        busyWindows: [],
+        pastWindow: { start: new Date(0), end: NOW },
+        tickKind: 'evening' as const,
+        isScheduledTick: true,
+        irrigationEnabled: true,
+        morningTickMinutesAfterSunrise: 60,
+        deps,
+    });
+
+    it('records a snapshot tagged with the zone coords, timezone, and fetched weather', async () => {
+        const zone = createTestZone({
+            id: 'zone-001',
+            siteTimezone: 'America/Edmonton',
+            location: { lat: 51.0447, lon: -114.0719 },
+        });
+        const weather: WeatherData = {
+            daily: [{ date: dayjs('2026-05-04'), rainfallMm: 8, evapotranspirationMmPerDay: 4 }],
+            hourly: [mkHourly('2026-05-04T10:00:00Z', 0.5, 0.1)],
+        };
+        const { deps, snapshotRecords } = buildDeps({ getWeather: async () => weather });
+
+        await runTickForZone(baseInput(zone, deps));
+
+        expect(snapshotRecords).toHaveLength(1);
+        expect(snapshotRecords[0]).toMatchObject({
+            zoneId: 'zone-001',
+            latitude: 51.0447,
+            longitude: -114.0719,
+            timezone: 'America/Edmonton',
+            fetchedAt: NOW,
+            weather,
+        });
+    });
+
+    it('does not record a snapshot when the weather fetch fails', async () => {
+        const zone = createTestZone({ id: 'zone-001' });
+        const { deps, snapshotRecords } = buildDeps({
+            getWeather: async () => { throw new Error('Open-Meteo down'); },
+            weatherIsStale: true,
+        });
+
+        await runTickForZone(baseInput(zone, deps));
+
+        expect(snapshotRecords).toHaveLength(0);
+    });
+
+    it('continues the tick (reconciliation + planning) when the snapshot write fails — best-effort', async () => {
+        const reconciledAt = new Date('2026-05-04T08:00:00.000Z');
+        const zone = createTestZone({ id: 'zone-001', currentDepletionMm: 5, currentDepletionReconciledAt: reconciledAt });
+        const { deps, depletionAdvances } = buildDeps({
+            getWeather: async () => ({ daily: [], hourly: [mkHourly('2026-05-04T10:00:00Z', 0, 2)] }),
+            snapshotRecordThrows: true,
+        });
+
+        const result = await runTickForZone(baseInput(zone, deps));
+
+        // The snapshot write threw, but the tick still reconciled depletion and
+        // returned a normal (non-empty-by-failure) result.
+        expect(depletionAdvances).toHaveLength(1);
+        expect(result).toMatchObject({ cyclesToArm: [], newBusyWindows: [] });
     });
 });
