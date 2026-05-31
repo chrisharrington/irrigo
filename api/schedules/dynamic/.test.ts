@@ -2075,4 +2075,110 @@ describe('planZoneSchedule', () => {
             expect(entries[0]?.sunriseAt?.isSame(day1Sunrise)).toBe(true);
         });
     });
+
+    // Day-0 decision provenance surfaced for `scheduling_decisions` (API-88).
+    describe('day-0 decision (API-88)', () => {
+        // Default loam zone: total available water = 150 × 0.3 = 45 mm,
+        // trigger = 0.5 × 45 = 22.5 mm.
+        const TRIGGER = 22.5;
+
+        it('reports a below-threshold skip when depletion never reaches the trigger', () => {
+            const zone = createTestZone({ currentDepletionMm: 5, allowableDepletionFraction: 0.5 });
+            const weather = createDryPeriod(7, 1.0);
+
+            const { decision } = planZoneSchedule(zone, weather);
+
+            expect(decision).toBeDefined();
+            expect(decision!.outcome).toBe('skipped');
+            expect(decision!.reason).toBe('below-threshold');
+            expect(decision!.triggerThresholdMm).toBe(TRIGGER);
+            // No watering — depletion is unchanged across the decision.
+            expect(decision!.depletionAfterMm).toBe(decision!.depletionBeforeMm);
+            expect(decision!.depletionBeforeMm).toBeLessThan(TRIGGER);
+            expect(decision!.date.format('YYYY-MM-DD')).toBe(weather[0]!.date.format('YYYY-MM-DD'));
+        });
+
+        it('reports a full-refill watered decision when tonight waters to capacity', () => {
+            const zone = createTestZone({ currentDepletionMm: 25, allowableDepletionFraction: 0.5 });
+            const weather = createDryPeriod(7, 1.5);
+
+            const { decision } = planZoneSchedule(zone, weather);
+
+            expect(decision).toBeDefined();
+            expect(decision!.outcome).toBe('watered');
+            expect(decision!.reason).toBe('full-refill');
+            expect(decision!.triggerThresholdMm).toBe(TRIGGER);
+            expect(decision!.depletionBeforeMm).toBeGreaterThanOrEqual(TRIGGER);
+            // A full refill drives residual depletion to zero.
+            expect(decision!.depletionAfterMm).toBe(0);
+        });
+
+        it('reports a partial-refill watered decision when the overnight window clamps the refill', () => {
+            // Clay soil (slow infiltration 4 mm/hr) with a deep deficit: the
+            // [midnight, sunrise] window can't fit a full refill, so the planner
+            // applies a partial refill and the residual carries forward (API-75).
+            const zone = createTestZone({
+                soil: { name: 'Clay', availableWaterHoldingCapacityMmPerM: 200, infiltrationRateMmPerHr: 4 },
+                currentDepletionMm: 55,
+                allowableDepletionFraction: 0.5,
+            });
+            const weather = createDryPeriod(3, 0);
+
+            const { decision } = planZoneSchedule(zone, weather);
+
+            expect(decision).toBeDefined();
+            expect(decision!.outcome).toBe('watered');
+            expect(decision!.reason).toBe('partial-refill');
+            // Partial refill leaves residual depletion above zero.
+            expect(decision!.depletionAfterMm).toBeGreaterThan(0);
+            expect(decision!.depletionAfterMm).toBeLessThan(decision!.depletionBeforeMm);
+        });
+
+        it('reports a rain-forecast skip when imminent rain will cover the deficit', () => {
+            const zone = createTestZone({ currentDepletionMm: 23 });
+            const weather = createWeatherDays([
+                { evapotranspirationMmPerDay: 2.0, rainfallMm: 0 },
+                { evapotranspirationMmPerDay: 2.0, rainfallMm: 10.0 },
+                { evapotranspirationMmPerDay: 2.0, rainfallMm: 0 },
+            ]);
+
+            const { decision } = planZoneSchedule(zone, weather);
+
+            expect(decision).toBeDefined();
+            expect(decision!.outcome).toBe('skipped');
+            expect(decision!.reason).toBe('rain-forecast');
+            expect(decision!.depletionBeforeMm).toBeGreaterThanOrEqual(TRIGGER);
+            expect(decision!.depletionAfterMm).toBe(decision!.depletionBeforeMm);
+        });
+
+        it('reports a day-not-allowed skip when the schedule disallows day 0', () => {
+            // Monday 2026-05-04 → isoWeekday 1, disallowed for [Wed, Fri, Sun].
+            const zone = createTestZone({ currentDepletionMm: 25 });
+            const weather = createWeatherDays(
+                [
+                    { evapotranspirationMmPerDay: 2.0, rainfallMm: 0 },
+                    { evapotranspirationMmPerDay: 2.0, rainfallMm: 0 },
+                ],
+                dayjs('2026-05-04'),
+            );
+
+            const { decision } = planZoneSchedule(zone, weather, [], {
+                allowedDays: [3, 5, 7],
+                allowedTimeWindows: null,
+            });
+
+            expect(decision).toBeDefined();
+            expect(decision!.outcome).toBe('skipped');
+            expect(decision!.reason).toBe('day-not-allowed');
+        });
+
+        it('omits the decision when the zone is disabled and planning short-circuits', () => {
+            const zone = createTestZone({ isEnabled: false, currentDepletionMm: 30 });
+            const weather = createDryPeriod(7, 2.0);
+
+            const { decision } = planZoneSchedule(zone, weather);
+
+            expect(decision).toBeUndefined();
+        });
+    });
 });

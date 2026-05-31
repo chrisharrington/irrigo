@@ -1,5 +1,6 @@
 import dayjs from 'dayjs';
 import type { Zone, DailyWeather, IrrigationScheduleEntry, IrrigationCycle } from '@/models';
+import type { SchedulingDecision, SchedulingDecisionReason, SchedulingOutcome } from '@/models/decision';
 import {
     isDayAllowed,
     isNightSkipped,
@@ -88,6 +89,15 @@ export type BusyWindow = {
 export type PlanZoneScheduleResult = {
     entries: IrrigationScheduleEntry[];
     projectedNextDepletionMm: number;
+
+    /**
+     * The planner's decision for day 0 of the horizon — i.e. *tonight's*
+     * decision (watered / skipped / deferred + reason + depletion + threshold).
+     * The daemon persists it into `scheduling_decisions` for retrospectives.
+     * Undefined when no day was evaluated (empty forecast, or the zone is
+     * disabled and planning short-circuited). API-88.
+     */
+    decision?: SchedulingDecision;
 };
 
 /**
@@ -151,6 +161,12 @@ export function planZoneSchedule(
     let currentDepletionMillimeters = clampedStartingDepletion;
     let projectedNextDepletionMm = clampedStartingDepletion;
 
+    // The decision the planner reaches for day 0 of the horizon — tonight's
+    // outcome. Captured for `scheduling_decisions` so retrospectives can see
+    // why a night went the way it did (API-88). Stays undefined for an empty
+    // forecast.
+    let day0Decision: SchedulingDecision | undefined;
+
     const irrigationSchedule: IrrigationScheduleEntry[] = [];
 
     // Running set of intervals this zone (and any earlier zones in the batch)
@@ -178,6 +194,11 @@ export function planZoneSchedule(
             totalAvailableWaterMillimeters
         );
 
+        // The decision reached for this day. Only day 0's is surfaced on the
+        // result, but it's built uniformly in every branch so the logic stays
+        // in one place. API-88.
+        let decision: SchedulingDecision;
+
         // Check if irrigation is needed.
         if (currentDepletionMillimeters >= readilyAvailableWaterMillimeters) {
             // Forward-looking rain-skip (API-85). Before committing tonight's
@@ -194,6 +215,7 @@ export function planZoneSchedule(
                 console.log(`planner: zone ${zone.id} (${zone.name}): rain-skip on ${date.format('YYYY-MM-DD')} — depletion ${currentDepletionMillimeters.toFixed(1)} mm ≥ trigger ${readilyAvailableWaterMillimeters.toFixed(1)} mm, but ${upcomingEffectiveRainfallMillimeters.toFixed(1)} mm effective rain forecast over the next ${rainSkipLookaheadDays} day(s) will bring it below trigger — deferring irrigation.`);
                 // Fall through: depletion carries forward unchanged and the
                 // day-0 projection is still captured below.
+                decision = buildDecision(date, 'skipped', 'rain-forecast', currentDepletionMillimeters, currentDepletionMillimeters, readilyAvailableWaterMillimeters);
             } else {
                 // Anchor each planning day's overnight block to the *next* day's
                 // sunrise — i.e. the block runs [midnight day i+1, sunrise day i+1],
@@ -203,6 +225,7 @@ export function planZoneSchedule(
                 const nextDay = weatherHistory[dayIndex + 1];
                 if (nextDay === undefined) {
                     console.warn(`planner: zone ${zone.id} (${zone.name}): day ${date.format('YYYY-MM-DD')} is the last weather day — no next-day sunrise to anchor to, deferring irrigation.`);
+                    decision = buildDecision(date, 'deferred', 'no-anchor', currentDepletionMillimeters, currentDepletionMillimeters, readilyAvailableWaterMillimeters);
                 } else {
                     const sunrise = nextDay.sunrise ?? nextDay.date.hour(6).minute(0).second(0).millisecond(0);
 
@@ -219,7 +242,7 @@ export function planZoneSchedule(
                         restrictions,
                     });
 
-                    if (irrigationOutcome !== null) {
+                    if (irrigationOutcome.kind === 'placed') {
                         // Each placed cycle becomes a busy window for the rest of
                         // the planning horizon.
                         for (const cycle of irrigationOutcome.cycles) {
@@ -240,23 +263,64 @@ export function planZoneSchedule(
                             0,
                             totalAvailableWaterMillimeters
                         );
+
+                        decision = buildDecision(
+                            date,
+                            'watered',
+                            irrigationOutcome.partial ? 'partial-refill' : 'full-refill',
+                            irrigationOutcome.entry.depletionBeforeMm,
+                            irrigationOutcome.entry.depletionAfterMm,
+                            readilyAvailableWaterMillimeters,
+                        );
+                    } else {
+                        // The day was skipped or deferred (restriction, window
+                        // too short, no cycle count fit, …). Depletion carries
+                        // forward unchanged — the next allowed day will see the
+                        // larger accumulated value.
+                        decision = buildDecision(date, irrigationOutcome.kind, irrigationOutcome.reason, currentDepletionMillimeters, currentDepletionMillimeters, readilyAvailableWaterMillimeters);
                     }
-                    // When `irrigationOutcome === null`, the day was skipped due to
-                    // restrictions. Depletion carries forward unchanged — the next
-                    // allowed day will see the larger accumulated value.
                 }
             }
+        } else {
+            decision = buildDecision(date, 'skipped', 'below-threshold', currentDepletionMillimeters, currentDepletionMillimeters, readilyAvailableWaterMillimeters);
         }
 
         // Ensure depletion stays within valid bounds.
         currentDepletionMillimeters = clampValue(currentDepletionMillimeters, 0, totalAvailableWaterMillimeters);
 
         // Capture the projected end-of-day-0 depletion — this becomes the
-        // starting depletion that tomorrow's re-plan should treat as 'now'.
-        if (dayIndex === 0) projectedNextDepletionMm = currentDepletionMillimeters;
+        // starting depletion that tomorrow's re-plan should treat as 'now' —
+        // and the day-0 decision the daemon will persist.
+        if (dayIndex === 0) {
+            projectedNextDepletionMm = currentDepletionMillimeters;
+            day0Decision = decision;
+        }
     }
 
-    return { entries: irrigationSchedule, projectedNextDepletionMm };
+    return { entries: irrigationSchedule, projectedNextDepletionMm, decision: day0Decision };
+}
+
+/**
+ * Builds a `SchedulingDecision`, rounding the depletion/threshold values to one
+ * decimal for clean persisted output (matching the entry's `appliedDepthMm` /
+ * `depletionBeforeMm` precision). API-88.
+ */
+function buildDecision(
+    date: dayjs.Dayjs,
+    outcome: SchedulingOutcome,
+    reason: SchedulingDecisionReason,
+    depletionBeforeMm: number,
+    depletionAfterMm: number,
+    triggerThresholdMm: number,
+): SchedulingDecision {
+    return {
+        date,
+        outcome,
+        reason,
+        depletionBeforeMm: roundTo1Decimal(depletionBeforeMm),
+        depletionAfterMm: roundTo1Decimal(depletionAfterMm),
+        triggerThresholdMm: roundTo1Decimal(triggerThresholdMm),
+    };
 }
 
 type PlaceIrrigationInputs = {
@@ -272,16 +336,22 @@ type PlaceIrrigationInputs = {
     restrictions: ScheduleRestrictions;
 };
 
-type PlaceIrrigationOutcome = {
-    cycles: IrrigationCycle[];
-    entry: IrrigationScheduleEntry;
-};
+/**
+ * Result of `tryPlaceIrrigationForDay`. Either cycles were `placed` (with the
+ * resulting entry and a `partial` flag set when the overnight window clamped
+ * the refill, API-75), or the day was `skipped` / `deferred` with the specific
+ * reason — the caller persists that reason into the decisions log (API-88) and
+ * carries depletion forward unchanged.
+ */
+type PlaceIrrigationResult =
+    | { kind: 'placed'; cycles: IrrigationCycle[]; entry: IrrigationScheduleEntry; partial: boolean }
+    | { kind: 'skipped' | 'deferred'; reason: SchedulingDecisionReason };
 
 /**
  * Computes the day's irrigation block, anchored so the last cycle ends at
- * the next day's sunrise and cycles fill backward into the night. Returns
- * `null` when the day is disallowed or no cycles fit the overnight window —
- * callers treat that as "skip, carry depletion forward."
+ * the next day's sunrise and cycles fill backward into the night. Returns a
+ * `skipped` / `deferred` result when the day is disallowed or no cycles fit the
+ * overnight window — callers treat that as "skip, carry depletion forward."
  *
  * The overnight window is [midnight of cycle day, sunrise of cycle day] —
  * derived from `sunrise.startOf('day')` and `sunrise`. With the API-76 anchor
@@ -302,7 +372,7 @@ type PlaceIrrigationOutcome = {
  * dropped. In the normal evening-replan flow no cycle is dropped; the filter
  * only bites for in-flight replans (`now` lies inside the planning block).
  */
-function tryPlaceIrrigationForDay(inputs: PlaceIrrigationInputs): PlaceIrrigationOutcome | null {
+function tryPlaceIrrigationForDay(inputs: PlaceIrrigationInputs): PlaceIrrigationResult {
     const {
         date, sunrise, zone, currentDepletionMillimeters, totalAvailableWaterMillimeters,
         precipitationRateMillimetersPerHour, infiltrationRateMillimetersPerHour, soakTimeMinutes,
@@ -311,12 +381,12 @@ function tryPlaceIrrigationForDay(inputs: PlaceIrrigationInputs): PlaceIrrigatio
 
     if (!isDayAllowed(restrictions, date.isoWeekday())) {
         console.warn(`planner: zone ${zone.id} (${zone.name}): day ${date.format('YYYY-MM-DD')} (isoWeekday ${date.isoWeekday()}) disallowed by schedule restrictions — skipping irrigation.`);
-        return null;
+        return { kind: 'skipped', reason: 'day-not-allowed' };
     }
 
     if (isNightSkipped(restrictions, date)) {
         console.warn(`planner: zone ${zone.id} (${zone.name}): day ${date.format('YYYY-MM-DD')} is skip-marked — skipping irrigation.`);
-        return null;
+        return { kind: 'skipped', reason: 'operator-skip' };
     }
 
     const depletionBeforeIrrigation = currentDepletionMillimeters;
@@ -345,7 +415,7 @@ function tryPlaceIrrigationForDay(inputs: PlaceIrrigationInputs): PlaceIrrigatio
     const maxRunTimeMinutes = computeMaxRunTimeMinutes(maximumCycleMinutes, soakTimeMinutes, windowMinutes);
     if (maxRunTimeMinutes <= 0) {
         console.warn(`planner: zone ${zone.id} (${zone.name}): overnight window (${windowMinutes} min) too short to fit even one cycle (maxCycle ${maximumCycleMinutes.toFixed(1)} min) on ${date.format('YYYY-MM-DD')} — skipping irrigation.`);
-        return null;
+        return { kind: 'deferred', reason: 'window-too-short' };
     }
     const initialTotalRunTimeMinutes = Math.min(fullRefillRunTimeMinutes, maxRunTimeMinutes);
 
@@ -390,12 +460,12 @@ function tryPlaceIrrigationForDay(inputs: PlaceIrrigationInputs): PlaceIrrigatio
 
     if (placedCycles === null) {
         console.warn(`planner: zone ${zone.id} (${zone.name}): no cycle count from ${initialN} down fit the overnight window's residual gaps on ${date.format('YYYY-MM-DD')} — deferring irrigation.`);
-        return null;
+        return { kind: 'deferred', reason: 'no-cycle-fit' };
     }
 
     if (placedCycles.length === 0) {
         console.warn(`planner: zone ${zone.id} (${zone.name}): no cycles fit the overnight window on ${date.format('YYYY-MM-DD')} — skipping irrigation.`);
-        return null;
+        return { kind: 'deferred', reason: 'no-cycle-fit' };
     }
 
     const grossIrrigationDepthMillimeters = (actualTotalRunTimeMinutes / 60) * precipitationRateMillimetersPerHour;
@@ -417,7 +487,7 @@ function tryPlaceIrrigationForDay(inputs: PlaceIrrigationInputs): PlaceIrrigatio
 
     if (finalCycles.length === 0) {
         console.warn(`planner: zone ${zone.id} (${zone.name}): no cycles remain after past-window handling on ${date.format('YYYY-MM-DD')} — skipping irrigation.`);
-        return null;
+        return { kind: 'deferred', reason: 'past-window' };
     }
 
     // Net depth that actually reaches the root zone after losses. `depletionAfter`
@@ -436,7 +506,10 @@ function tryPlaceIrrigationForDay(inputs: PlaceIrrigationInputs): PlaceIrrigatio
         depletionAfterMm: roundTo1Decimal(depletionAfterIrrigation),
         sunriseAt: sunrise,
     };
-    return { cycles: finalCycles, entry };
+    // `partial` when the overnight window clamped the applied gross below a
+    // full refill (API-75) — distinguishes `partial-refill` from `full-refill`
+    // in the decisions log (API-88).
+    return { kind: 'placed', cycles: finalCycles, entry, partial: actualTotalRunTimeMinutes < fullRefillRunTimeMinutes };
 }
 
 /**
