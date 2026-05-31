@@ -1,6 +1,6 @@
 import { test, expect } from 'bun:test';
 import { getTableConfig } from 'drizzle-orm/pg-core';
-import { grassTypes, irrigationCycles, pushTokens, scheduleEntries, sites, soilTypes, zones } from '.';
+import { grassTypes, irrigationCycles, pushTokens, scheduleEntries, sites, soilTypes, weatherDailySnapshots, weatherHourlySnapshots, weatherSnapshots, zones } from '.';
 
 function columnsByName(table: Parameters<typeof getTableConfig>[0]) {
     const config = getTableConfig(table);
@@ -180,4 +180,89 @@ test('push_tokens table has the expected columns and constraints', () => {
     expect(columns['user_agent']?.notNull).toBe(false);
     expect(columns['created_at']?.notNull).toBe(true);
     expect(columns['updated_at']?.notNull).toBe(true);
+});
+
+test('weather_snapshots table has the expected columns and constraints', () => {
+    const config = getTableConfig(weatherSnapshots);
+    const columns = columnsByName(weatherSnapshots);
+
+    expect(config.name).toBe('weather_snapshots');
+    expect(columns['id']?.primary).toBe(true);
+    expect(columns['id']?.hasDefault).toBe(true);
+    expect(columns['zone_id']?.notNull).toBe(true);
+    expect(columns['latitude']?.notNull).toBe(true);
+    expect(columns['latitude']?.columnType).toBe('PgReal');
+    expect(columns['longitude']?.notNull).toBe(true);
+    expect(columns['timezone']?.notNull).toBe(true);
+    expect(columns['fetched_at']?.notNull).toBe(true);
+    expect(columns['fetched_at']?.columnType).toBe('PgTimestamp');
+    expect(columns['created_at']?.notNull).toBe(true);
+    expect(columns['updated_at']?.notNull).toBe(true);
+});
+
+test('weather_snapshots foreign key references zones', () => {
+    const config = getTableConfig(weatherSnapshots);
+    const fk = config.foreignKeys[0];
+
+    expect(fk).toBeDefined();
+    const reference = fk!.reference();
+    expect(reference.columns.map(c => c.name)).toContain('zone_id');
+    expect(reference.foreignTable).toBe(zones);
+});
+
+test('weather_daily_snapshots table has the expected columns and constraints', () => {
+    const config = getTableConfig(weatherDailySnapshots);
+    const columns = columnsByName(weatherDailySnapshots);
+
+    expect(config.name).toBe('weather_daily_snapshots');
+    expect(columns['id']?.primary).toBe(true);
+    expect(columns['snapshot_id']?.notNull).toBe(true);
+    expect(columns['date']?.notNull).toBe(true);
+    // Forecast quantities are nullable — DailyWeather's fields are optional.
+    expect(columns['sunrise_at']?.notNull).toBe(false);
+    expect(columns['sunset_at']?.notNull).toBe(false);
+    expect(columns['precipitation_mm']?.notNull).toBe(false);
+    expect(columns['precipitation_mm']?.columnType).toBe('PgReal');
+    expect(columns['et0_mm_per_day']?.notNull).toBe(false);
+    expect(columns['created_at']?.notNull).toBe(true);
+    expect(columns['updated_at']?.notNull).toBe(true);
+});
+
+test('weather_daily_snapshots foreign key cascades on snapshot delete', () => {
+    const config = getTableConfig(weatherDailySnapshots);
+    const fk = config.foreignKeys[0];
+
+    expect(fk).toBeDefined();
+    const reference = fk!.reference();
+    expect(reference.columns.map(c => c.name)).toContain('snapshot_id');
+    expect(reference.foreignTable).toBe(weatherSnapshots);
+    expect(fk!.onDelete).toBe('cascade');
+});
+
+test('weather_hourly_snapshots table has the expected columns and constraints', () => {
+    const config = getTableConfig(weatherHourlySnapshots);
+    const columns = columnsByName(weatherHourlySnapshots);
+
+    expect(config.name).toBe('weather_hourly_snapshots');
+    expect(columns['id']?.primary).toBe(true);
+    expect(columns['snapshot_id']?.notNull).toBe(true);
+    expect(columns['time']?.notNull).toBe(true);
+    expect(columns['time']?.columnType).toBe('PgTimestamp');
+    // Hourly quantities are required — HourlyWeather's fields are non-optional.
+    expect(columns['precipitation_mm']?.notNull).toBe(true);
+    expect(columns['precipitation_mm']?.columnType).toBe('PgReal');
+    expect(columns['et0_mm']?.notNull).toBe(true);
+    expect(columns['created_at']?.notNull).toBe(true);
+    expect(columns['updated_at']?.notNull).toBe(true);
+});
+
+test('weather_hourly_snapshots foreign key cascades on snapshot delete', () => {
+    const config = getTableConfig(weatherHourlySnapshots);
+    const fk = config.foreignKeys[0];
+
+    expect(fk).toBeDefined();
+    const reference = fk!.reference();
+    expect(reference.columns.map(c => c.name)).toContain('snapshot_id');
+    expect(reference.foreignTable).toBe(weatherSnapshots);
+    expect(fk!.onDelete).toBe('cascade');
 });

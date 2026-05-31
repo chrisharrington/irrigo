@@ -7,5 +7,8 @@ export { schedules } from './schedules';
 export { sites } from './sites';
 export { soilTypes } from './soil-types';
 export { systemState, SYSTEM_STATE_SINGLETON_ID } from './system-state';
+export { weatherDailySnapshots } from './weather-daily-snapshots';
+export { weatherHourlySnapshots } from './weather-hourly-snapshots';
+export { weatherSnapshots } from './weather-snapshots';
 export { weatherState, WEATHER_STATE_SINGLETON_ID } from './weather-state';
 export { zones } from './zones';
