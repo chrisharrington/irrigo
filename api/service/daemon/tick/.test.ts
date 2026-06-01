@@ -6,6 +6,7 @@ import { createTestZone } from '@/mock/zone';
 import type { HourlyWeather, WeatherData, Zone } from '@/models';
 import type { PersistedCycle } from '@/models/cycle';
 import type { ScheduleEntriesRepository } from '@/repositories/schedule-entries';
+import type { RecordSchedulingDecisionInput, SchedulingDecisionsRepository } from '@/repositories/scheduling-decisions';
 import type { Schedule } from '@/repositories/schedules';
 import type { RecordWeatherSnapshotInput, WeatherSnapshotsRepository } from '@/repositories/weather-snapshots';
 import type { WeatherStateRepository } from '@/repositories/weather-state';
@@ -60,7 +61,8 @@ function buildDeps(overrides?: {
     onAdvanceDepletion?: (advance: DepletionAdvance) => void;
     onReplaceForZone?: () => Array<PersistedCycle>;
     snapshotRecordThrows?: boolean;
-}): { deps: TickDeps; depletionAdvances: DepletionAdvance[]; alertCalls: AlertEvent[]; snapshotRecords: RecordWeatherSnapshotInput[] } {
+    decisionRecordThrows?: boolean;
+}): { deps: TickDeps; depletionAdvances: DepletionAdvance[]; alertCalls: AlertEvent[]; snapshotRecords: RecordWeatherSnapshotInput[]; decisionRecords: RecordSchedulingDecisionInput[] } {
     const depletionAdvances: DepletionAdvance[] = [];
     const { alerter, calls: alertCalls } = overrides?.alerter ? { alerter: overrides.alerter, calls: [] as AlertEvent[] } : recordingAlerter();
     const zonesRepo: ZonesRepository = {
@@ -95,6 +97,13 @@ function buildDeps(overrides?: {
             return 'snapshot-test';
         },
     };
+    const decisionRecords: RecordSchedulingDecisionInput[] = [];
+    const schedulingDecisionsRepo: SchedulingDecisionsRepository = {
+        record: async (input) => {
+            if (overrides?.decisionRecordThrows) throw new Error('decision write failed');
+            decisionRecords.push(input);
+        },
+    };
     return {
         deps: {
             clock: buildClock(),
@@ -104,6 +113,7 @@ function buildDeps(overrides?: {
             getZoneActuationHistory: overrides?.getZoneActuationHistory ?? (async () => []),
             zonesRepo,
             scheduleEntriesRepo,
+            schedulingDecisionsRepo,
             weatherStateRepo,
             weatherSnapshotsRepo,
             getAlertsDb: () => null as unknown as AlertsDb,
@@ -111,6 +121,7 @@ function buildDeps(overrides?: {
         depletionAdvances,
         alertCalls,
         snapshotRecords,
+        decisionRecords,
     };
 }
 
@@ -474,5 +485,99 @@ describe('runTickForZone — weather-snapshot persistence', () => {
         // returned a normal (non-empty-by-failure) result.
         expect(depletionAdvances).toHaveLength(1);
         expect(result).toMatchObject({ cyclesToArm: [], newBusyWindows: [] });
+    });
+});
+
+describe('runTickForZone — scheduling-decision persistence (API-88)', () => {
+    const baseInput = (zone: Zone, deps: TickDeps) => ({
+        zone,
+        activeSchedule: buildSchedule(),
+        today: dayjs(NOW).tz(SITE_TIMEZONE),
+        busyWindows: [],
+        pastWindow: { start: new Date(0), end: NOW },
+        tickKind: 'evening' as const,
+        isScheduledTick: true,
+        irrigationEnabled: true,
+        morningTickMinutesAfterSunrise: 60,
+        deps,
+    });
+
+    const runPlanWithDecision: TickDeps['runPlan'] = async () => ({
+        entries: [],
+        projectedNextDepletionMm: 10,
+        decision: {
+            date: dayjs('2026-05-04'),
+            outcome: 'skipped',
+            reason: 'below-threshold',
+            depletionBeforeMm: 10,
+            depletionAfterMm: 10,
+            triggerThresholdMm: 22.5,
+        },
+    });
+
+    it('records the planner decision, wired to the weather-snapshot id that drove it', async () => {
+        const zone = createTestZone({ id: 'zone-001' });
+        const { deps, decisionRecords } = buildDeps({ runPlan: runPlanWithDecision });
+
+        await runTickForZone(baseInput(zone, deps));
+
+        expect(decisionRecords).toHaveLength(1);
+        expect(decisionRecords[0]).toMatchObject({
+            zoneId: 'zone-001',
+            scheduleId: 'sched-001',
+            date: '2026-05-04',
+            replanAt: NOW,
+            outcome: 'skipped',
+            reason: 'below-threshold',
+            depletionBeforeMm: 10,
+            depletionAfterMm: 10,
+            triggerThresholdMm: 22.5,
+            weatherSnapshotId: 'snapshot-test',
+        });
+    });
+
+    it('records a null snapshot id when the snapshot write failed', async () => {
+        const zone = createTestZone({ id: 'zone-001' });
+        const { deps, decisionRecords } = buildDeps({
+            runPlan: runPlanWithDecision,
+            snapshotRecordThrows: true,
+        });
+
+        await runTickForZone(baseInput(zone, deps));
+
+        expect(decisionRecords).toHaveLength(1);
+        expect(decisionRecords[0]?.weatherSnapshotId).toBeNull();
+    });
+
+    it('records nothing when the planner returns no decision', async () => {
+        const zone = createTestZone({ id: 'zone-001' });
+        // Default runPlan returns no `decision`.
+        const { deps, decisionRecords } = buildDeps({});
+
+        await runTickForZone(baseInput(zone, deps));
+
+        expect(decisionRecords).toHaveLength(0);
+    });
+
+    it('continues the tick when the decision write fails — best-effort', async () => {
+        const zone = createTestZone({ id: 'zone-001' });
+        const { deps } = buildDeps({
+            runPlan: runPlanWithDecision,
+            decisionRecordThrows: true,
+        });
+
+        const result = await runTickForZone(baseInput(zone, deps));
+
+        // The decision write threw, but the tick still returned a normal result.
+        expect(result).toMatchObject({ cyclesToArm: [], newBusyWindows: [] });
+    });
+
+    it('does not record a decision when planning is skipped (no active schedule)', async () => {
+        const zone = createTestZone({ id: 'zone-001' });
+        const { deps, decisionRecords } = buildDeps({ runPlan: runPlanWithDecision });
+
+        await runTickForZone({ ...baseInput(zone, deps), activeSchedule: undefined });
+
+        expect(decisionRecords).toHaveLength(0);
     });
 });

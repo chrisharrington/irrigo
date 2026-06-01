@@ -3,6 +3,7 @@ export { grassTypes } from './grass-types';
 export { irrigationCycles } from './irrigation-cycles';
 export { pushTokens } from './push-tokens';
 export { scheduleEntries } from './schedule-entries';
+export { schedulingDecisions } from './scheduling-decisions';
 export { schedules } from './schedules';
 export { sites } from './sites';
 export { soilTypes } from './soil-types';

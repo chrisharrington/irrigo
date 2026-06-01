@@ -4,6 +4,10 @@ import {
     createScheduleEntriesRepository,
     type ScheduleEntriesRepository,
 } from '@/repositories/schedule-entries';
+import {
+    createSchedulingDecisionsRepository,
+    type SchedulingDecisionsRepository,
+} from '@/repositories/scheduling-decisions';
 import { createSchedulesRepository, type SchedulesRepository } from '@/repositories/schedules';
 import { createSitesRepository, type SitesRepository } from '@/repositories/sites';
 import { createWeatherSnapshotsRepository, type WeatherSnapshotsRepository } from '@/repositories/weather-snapshots';
@@ -21,6 +25,7 @@ export type DaemonServiceRepos = {
     sites: SitesRepository;
     schedules: SchedulesRepository;
     scheduleEntries: ScheduleEntriesRepository;
+    schedulingDecisions: SchedulingDecisionsRepository;
     weatherState: WeatherStateRepository;
     weatherSnapshots: WeatherSnapshotsRepository;
 };
@@ -53,6 +58,7 @@ export function setDaemonRepos(input: SetDaemonReposInput): void {
             sites: createSitesRepository(input.db),
             schedules: createSchedulesRepository(input.db),
             scheduleEntries: createScheduleEntriesRepository(input.db),
+            schedulingDecisions: createSchedulingDecisionsRepository(input.db),
             weatherState: createWeatherStateRepository(input.db),
             weatherSnapshots: createWeatherSnapshotsRepository(input.db),
         };
@@ -81,6 +87,10 @@ export function getSchedulesRepo(): SchedulesRepository {
 
 export function getScheduleEntriesRepo(): ScheduleEntriesRepository {
     return getRepos().scheduleEntries;
+}
+
+export function getSchedulingDecisionsRepo(): SchedulingDecisionsRepository {
+    return getRepos().schedulingDecisions;
 }
 
 export function getWeatherStateRepo(): WeatherStateRepository {

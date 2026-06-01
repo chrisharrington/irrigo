@@ -7,6 +7,7 @@ import { sumHourlyWeatherBetween } from '@/data/weather';
 import type { WeatherData, Zone } from '@/models';
 import type { PersistedCycle } from '@/models/cycle';
 import type { ScheduleEntriesRepository } from '@/repositories/schedule-entries';
+import type { SchedulingDecisionsRepository } from '@/repositories/scheduling-decisions';
 import type { Schedule } from '@/repositories/schedules';
 import type { WeatherSnapshotsRepository } from '@/repositories/weather-snapshots';
 import type { WeatherStateRepository } from '@/repositories/weather-state';
@@ -31,6 +32,7 @@ export type TickDeps = {
     getZoneActuationHistory: (zone: Zone, since: Date, until: Date) => Promise<ZoneActuationInterval[]>;
     zonesRepo: ZonesRepository;
     scheduleEntriesRepo: ScheduleEntriesRepository;
+    schedulingDecisionsRepo: SchedulingDecisionsRepository;
     weatherStateRepo: WeatherStateRepository;
     weatherSnapshotsRepo: WeatherSnapshotsRepository;
     getAlertsDb: () => AlertsDb | null;
@@ -96,7 +98,7 @@ export async function runTickForZone(input: RunTickForZoneInput): Promise<RunTic
         tickKind, isScheduledTick, irrigationEnabled,
         morningTickMinutesAfterSunrise, deps,
     } = input;
-    const { clock, alerter, runPlan, getWeather, getZoneActuationHistory, zonesRepo, scheduleEntriesRepo, weatherStateRepo, weatherSnapshotsRepo, getAlertsDb } = deps;
+    const { clock, alerter, runPlan, getWeather, getZoneActuationHistory, zonesRepo, scheduleEntriesRepo, schedulingDecisionsRepo, weatherStateRepo, weatherSnapshotsRepo, getAlertsDb } = deps;
 
     const tickNow = clock.now();
     let observedSunrise: Date | null = null;
@@ -111,9 +113,12 @@ export async function runTickForZone(input: RunTickForZoneInput): Promise<RunTic
     // Persist the fetched forecast for scheduling retrospectives — best-effort,
     // so a snapshot-write failure never stops reconciliation or planning. Only
     // when the zone has coordinates (it must, to have fetched weather). API-87.
+    // The returned id ties tonight's decision (API-88) back to this forecast;
+    // stays null when the write failed or the zone has no coordinates.
+    let weatherSnapshotId: string | null = null;
     if (zone.location) {
         try {
-            await weatherSnapshotsRepo.record({
+            weatherSnapshotId = await weatherSnapshotsRepo.record({
                 zoneId: zone.id,
                 latitude: zone.location.lat,
                 longitude: zone.location.lon,
@@ -206,7 +211,7 @@ export async function runTickForZone(input: RunTickForZoneInput): Promise<RunTic
         const planningZone = isScheduledTick
             ? { ...zone, currentDepletionMm: newDepletionMm, currentDepletionReconciledAt: tickNow }
             : zone;
-        const { entries } = await runPlan(planningZone, {
+        const { entries, decision } = await runPlan(planningZone, {
             busyWindows: [pastWindow, ...busyWindows],
             restrictions,
             overrides,
@@ -215,6 +220,28 @@ export async function runTickForZone(input: RunTickForZoneInput): Promise<RunTic
         const { cycles } = await scheduleEntriesRepo.replaceForZone(
             zone.id, entries, today, activeSchedule.id,
         );
+
+        // Persist tonight's planning decision for retrospectives — best-effort,
+        // so a write failure never stops arming. Ties to the weather snapshot
+        // that drove it (null if that write failed). API-88.
+        if (decision) {
+            try {
+                await schedulingDecisionsRepo.record({
+                    zoneId: zone.id,
+                    scheduleId: activeSchedule.id,
+                    date: decision.date.format('YYYY-MM-DD'),
+                    replanAt: tickNow,
+                    outcome: decision.outcome,
+                    reason: decision.reason,
+                    depletionBeforeMm: decision.depletionBeforeMm,
+                    depletionAfterMm: decision.depletionAfterMm,
+                    triggerThresholdMm: decision.triggerThresholdMm,
+                    weatherSnapshotId,
+                });
+            } catch (err) {
+                console.error(`daemon: failed to persist scheduling decision for zone ${zone.id} (${zone.name}); continuing.`, err);
+            }
+        }
 
         const cyclesToArm: Array<{ zone: Zone; cycle: PersistedCycle }> = [];
         const newBusyWindows: Array<{ start: Date; end: Date }> = [];
