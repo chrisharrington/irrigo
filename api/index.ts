@@ -259,6 +259,22 @@ export function buildApp(opts: BuildAppOptions): FastifyInstance {
     const app = Fastify();
 
     /**
+     * Accept bodyless / empty-body POSTs regardless of `Content-Type`. Most of
+     * Irrigo's mutating routes are RPC-style — the path carries all the intent
+     * and the body is empty (zone open/close, alert ack, system enable/disable,
+     * schedule toggles, replan). React Native's Android networking attaches an
+     * empty `Content-Type` header to such requests, which bare Fastify rejects
+     * with `415 Unsupported Media Type: undefined` before the handler runs. A
+     * catch-all parser that tolerates an absent body makes these succeed from a
+     * real device; routes that take a real JSON body (e.g. `/push/register`)
+     * are unaffected — the built-in `application/json` parser still wins for
+     * `application/json` requests, and this only fires when no parser matches.
+     */
+    app.addContentTypeParser('*', { parseAs: 'string' }, (_req, body, done) => {
+        done(null, body.length > 0 ? body : undefined);
+    });
+
+    /**
      * `GET /` — placeholder root-of-host probe. Always 200; useful for
      * confirming the api process is up before pointing tooling at it.
      */

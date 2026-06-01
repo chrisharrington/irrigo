@@ -1065,6 +1065,32 @@ describe('buildApp alert routes', () => {
             expect(acked).toEqual(['my-id-here']);
             await app.close();
         });
+
+        it('accepts a bodyless POST with an empty Content-Type (Android RN networking) instead of 415 (APP-81)', async () => {
+            // React Native's Android networking attaches an empty Content-Type
+            // header to a bodyless POST, which bare Fastify rejects with
+            // `415 Unsupported Media Type: undefined` before the handler runs —
+            // the on-device cause of "Mark all read" silently doing nothing.
+            const acked: string[] = [];
+            const app = buildApp({
+                getStatus: () => buildStatus(),
+                alerts: {
+                    list: async () => [],
+                    ack: async (id) => { acked.push(id); return 'acked'; },
+                },
+            });
+
+            const res = await app.inject({
+                method: 'POST',
+                url: '/alerts/alert-001/ack',
+                headers: { 'content-type': '', 'content-length': '0' },
+            });
+
+            expect(res.statusCode).toBe(200);
+            expect(res.json()).toEqual({ status: 'acked' });
+            expect(acked).toEqual(['alert-001']);
+            await app.close();
+        });
     });
 });
 

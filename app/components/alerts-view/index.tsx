@@ -3,6 +3,7 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import type { AlertDto } from '@/api/types/alerts';
+import { Button } from '@/components/button';
 import { RefreshableScrollView } from '@/components/refreshable-scroll-view';
 import { FontFamily } from '@/constants/fonts';
 import { useAckAlert, useAlerts } from '@/hooks/alerts';
@@ -96,18 +97,15 @@ export function AlertsView({ now = new Date() }: AlertsViewProps = {}) {
                 <View style={styles.titleRow}>
                     <Text style={styles.title}>{isEmpty ? 'Nothing to flag' : 'Recent alerts'}</Text>
                     {!isEmpty && (
-                        <Pressable
-                            accessibilityRole='button'
-                            accessibilityLabel='Mark all read'
-                            accessibilityState={{ disabled: markAllDisabled }}
+                        <Button
+                            variant='secondary'
+                            size='sm'
                             disabled={markAllDisabled}
                             onPress={onMarkAllRead}
-                            style={styles.markAll}
+                            accessibilityLabel='Mark all read'
                         >
-                            <Text style={[styles.markAllText, markAllDisabled ? styles.markAllDisabled : null]}>
-                                Mark all read
-                            </Text>
-                        </Pressable>
+                            Mark all read
+                        </Button>
                     )}
                 </View>
 
@@ -201,20 +199,6 @@ const styles = StyleSheet.create({
         flex: 1,
         backgroundColor: colors.bg,
     },
-    markAll: {
-        paddingVertical: 10,
-        paddingHorizontal: 6,
-    },
-    markAllText: {
-        fontFamily: FontFamily.sansMedium,
-        fontSize: 13,
-        lineHeight: 13,
-        color: colors['fg-soft'],
-    },
-    markAllDisabled: {
-        color: colors['fg-dim'],
-        opacity: 0.4,
-    },
     headingBlock: {
         gap: 14,
         paddingHorizontal: 20,
@@ -232,7 +216,7 @@ const styles = StyleSheet.create({
     titleRow: {
         flexDirection: 'row',
         justifyContent: 'space-between',
-        alignItems: 'baseline',
+        alignItems: 'center',
         gap: 12,
         marginTop: 8,
     },
