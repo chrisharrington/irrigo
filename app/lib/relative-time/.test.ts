@@ -67,14 +67,14 @@ describe('formatCountdown', () => {
 });
 
 describe('formatTimeOfDay', () => {
-    it('formats a UTC instant as a 12-hour clock with am/pm in the site timezone.', () => {
+    it('formats a UTC instant as a 12-hour clock with am/pm in the device timezone.', () => {
         // 2026-05-23T04:23Z = 22:23 MDT on 2026-05-22 (Friday night).
-        expect(formatTimeOfDay('2026-05-23T04:23:00.000Z', TZ)).toBe('10:23 pm');
+        expect(formatTimeOfDay('2026-05-23T04:23:00.000Z')).toBe('10:23 pm');
     });
 
     it('renders the am side of the boundary.', () => {
         // 2026-05-23T11:48Z = 05:48 MDT on 2026-05-23 (Saturday morning).
-        expect(formatTimeOfDay('2026-05-23T11:48:00.000Z', TZ)).toBe('5:48 am');
+        expect(formatTimeOfDay('2026-05-23T11:48:00.000Z')).toBe('5:48 am');
     });
 });
 
@@ -106,7 +106,7 @@ describe('formatActivityRowDate', () => {
 
 describe('formatEndsAt', () => {
     it('formats the ends-at like formatTimeOfDay.', () => {
-        expect(formatEndsAt('2026-05-23T11:48:00.000Z', TZ)).toBe('5:48 am');
+        expect(formatEndsAt('2026-05-23T11:48:00.000Z')).toBe('5:48 am');
     });
 });
 
@@ -116,33 +116,33 @@ describe('formatNextRunDate', () => {
 
     it(`returns 'Today, D MMM' when the run lands on the same local calendar day.`, () => {
         // 2026-05-24T04:23Z = 22:23 MDT on 2026-05-23 — still Saturday local.
-        expect(formatNextRunDate('2026-05-24T04:23:00.000Z', TZ, NOW_LOCAL_SATURDAY)).toBe('Today, 23 May');
+        expect(formatNextRunDate('2026-05-24T04:23:00.000Z', NOW_LOCAL_SATURDAY)).toBe('Today, 23 May');
     });
 
     it(`returns 'Today, D MMM' when the run is already in the past.`, () => {
         // 2026-05-22T12:00Z = 06:00 MDT on 2026-05-22 (Friday) — one day before NOW.
-        expect(formatNextRunDate('2026-05-22T12:00:00.000Z', TZ, NOW_LOCAL_SATURDAY)).toBe('Today, 22 May');
+        expect(formatNextRunDate('2026-05-22T12:00:00.000Z', NOW_LOCAL_SATURDAY)).toBe('Today, 22 May');
     });
 
     it(`returns 'Tomorrow, D MMM' for the next local calendar day.`, () => {
         // 2026-05-25T04:23Z = 22:23 MDT on 2026-05-24 (Sunday) — one day on from Saturday.
-        expect(formatNextRunDate('2026-05-25T04:23:00.000Z', TZ, NOW_LOCAL_SATURDAY)).toBe('Tomorrow, 24 May');
+        expect(formatNextRunDate('2026-05-25T04:23:00.000Z', NOW_LOCAL_SATURDAY)).toBe('Tomorrow, 24 May');
     });
 
     it(`returns 'Ddd, D MMM' for runs 2+ days out.`, () => {
         // 2026-05-27T04:23Z = 22:23 MDT on 2026-05-26 (Tuesday) — three days on.
-        expect(formatNextRunDate('2026-05-27T04:23:00.000Z', TZ, NOW_LOCAL_SATURDAY)).toBe('Tue, 26 May');
+        expect(formatNextRunDate('2026-05-27T04:23:00.000Z', NOW_LOCAL_SATURDAY)).toBe('Tue, 26 May');
     });
 
     it(`returns the same 'Ddd, D MMM' format for runs 7+ days out (no separate far-future bucket).`, () => {
         // 2026-06-03T04:23Z = 22:23 MDT on 2026-06-02 (Tuesday) — ten days on.
-        expect(formatNextRunDate('2026-06-03T04:23:00.000Z', TZ, NOW_LOCAL_SATURDAY)).toBe('Tue, 2 Jun');
+        expect(formatNextRunDate('2026-06-03T04:23:00.000Z', NOW_LOCAL_SATURDAY)).toBe('Tue, 2 Jun');
     });
 
-    it('uses the site timezone for the calendar-day comparison, not UTC.', () => {
+    it('uses the device timezone for the calendar-day comparison, not UTC.', () => {
         // 2026-05-24T05:30Z is "Sunday" in UTC but 23:30 MDT on Saturday locally —
         // still the same calendar day as NOW_LOCAL_SATURDAY (09:00 MDT Sat).
-        expect(formatNextRunDate('2026-05-24T05:30:00.000Z', TZ, NOW_LOCAL_SATURDAY)).toBe('Today, 23 May');
+        expect(formatNextRunDate('2026-05-24T05:30:00.000Z', NOW_LOCAL_SATURDAY)).toBe('Today, 23 May');
     });
 });
 

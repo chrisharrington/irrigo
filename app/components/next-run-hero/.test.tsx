@@ -55,11 +55,10 @@ describe('NextRunHero', () => {
         expect(screen.getByText('Skipped tonight — rain forecast.')).toBeOnTheScreen();
     });
 
-    it('renders the next-run time in the supplied site timezone (12h with am/pm).', () => {
+    it('renders the next-run time in the device-local timezone (12h with am/pm).', () => {
         render(
             <NextRunHero
                 nextRun={SCHEDULED_NEXT_RUN}
-                siteTimezone='America/Edmonton'
                 now={NOW_LOCAL_SAME_DAY}
             />,
         );
@@ -67,11 +66,23 @@ describe('NextRunHero', () => {
         expect(screen.getByText('10:23 pm')).toBeOnTheScreen();
     });
 
+    it('renders the device timezone abbreviation next to the time (APP-88).', () => {
+        render(
+            <NextRunHero
+                nextRun={SCHEDULED_NEXT_RUN}
+                now={NOW_LOCAL_SAME_DAY}
+            />,
+        );
+
+        // The test env is pinned to America/Edmonton (jest-setup.ts); a May
+        // instant reads as Mountain Daylight Time.
+        expect(screen.getByText('MDT')).toBeOnTheScreen();
+    });
+
     it(`renders the date label as 'Today, D MMM' when the run is today.`, () => {
         render(
             <NextRunHero
                 nextRun={SCHEDULED_NEXT_RUN}
-                siteTimezone='America/Edmonton'
                 now={NOW_LOCAL_SAME_DAY}
             />,
         );
@@ -85,7 +96,6 @@ describe('NextRunHero', () => {
         render(
             <NextRunHero
                 nextRun={SCHEDULED_NEXT_RUN}
-                siteTimezone='America/Edmonton'
                 now={nowDayBefore}
             />,
         );
@@ -99,7 +109,6 @@ describe('NextRunHero', () => {
         render(
             <NextRunHero
                 nextRun={SCHEDULED_NEXT_RUN}
-                siteTimezone='America/Edmonton'
                 now={nowThreeDaysBefore}
             />,
         );
@@ -113,7 +122,6 @@ describe('NextRunHero', () => {
         render(
             <NextRunHero
                 nextRun={SCHEDULED_NEXT_RUN}
-                siteTimezone='America/Edmonton'
                 now={nowTenDaysBefore}
             />,
         );
@@ -125,7 +133,6 @@ describe('NextRunHero', () => {
         render(
             <NextRunHero
                 nextRun={SCHEDULED_NEXT_RUN}
-                siteTimezone='America/Edmonton'
                 now={NOW_LOCAL_SAME_DAY}
             />,
         );
@@ -137,7 +144,6 @@ describe('NextRunHero', () => {
         render(
             <NextRunHero
                 nextRun={{ ...SCHEDULED_NEXT_RUN, state: 'firing' }}
-                siteTimezone='America/Edmonton'
                 now={NOW_LOCAL_SAME_DAY}
             />,
         );
@@ -156,7 +162,6 @@ describe('NextRunHero', () => {
         render(
             <NextRunHero
                 nextRun={SCHEDULED_NEXT_RUN}
-                siteTimezone='America/Edmonton'
                 now={NOW_LOCAL_SAME_DAY}
             />,
         );
@@ -173,7 +178,6 @@ describe('NextRunHero', () => {
         render(
             <NextRunHero
                 nextRun={{ ...SCHEDULED_NEXT_RUN, zones: [], zoneOrder: [] }}
-                siteTimezone='America/Edmonton'
                 now={NOW_LOCAL_SAME_DAY}
             />,
         );

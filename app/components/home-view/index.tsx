@@ -68,9 +68,9 @@ export function HomeView() {
                         <PlaceholderCard label='Loading next run…' />
                     : nextRun.isError || nextRun.data == null ?
                         <PlaceholderCard label='Failed to load next run.' tone='error' />
-                        // siteTimezone comes from the API response — single
-                        // source of truth, no env-var dependency (APP-54).
-                    :   <NextRunHero nextRun={nextRun.data} siteTimezone={nextRun.data.timezone} />}
+                        // Times render in the device-local timezone (APP-88) —
+                        // no timezone is threaded from the API.
+                    :   <NextRunHero nextRun={nextRun.data} />}
 
                     <View style={styles.zonesHeading}>
                         <Text style={styles.h2}>Zones</Text>
