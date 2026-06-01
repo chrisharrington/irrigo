@@ -3,6 +3,10 @@ import { fireEvent, render, screen } from '@testing-library/react-native';
 import { SwitchScheduleModal } from '.';
 import type { ScheduleListItem } from '@/api/types/schedules';
 
+jest.mock('react-native-safe-area-context', () => ({
+    useSafeAreaInsets: () => ({ top: 0, bottom: 34, left: 0, right: 0 }),
+}));
+
 const SAMPLE_SCHEDULE: ScheduleListItem = {
     id: 'sched-002',
     slug: 'weekend',
@@ -54,6 +58,28 @@ describe('SwitchScheduleModal', () => {
         );
 
         fireEvent.press(screen.getByText('Cancel'));
+
+        expect(onCancel).toHaveBeenCalledTimes(1);
+    });
+
+    it('fires `onCancel` when the sheet backdrop is tapped.', () => {
+        const onCancel = jest.fn();
+        const { root } = render(
+            <SwitchScheduleModal
+                schedule={SAMPLE_SCHEDULE}
+                onCancel={onCancel}
+                onConfirm={() => {}}
+            />,
+        );
+
+        // The container sets `accessibilityViewIsModal`, which hides the backdrop
+        // Pressable from a11y queries, so reach it via host-tree lookup.
+        const backdrop = root.find(
+            node =>
+                typeof node.type === 'string' &&
+                node.props.accessibilityLabel === 'Dismiss modal',
+        );
+        fireEvent.press(backdrop);
 
         expect(onCancel).toHaveBeenCalledTimes(1);
     });
