@@ -151,18 +151,32 @@ describe('Modal', () => {
             </Modal>,
         );
 
-        // The sheet panel — identified by its top-only radius — carries the
-        // bottom inset (34) so its content clears the navigation bar.
-        const panels = hostStylesMatching(
-            root,
-            style => style['borderTopLeftRadius'] === 4 && style['borderTopRightRadius'] === 4,
-        );
+        // The sheet panel is the only node padded by the bottom inset (34).
+        const panels = hostStylesMatching(root, style => style['paddingBottom'] === 34);
 
         expect(panels).toHaveLength(1);
-        expect(panels[0]['paddingBottom']).toBe(34);
     });
 
-    it('slides the bottom-sheet variant up from the bottom (animationType "slide").', () => {
+    it('renders the sheet panel as a flush, top-shadowed slab — no corner radius, no side borders.', () => {
+        const { root } = render(
+            <Modal visible onRequestClose={() => {}} variant='bottom-sheet'>
+                <Text>Sheet body</Text>
+            </Modal>,
+        );
+
+        const [panel] = hostStylesMatching(root, style => style['paddingBottom'] === 34);
+
+        // Square top corners and no left/right borders so it spans edge-to-edge.
+        expect(panel['borderTopLeftRadius']).toBeUndefined();
+        expect(panel['borderTopRightRadius']).toBeUndefined();
+        expect(panel['borderLeftWidth']).toBeUndefined();
+        expect(panel['borderRightWidth']).toBeUndefined();
+        // A hairline top border plus an upward-casting shadow on the top edge.
+        expect(panel['borderTopWidth']).toBe(1);
+        expect(panel['boxShadow']).toBe('0 -8px 24px rgba(0, 0, 0, 0.5)');
+    });
+
+    it('drives its own animation (animationType "none") and draws under the nav bar for the sheet.', () => {
         const { root } = render(
             <Modal visible onRequestClose={() => {}} variant='bottom-sheet'>
                 <Text>Sheet body</Text>
@@ -171,7 +185,9 @@ describe('Modal', () => {
 
         const animated = root.find(node => node.props.animationType !== undefined);
 
-        expect(animated.props.animationType).toBe('slide');
+        // We fade the backdrop and slide the panel ourselves, so RN's own window
+        // animation is disabled.
+        expect(animated.props.animationType).toBe('none');
         // Lets the sheet draw under the Android nav bar so it sits flush (APP-73).
         expect(animated.props.navigationBarTranslucent).toBe(true);
     });
