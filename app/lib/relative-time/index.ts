@@ -12,23 +12,30 @@ import { MS_PER_DAY, MS_PER_HOUR, MS_PER_MINUTE } from '@/constants/duration';
  *   - same calendar day   → `'<n>h ago'`
  *   - last calendar day   → `'last night'`
  *   - older               → `'<n> nights ago'`
+ *
+ * Day buckets are counted in device-local *calendar* days, not raw 24 h spans,
+ * so a run 24–48 h back that crossed two midnights reads `'2 nights ago'`
+ * rather than `'last night'`. APP-87.
  */
 export function formatLastRan(iso: string | null, now: Date): string {
     if (iso === null) return '';
     const last = dayjs(iso);
     const present = dayjs(now);
     // Clamp future-dated input to 0 so clock skew (or upstream data bugs)
-    // can't bucket into a negative `Math.floor(diffMs / MS_PER_DAY)` and
-    // render `'-2 nights ago'`. APP-55.
+    // can't render a negative bucket like `'-2 nights ago'`. APP-55.
     const diffMs = Math.max(0, present.valueOf() - last.valueOf());
     if (diffMs < MS_PER_HOUR) return 'just now';
-    if (diffMs < MS_PER_DAY) {
+
+    // Calendar-day offset (device-local): the number of midnights between the
+    // run and now. `Math.max(0, …)` guards future-dated runs that slipped past
+    // the sub-hour clamp above.
+    const dayDiff = Math.max(0, present.startOf('day').diff(last.startOf('day'), 'day'));
+    if (dayDiff === 0) {
         const hours = Math.floor(diffMs / MS_PER_HOUR);
         return `${hours}h ago`;
     }
-    const days = Math.floor(diffMs / MS_PER_DAY);
-    if (days === 1) return 'last night';
-    return `${days} nights ago`;
+    if (dayDiff === 1) return 'last night';
+    return `${dayDiff} nights ago`;
 }
 
 /**
