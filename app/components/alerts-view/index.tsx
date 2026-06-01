@@ -1,11 +1,8 @@
 import { useCallback, useMemo, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
-import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import type { AlertDto } from '@/api/types/alerts';
-import { Button } from '@/components/button';
-import { ChevL } from '@/components/icons';
 import { RefreshableScrollView } from '@/components/refreshable-scroll-view';
 import { FontFamily } from '@/constants/fonts';
 import { useAckAlert, useAlerts } from '@/hooks/alerts';
@@ -49,7 +46,6 @@ export type AlertsViewProps = {
  */
 export function AlertsView({ now = new Date() }: AlertsViewProps = {}) {
     const insets = useSafeAreaInsets();
-    const router = useRouter();
     const { data } = useAlerts();
     const ackAlert = useAckAlert();
     const [filter, setFilter] = useState<Filter>('all');
@@ -85,37 +81,31 @@ export function AlertsView({ now = new Date() }: AlertsViewProps = {}) {
 
     return (
         <View style={[styles.screen, { paddingTop: insets.top }]}>
-            {/* Header — back, title, mark-all. */}
-            <View style={styles.header}>
-                <Button
-                    iconOnly
-                    variant='ghost'
-                    accessibilityLabel='Back'
-                    onPress={() => router.back()}
-                >
-                    <ChevL size={16} />
-                </Button>
-                <Text style={styles.headerTitle}>Alerts</Text>
-                <Pressable
-                    accessibilityRole='button'
-                    accessibilityLabel='Mark all read'
-                    accessibilityState={{ disabled: markAllDisabled }}
-                    disabled={markAllDisabled}
-                    onPress={onMarkAllRead}
-                    style={styles.markAll}
-                >
-                    <Text style={[styles.markAllText, markAllDisabled ? styles.markAllDisabled : null]}>
-                        Mark all read
-                    </Text>
-                </Pressable>
-            </View>
-
-            {/* Page heading + filter chips. */}
+            {/* Page heading + filter chips. The header row (back / title) was
+                removed per APP-82; the screen leans on the global app chrome
+                and OS/gesture back. "Mark all read" lives alongside the
+                heading title now. */}
             <View style={styles.headingBlock}>
                 <Text style={styles.eyebrow}>
                     {isEmpty ? 'All clear' : `${counts.unread} unread · ${counts.all} total`}
                 </Text>
-                <Text style={styles.title}>{isEmpty ? 'Nothing to flag' : 'Recent alerts'}</Text>
+                <View style={styles.titleRow}>
+                    <Text style={styles.title}>{isEmpty ? 'Nothing to flag' : 'Recent alerts'}</Text>
+                    {!isEmpty && (
+                        <Pressable
+                            accessibilityRole='button'
+                            accessibilityLabel='Mark all read'
+                            accessibilityState={{ disabled: markAllDisabled }}
+                            disabled={markAllDisabled}
+                            onPress={onMarkAllRead}
+                            style={styles.markAll}
+                        >
+                            <Text style={[styles.markAllText, markAllDisabled ? styles.markAllDisabled : null]}>
+                                Mark all read
+                            </Text>
+                        </Pressable>
+                    )}
+                </View>
 
                 {!isEmpty && (
                     <View style={styles.chips}>
@@ -183,22 +173,6 @@ const styles = StyleSheet.create({
         flex: 1,
         backgroundColor: colors.bg,
     },
-    header: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        justifyContent: 'space-between',
-        gap: 12,
-        paddingHorizontal: 16,
-        paddingTop: 4,
-        paddingBottom: 14,
-    },
-    headerTitle: {
-        fontFamily: FontFamily.displaySemibold,
-        fontSize: 16,
-        lineHeight: 16,
-        letterSpacing: -0.32,
-        color: colors.fg,
-    },
     markAll: {
         paddingVertical: 10,
         paddingHorizontal: 6,
@@ -227,13 +201,19 @@ const styles = StyleSheet.create({
         textTransform: 'uppercase',
         color: colors['fg-muted'],
     },
+    titleRow: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'baseline',
+        gap: 12,
+        marginTop: 8,
+    },
     title: {
         fontFamily: FontFamily.displayBold,
         fontSize: 28,
         lineHeight: 28,
         letterSpacing: -0.7,
         color: colors.fg,
-        marginTop: 8,
     },
     chips: {
         flexDirection: 'row',

@@ -4,11 +4,13 @@ import { buildApiWrapper, jsonResponse } from '@/api/test-utils';
 import { keys } from '@/api/query-keys';
 import type { AlertDto } from '@/api/types/alerts';
 
-const mockRouterBack = jest.fn();
+// Kept for the EmptyState child, which calls useRouter().push. AlertsView
+// itself no longer navigates after the header (and its back button) were
+// removed in APP-82.
 const mockRouterPush = jest.fn();
 
 jest.mock('expo-router', () => ({
-    useRouter: () => ({ back: mockRouterBack, push: mockRouterPush }),
+    useRouter: () => ({ push: mockRouterPush }),
 }));
 
 jest.mock('react-native-safe-area-context', () => ({
@@ -39,7 +41,6 @@ beforeEach(() => {
         if (url.endsWith('/alerts')) return Promise.resolve(jsonResponse({ alerts: currentAlerts }));
         return Promise.resolve(jsonResponse({}));
     });
-    mockRouterBack.mockReset();
     mockRouterPush.mockReset();
     process.env.EXPO_PUBLIC_API_BASE_URL = 'http://test.local:9753';
 });
@@ -198,12 +199,24 @@ describe('AlertsView', () => {
         expect(screen.getByLabelText('Mark all read').props.accessibilityState).toMatchObject({ disabled: true });
     });
 
-    it('navigates back when the back button is pressed.', () => {
-        const wrapper = seed([buildAlert()]);
+    it('renders "Mark all read" alongside the Recent alerts heading (APP-82).', () => {
+        const wrapper = seed([buildAlert({ id: 'a-1', ack: false })]);
 
         render(<AlertsView now={NOW} />, { wrapper });
-        fireEvent.press(screen.getByLabelText('Back'));
 
-        expect(mockRouterBack).toHaveBeenCalledTimes(1);
+        // The header row (with the old "Alerts" title + back button) is gone;
+        // "Mark all read" now lives with the page heading.
+        expect(screen.getByText('Recent alerts')).toBeOnTheScreen();
+        expect(screen.getByLabelText('Mark all read')).toBeOnTheScreen();
+        expect(screen.queryByLabelText('Back')).toBeNull();
+    });
+
+    it('hides "Mark all read" in the empty state — there are no alerts to act on (APP-82).', () => {
+        const wrapper = seed([]);
+
+        render(<AlertsView now={NOW} />, { wrapper });
+
+        expect(screen.getByText('Nothing to flag')).toBeOnTheScreen();
+        expect(screen.queryByLabelText('Mark all read')).toBeNull();
     });
 });
