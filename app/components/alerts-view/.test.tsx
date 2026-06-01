@@ -17,8 +17,9 @@ jest.mock('react-native-safe-area-context', () => ({
 
 import { AlertsView } from '.';
 
-const TZ = 'America/Edmonton';
-const NOW = new Date('2026-05-29T20:30:00.000Z'); // 14:30 site-local
+// The test env is pinned to America/Edmonton (TZ in package.json), so alert
+// timestamps render device-local as MDT (UTC-6).
+const NOW = new Date('2026-05-29T20:30:00.000Z'); // 14:30 device-local
 
 const mockFetch = jest.fn();
 
@@ -36,13 +37,11 @@ beforeEach(() => {
         const url = String(input);
         if (url.includes('/ack')) return Promise.resolve(jsonResponse({ status: 'acked' }));
         if (url.endsWith('/alerts')) return Promise.resolve(jsonResponse({ alerts: currentAlerts }));
-        if (url.endsWith('/tonight')) return Promise.resolve(jsonResponse({ timezone: TZ }));
         return Promise.resolve(jsonResponse({}));
     });
     mockRouterBack.mockReset();
     mockRouterPush.mockReset();
     process.env.EXPO_PUBLIC_API_BASE_URL = 'http://test.local:9753';
-    process.env.EXPO_PUBLIC_SITE_TIMEZONE = TZ;
 });
 
 function buildAlert(overrides?: Partial<AlertDto>): AlertDto {
@@ -59,12 +58,11 @@ function buildAlert(overrides?: Partial<AlertDto>): AlertDto {
     };
 }
 
-/** Builds a wrapper with the alerts list and a site timezone pre-seeded. */
+/** Builds a wrapper with the alerts list pre-seeded. */
 function seed(alerts: readonly AlertDto[]) {
     const { wrapper, client } = buildApiWrapper();
     currentAlerts = alerts;
     client.setQueryData(keys.alerts.list(), alerts);
-    client.setQueryData(keys.nextRun.summary(), { timezone: TZ });
     return wrapper;
 }
 

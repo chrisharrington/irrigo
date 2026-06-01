@@ -140,22 +140,25 @@ describe('HomeView', () => {
         expect(screen.queryByText(/Next run · America\/Edmonton/)).toBeNull();
     });
 
-    it('formats the next-run time in the API-provided timezone — env-var EXPO_PUBLIC_SITE_TIMEZONE has no influence (APP-54).', async () => {
-        // Set the env-var hypothesis to a *wrong* timezone. The displayed
-        // time must still match the API's `timezone` field (Edmonton), not
-        // the env-var override (UTC), which would render as 4:23 am.
-        const saved = process.env.EXPO_PUBLIC_SITE_TIMEZONE;
-        process.env.EXPO_PUBLIC_SITE_TIMEZONE = 'UTC';
-        try {
-            setupSuccessfulFetch();
-            render(<HomeView />, { wrapper: buildApiWrapper().wrapper });
+    it('renders the next-run time in device-local time, ignoring NextRunDto.timezone (APP-88).', async () => {
+        // The wire still carries a `timezone` field, but the client no longer
+        // uses it — times render in the device-local zone (pinned to
+        // America/Edmonton in jest-setup.ts). A bogus DTO timezone must not
+        // move the displayed time off device-local.
+        mockFetch.mockImplementation(async (input: RequestInfo) => {
+            const url = typeof input === 'string' ? input : input.url;
+            if (url.endsWith('/system')) return jsonResponse(SAMPLE_SYSTEM);
+            if (url.endsWith('/tonight')) return jsonResponse({ ...NEXT_RUN_SCHEDULED, timezone: 'UTC' });
+            if (url.endsWith('/zones')) return jsonResponse({ zones: SAMPLE_ZONES });
+            if (url.endsWith('/schedules')) return jsonResponse([ACTIVE_SCHEDULE]);
+            return jsonResponse({ error: 'unhandled url' }, 500);
+        });
+        render(<HomeView />, { wrapper: buildApiWrapper().wrapper });
 
-            await waitFor(() => expect(screen.getByText('10:23 pm')).toBeOnTheScreen());
-            expect(screen.queryByText('4:23 am')).toBeNull();
-        } finally {
-            if (saved === undefined) delete process.env.EXPO_PUBLIC_SITE_TIMEZONE;
-            else process.env.EXPO_PUBLIC_SITE_TIMEZONE = saved;
-        }
+        // 04:23Z reads as 10:23 pm MDT (device-local), not 4:23 am (the UTC
+        // reading the bogus DTO timezone would imply).
+        await waitFor(() => expect(screen.getByText('10:23 pm')).toBeOnTheScreen());
+        expect(screen.queryByText('4:23 am')).toBeNull();
     });
 
     it('renders a zone tile for every zone returned by /zones.', async () => {

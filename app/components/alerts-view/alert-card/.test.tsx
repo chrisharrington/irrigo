@@ -6,8 +6,9 @@ import config from '@/tailwind.config';
 import { AlertCard } from '.';
 
 const colors = config.theme.extend.colors;
-const TZ = 'America/Edmonton';
-const NOW = new Date('2026-05-29T20:30:00.000Z'); // 14:30 site-local
+// The test env is pinned to America/Edmonton (TZ in package.json); the alert
+// timestamp renders device-local as MDT.
+const NOW = new Date('2026-05-29T20:30:00.000Z'); // 14:30 device-local
 
 function buildAlert(overrides?: Partial<AlertDto>): AlertDto {
     return {
@@ -24,8 +25,8 @@ function buildAlert(overrides?: Partial<AlertDto>): AlertDto {
 }
 
 describe('AlertCard', () => {
-    it('renders the title, kind tag, and site-local timestamp.', () => {
-        render(<AlertCard alert={buildAlert()} now={NOW} timezone={TZ} />);
+    it('renders the title, kind tag, and device-local timestamp.', () => {
+        render(<AlertCard alert={buildAlert()} now={NOW} />);
 
         expect(screen.getByText('Controller unreachable')).toBeOnTheScreen();
         expect(screen.getByText('CONNECTION')).toBeOnTheScreen();
@@ -33,13 +34,13 @@ describe('AlertCard', () => {
     });
 
     it('derives the kind tag from the wire class.', () => {
-        render(<AlertCard alert={buildAlert({ class: 'weather-stale' })} now={NOW} timezone={TZ} />);
+        render(<AlertCard alert={buildAlert({ class: 'weather-stale' })} now={NOW} />);
 
         expect(screen.getByText('FORECAST')).toBeOnTheScreen();
     });
 
     it('shows the unread dot and a brighter title for unread alerts.', () => {
-        render(<AlertCard alert={buildAlert({ ack: false })} now={NOW} timezone={TZ} />);
+        render(<AlertCard alert={buildAlert({ ack: false })} now={NOW} />);
 
         expect(screen.getByLabelText('Unread alert')).toBeOnTheScreen();
         const titleStyle = StyleSheet.flatten(
@@ -49,7 +50,7 @@ describe('AlertCard', () => {
     });
 
     it('omits the unread dot and dims the title for read alerts.', () => {
-        render(<AlertCard alert={buildAlert({ ack: true })} now={NOW} timezone={TZ} />);
+        render(<AlertCard alert={buildAlert({ ack: true })} now={NOW} />);
 
         expect(screen.queryByLabelText('Unread alert')).toBeNull();
         const titleStyle = StyleSheet.flatten(
@@ -59,7 +60,7 @@ describe('AlertCard', () => {
     });
 
     it('paints the left tone strip with the danger colour for danger alerts.', () => {
-        render(<AlertCard alert={buildAlert({ tone: 'danger' })} now={NOW} timezone={TZ} />);
+        render(<AlertCard alert={buildAlert({ tone: 'danger' })} now={NOW} />);
 
         const card = StyleSheet.flatten(
             screen.getByLabelText(/Controller unreachable/).props.style,
@@ -72,7 +73,6 @@ describe('AlertCard', () => {
             <AlertCard
                 alert={buildAlert({ tone: 'warn', title: 'Forecast stale' })}
                 now={NOW}
-                timezone={TZ}
             />,
         );
 
@@ -84,14 +84,14 @@ describe('AlertCard', () => {
 
     it('tints the background only when the alert is unread.', () => {
         const { rerender } = render(
-            <AlertCard alert={buildAlert({ ack: false })} now={NOW} timezone={TZ} />,
+            <AlertCard alert={buildAlert({ ack: false })} now={NOW} />,
         );
         const unreadStyle = StyleSheet.flatten(
             screen.getByLabelText(/Controller unreachable/).props.style,
         ) as ViewStyle;
         expect(unreadStyle.backgroundColor).toBe('rgba(255, 107, 123, 0.06)');
 
-        rerender(<AlertCard alert={buildAlert({ ack: true })} now={NOW} timezone={TZ} />);
+        rerender(<AlertCard alert={buildAlert({ ack: true })} now={NOW} />);
         const readStyle = StyleSheet.flatten(
             screen.getByLabelText(/Controller unreachable/).props.style,
         ) as ViewStyle;
@@ -103,7 +103,6 @@ describe('AlertCard', () => {
             <AlertCard
                 alert={buildAlert({ sub: null, title: 'Controller unreachable' })}
                 now={NOW}
-                timezone={TZ}
             />,
         );
 

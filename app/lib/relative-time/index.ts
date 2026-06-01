@@ -1,11 +1,6 @@
 import dayjs from 'dayjs';
-import utc from 'dayjs/plugin/utc';
-import timezone from 'dayjs/plugin/timezone';
 
 import { MS_PER_DAY, MS_PER_HOUR, MS_PER_MINUTE } from '@/constants/duration';
-
-dayjs.extend(utc);
-dayjs.extend(timezone);
 
 /**
  * Formats `lastFiredAt` (an ISO-8601 UTC instant) as the human-readable
@@ -55,10 +50,12 @@ export function formatCountdown(iso: string | null, now: Date): string {
 }
 
 /**
- * Formats `iso` as `'10:23 pm'` style in the supplied IANA timezone.
+ * Formats `iso` as `'10:23 pm'` style in the device-local timezone. Named-zone
+ * conversion was dropped on the client (APP-88) — dayjs's `.tz()` renders UTC on
+ * Hermes-on-Android — so the operator sees their own device clock.
  */
-export function formatTimeOfDay(iso: string, timezoneName: string): string {
-    return dayjs(iso).tz(timezoneName).format('h:mm a');
+export function formatTimeOfDay(iso: string): string {
+    return dayjs(iso).format('h:mm a');
 }
 
 /**
@@ -66,46 +63,46 @@ export function formatTimeOfDay(iso: string, timezoneName: string): string {
  * and falling back to the entry's calendar day when not.
  *
  * When `startedAt` is non-null, both the day and the time-of-day come from
- * the real instant (`'May 13 · 9:00 am'`) in the supplied IANA timezone —
+ * the real instant (`'May 13 · 9:00 am'`) in the device-local timezone —
  * the label stays internally consistent across midnight-rollover edge
  * cases. When `startedAt` is null (deferred planner entries with no
  * cycles), falls back to date-only (`'May 13'`) formatted directly from
- * the day-only `date` string without timezone math. APP-71 / APP-78.
+ * the day-only `date` string. APP-71 / APP-78 / APP-88.
  */
-export function formatActivityRowDate(date: string, startedAt: string | null, timezoneName: string): string {
+export function formatActivityRowDate(date: string, startedAt: string | null): string {
     if (startedAt !== null) {
-        return dayjs(startedAt).tz(timezoneName).format('MMM D · h:mm a');
+        return dayjs(startedAt).format('MMM D · h:mm a');
     }
     return dayjs(date).format('MMM D');
 }
 
 /**
- * Formats `iso` for the hero's "ends ..." suffix (`'ends 5:48 am'`).
- * Identical formatter to `formatTimeOfDay`; named separately for grep-
- * ability at call sites.
+ * Formats `iso` for the hero's "ends ..." suffix (`'ends 5:48 am'`) in the
+ * device-local timezone. Identical formatter to `formatTimeOfDay`; named
+ * separately for grep-ability at call sites.
  */
-export function formatEndsAt(iso: string, timezoneName: string): string {
-    return dayjs(iso).tz(timezoneName).format('h:mm a');
+export function formatEndsAt(iso: string): string {
+    return dayjs(iso).format('h:mm a');
 }
 
 /**
  * Formats the calendar-day offset between `now` and `iso` into the date
  * label rendered beneath the Home next-run time. Comparisons are anchored
- * in the supplied IANA timezone so a UTC-late instant that still lands on
- * "today" locally doesn't slip into the "Tomorrow" bucket.
+ * in the device-local timezone (APP-88) so a UTC-late instant that still lands
+ * on "today" locally doesn't slip into the "Tomorrow" bucket.
  *
  * Buckets:
  *
- * | Offset (calendar days, site-local) | Output             |
- * |------------------------------------|--------------------|
- * | `<= 0` (today or already past)     | `'Today, 23 May'`  |
- * | `1`                                | `'Tomorrow, 24 May'` |
- * | `>= 2`                             | `'Tue, 26 May'`    |
+ * | Offset (calendar days, device-local) | Output             |
+ * |--------------------------------------|--------------------|
+ * | `<= 0` (today or already past)       | `'Today, 23 May'`  |
+ * | `1`                                  | `'Tomorrow, 24 May'` |
+ * | `>= 2`                               | `'Tue, 26 May'`    |
  */
-export function formatNextRunDate(iso: string, timezoneName: string, now: Date): string {
-    const target = dayjs(iso).tz(timezoneName);
+export function formatNextRunDate(iso: string, now: Date): string {
+    const target = dayjs(iso);
     const targetDay = target.startOf('day');
-    const presentDay = dayjs(now).tz(timezoneName).startOf('day');
+    const presentDay = dayjs(now).startOf('day');
     const diffDays = targetDay.diff(presentDay, 'day');
     const datePart = target.format('D MMM');
     if (diffDays <= 0) return `Today, ${datePart}`;

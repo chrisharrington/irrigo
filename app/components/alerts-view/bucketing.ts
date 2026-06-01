@@ -1,12 +1,7 @@
 import dayjs from 'dayjs';
-import utc from 'dayjs/plugin/utc';
-import timezone from 'dayjs/plugin/timezone';
 
 import type { AlertClass } from '@/api/types/alerts';
 import { MS_PER_HOUR } from '@/constants/duration';
-
-dayjs.extend(utc);
-dayjs.extend(timezone);
 
 /**
  * Recency group an alert falls into on the Alerts screen. Drives the
@@ -18,25 +13,24 @@ export type AlertBucket = 'new' | 'today' | 'week' | 'older';
 const WEEK_DAYS = 7;
 
 /**
- * Buckets an alert by the age of its `when` instant against the site clock.
+ * Buckets an alert by the age of its `when` instant against the device clock.
  *
  * Rules, in order:
  *   - under an hour old (or future-dated)   → `'new'`
- *   - same site-local calendar day          → `'today'`
+ *   - same device-local calendar day         → `'today'`
  *   - within the last 7 calendar days        → `'week'`
  *   - older                                  → `'older'`
  *
- * Calendar-day comparisons are anchored in `timezone` so a UTC-late instant
- * that still reads as "today" locally doesn't slip a bucket.
+ * Calendar-day comparisons run in the device-local timezone (APP-88) so a
+ * UTC-late instant that still reads as "today" locally doesn't slip a bucket.
  *
  * @param when - The alert's ISO-8601 UTC instant.
  * @param now - The "now" anchor; tests inject a fixed value.
- * @param timezone - IANA timezone the site clock runs in.
  * @returns The recency bucket.
  */
-export function bucketFor(when: string, now: Date, timezone: string): AlertBucket {
-    const target = dayjs(when).tz(timezone),
-        present = dayjs(now).tz(timezone);
+export function bucketFor(when: string, now: Date): AlertBucket {
+    const target = dayjs(when),
+        present = dayjs(now);
 
     // Under an hour (or clock skew / future-dated data) lands in `new`.
     const ageMs = present.valueOf() - target.valueOf();
@@ -51,7 +45,7 @@ export function bucketFor(when: string, now: Date, timezone: string): AlertBucke
 
 /**
  * Formats an alert's `when` for the card's monospace timestamp slot, in
- * 12-hour site-local time. Resolution widens with age so older rows stay
+ * 12-hour device-local time. Resolution widens with age so older rows stay
  * legible:
  *
  *   - `new` / `today` → `'2:02 pm'`
@@ -60,12 +54,11 @@ export function bucketFor(when: string, now: Date, timezone: string): AlertBucke
  *
  * @param when - The alert's ISO-8601 UTC instant.
  * @param now - The "now" anchor used to pick the bucket.
- * @param timezone - IANA timezone the site clock runs in.
  * @returns The formatted timestamp.
  */
-export function formatAlertTimestamp(when: string, now: Date, timezone: string): string {
-    const target = dayjs(when).tz(timezone),
-        bucket = bucketFor(when, now, timezone);
+export function formatAlertTimestamp(when: string, now: Date): string {
+    const target = dayjs(when),
+        bucket = bucketFor(when, now);
 
     if (bucket === 'week') return target.format('ddd h:mm a');
     if (bucket === 'older') return target.format('MMM D');

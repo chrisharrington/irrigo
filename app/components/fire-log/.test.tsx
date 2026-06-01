@@ -7,7 +7,8 @@ import { FireLog } from '.';
 
 const colors = config.theme.extend.colors;
 
-const TZ = 'America/Edmonton';
+// The test env is pinned to America/Edmonton (TZ in package.json), so
+// device-local formatting reads as MDT for these warm-month fixtures.
 
 function buildActivity(overrides?: Partial<ActivityDto>): ActivityDto {
     return {
@@ -27,7 +28,7 @@ function buildActivity(overrides?: Partial<ActivityDto>): ActivityDto {
 
 describe('FireLog', () => {
     it('returns null when no rows are supplied so the caller can render its own empty state.', () => {
-        const { toJSON } = render(<FireLog rows={[]} siteTimezone={TZ} />);
+        const { toJSON } = render(<FireLog rows={[]} />);
 
         expect(toJSON()).toBeNull();
     });
@@ -39,7 +40,6 @@ describe('FireLog', () => {
                     buildActivity({ id: 'a-1', appliedDepthMm: 14, durationMin: 62 }),
                     buildActivity({ id: 'a-2', appliedDepthMm: 9, durationMin: 51 }),
                 ]}
-                siteTimezone={TZ}
             />,
         );
 
@@ -51,7 +51,6 @@ describe('FireLog', () => {
         render(
             <FireLog
                 rows={[buildActivity({ appliedDepthMm: 11.5, durationMin: 51 })]}
-                siteTimezone={TZ}
             />,
         );
 
@@ -62,19 +61,17 @@ describe('FireLog', () => {
         render(
             <FireLog
                 rows={[buildActivity({ depletionBeforeMm: 30, depletionAfterMm: 16 })]}
-                siteTimezone={TZ}
             />,
         );
 
         expect(screen.getByText('30 → 16 mm')).toBeOnTheScreen();
     });
 
-    it('formats the date label via formatActivityRowDate (site-local MMM D · h:mm a) when startedAt is present.', () => {
+    it('formats the date label via formatActivityRowDate (device-local MMM D · h:mm a) when startedAt is present.', () => {
         // 2026-05-13T15:00Z = 09:00 MDT on 2026-05-13 → 'May 13 · 9:00 am'.
         render(
             <FireLog
                 rows={[buildActivity({ date: '2026-05-13', startedAt: '2026-05-13T15:00:00.000Z' })]}
-                siteTimezone={TZ}
             />,
         );
 
@@ -85,7 +82,6 @@ describe('FireLog', () => {
         render(
             <FireLog
                 rows={[buildActivity({ date: '2026-05-13', startedAt: null })]}
-                siteTimezone={TZ}
             />,
         );
 
@@ -100,7 +96,6 @@ describe('FireLog', () => {
                     buildActivity({ id: 'a-2' }),
                     buildActivity({ id: 'a-3' }),
                 ]}
-                siteTimezone={TZ}
             />,
         );
 

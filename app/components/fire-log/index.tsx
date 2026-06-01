@@ -14,9 +14,6 @@ const colors = config.theme.extend.colors;
 export type FireLogProps = {
     /** Required. Activity rows to render, in display (descending-date) order. */
     rows: ReadonlyArray<ActivityDto>;
-
-    /** Required. IANA timezone used to format each row's date label. */
-    siteTimezone: string;
 };
 
 /**
@@ -26,7 +23,7 @@ export type FireLogProps = {
  * dot (right). RN port of `FireLog` in `Mobile.jsx`. Returns `null` when
  * `rows` is empty so the caller can render its own empty-state copy.
  */
-export function FireLog({ rows, siteTimezone }: FireLogProps) {
+export function FireLog({ rows }: FireLogProps) {
     if (rows.length === 0) return null;
 
     return (
@@ -34,15 +31,15 @@ export function FireLog({ rows, siteTimezone }: FireLogProps) {
             {rows.map((row, index) => (
                 <Fragment key={row.id}>
                     {index > 0 && <View style={styles.divider} />}
-                    <FireLogRow row={row} siteTimezone={siteTimezone} />
+                    <FireLogRow row={row} />
                 </Fragment>
             ))}
         </View>
     );
 }
 
-function FireLogRow({ row, siteTimezone }: { row: ActivityDto; siteTimezone: string }) {
-    const date = formatActivityRowDate(row.date, row.startedAt, siteTimezone);
+function FireLogRow({ row }: { row: ActivityDto }) {
+    const date = formatActivityRowDate(row.date, row.startedAt);
     const headline = `${row.appliedDepthMm.toFixed(1)} mm · ${row.durationMin} min`;
     const sub = `${row.depletionBeforeMm} → ${row.depletionAfterMm} mm`;
 

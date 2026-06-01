@@ -6,8 +6,8 @@ import { Badge, type BadgeTone } from '@/components/badge';
 import { CycleStrip, type CycleStripNight } from '@/components/cycle-strip';
 import { TileGradient } from '@/components/tile-gradient';
 import { FontFamily } from '@/constants/fonts';
+import { getDeviceTimezoneAbbreviation } from '@/lib/device-timezone';
 import { formatNextRunDate, formatTimeOfDay } from '@/lib/relative-time';
-import { getSiteTimezone } from '@/lib/site-timezone';
 import { paletteForZone } from '@/lib/zone-palette';
 import config from '@/tailwind.config';
 
@@ -20,10 +20,7 @@ export type NextRunHeroProps = {
     /** Required. The current next-run summary returned by `GET /tonight`. */
     nextRun: NextRunDto;
 
-    /** Optional. IANA timezone override for time formatting. Defaults to `getSiteTimezone()`. */
-    siteTimezone?: string;
-
-    /** Optional. Reference instant for the subtitle's date prefix. Defaults to `new Date()`. */
+    /** Optional. Reference instant for the subtitle's date prefix and the tz abbreviation. Defaults to `new Date()`. */
     now?: Date;
 };
 
@@ -33,8 +30,7 @@ export type NextRunHeroProps = {
  * status badge, and an embedded compact `CycleStrip`. Renders a quiet
  * empty-state card when the system has no runs queued.
  */
-export function NextRunHero({ nextRun, siteTimezone, now }: NextRunHeroProps) {
-    const resolvedTimezone = siteTimezone ?? getSiteTimezone();
+export function NextRunHero({ nextRun, now }: NextRunHeroProps) {
     const resolvedNow = now ?? new Date();
     const cycleStripNight = useMemo<CycleStripNight | null>(() => {
         if (nextRun.zones.length === 0) return null;
@@ -67,16 +63,28 @@ export function NextRunHero({ nextRun, siteTimezone, now }: NextRunHeroProps) {
         );
     }
 
-    const timeOfDay = formatTimeOfDay(nextRun.startTime, resolvedTimezone);
-    const dateLabel = formatNextRunDate(nextRun.startTime, resolvedTimezone, resolvedNow);
+    const timeOfDay = formatTimeOfDay(nextRun.startTime);
+    const dateLabel = formatNextRunDate(nextRun.startTime, resolvedNow);
+    // Device-local times carry the device's tz abbreviation (e.g. MDT) so the
+    // operator knows which clock they're reading. APP-88.
+    const timezoneAbbreviation = getDeviceTimezoneAbbreviation(resolvedNow);
     const badgeLabel = badgeLabelForState(nextRun.state);
 
+    const timeAccessibilityLabel = timezoneAbbreviation
+        ? `Next run at ${timeOfDay} ${timezoneAbbreviation}`
+        : `Next run at ${timeOfDay}`;
+
     return (
-        <TileGradient style={[styles.card, styles.cardActive]} accessibilityLabel={`Next run at ${timeOfDay}`}>
+        <TileGradient style={[styles.card, styles.cardActive]} accessibilityLabel={timeAccessibilityLabel}>
             <View style={styles.headerRow}>
                 <View style={styles.headerText}>
                     <Text style={[styles.eyebrow, { color: colors.accent }]}>Next run</Text>
-                    <Text style={styles.time}>{timeOfDay}</Text>
+                    <View style={styles.timeRow}>
+                        <Text style={styles.time}>{timeOfDay}</Text>
+                        {timezoneAbbreviation !== '' && (
+                            <Text style={styles.timezone}>{timezoneAbbreviation}</Text>
+                        )}
+                    </View>
                     <Text style={styles.subtitle}>{dateLabel}</Text>
                 </View>
 
@@ -151,13 +159,25 @@ const styles = StyleSheet.create({
         letterSpacing: 1.54,
         textTransform: 'uppercase',
     },
-    time: {
+    timeRow: {
         marginTop: 6,
+        flexDirection: 'row',
+        alignItems: 'baseline',
+        gap: 8,
+    },
+    time: {
         fontFamily: FontFamily.displayBold,
         fontSize: 36,
         lineHeight: 36,
         letterSpacing: -0.9,
         color: colors.accent,
+    },
+    timezone: {
+        fontFamily: FontFamily.sansMedium,
+        fontSize: 16,
+        lineHeight: 16,
+        letterSpacing: 0.5,
+        color: colors['fg-soft'],
     },
     subtitle: {
         marginTop: 4,
