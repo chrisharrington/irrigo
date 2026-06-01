@@ -1,13 +1,13 @@
 import { useMemo } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 
+import type { ScheduleListItem } from '@/api/types/schedules';
 import { Button } from '@/components/button';
 import { DayStrip } from '@/components/day-strip';
 import { Refresh } from '@/components/icons';
 import { TileGradient } from '@/components/tile-gradient';
 import { FontFamily } from '@/constants/fonts';
 import { daysArrayFromAllowed, formatDaysCsv, formatTimeWindow } from '@/lib/schedule-format';
-import type { ScheduleListItem } from '@/api/types/schedules';
 import config from '@/tailwind.config';
 
 const colors = config.theme.extend.colors;
@@ -62,9 +62,9 @@ export function ActiveScheduleHero({
     return (
         <TileGradient style={styles.card}>
             <View style={styles.headerRow}>
-                <View style={styles.runningPill}>
-                    <View style={styles.runningDot} />
-                    <Text style={styles.runningLabel}>Running</Text>
+                <View style={styles.enabledPill}>
+                    <View style={styles.enabledDot} />
+                    <Text style={styles.enabledLabel}>Enabled</Text>
                 </View>
 
                 <Button
@@ -86,30 +86,29 @@ export function ActiveScheduleHero({
 
             <DayStrip days={daysArray} />
 
-            {skipping ? (
+            {skipping ?
                 <View accessibilityLabel='Tonight skipped' style={styles.skipBanner}>
                     <View style={styles.skipDot} />
                     <Text style={styles.skipText}>Tonight skipped</Text>
                 </View>
-            ) : null}
+            :   null}
 
             <View style={styles.section}>
                 <Text style={styles.eyebrow}>Next run</Text>
-                {skipping ? (
+                {skipping ?
                     <Text style={styles.skipBody}>Skipped tonight. Re-evaluating tomorrow morning.</Text>
-                ) : (
-                    <View>
+                :   <View>
                         <View style={styles.nextRunRow}>
                             <Text style={styles.nextRunBig}>{schedule.nextRun?.inLabel ?? '—'}</Text>
                             <Text style={styles.nextRunFromNow}>from now</Text>
                         </View>
                         <Text style={styles.nextRunSub}>
-                            {schedule.nextRun
-                                ? `${schedule.nextRun.whenLabel} · ${schedule.nextRun.zonesLabel}`
-                                : 'No upcoming cycles.'}
+                            {schedule.nextRun ?
+                                `${schedule.nextRun.whenLabel} · ${schedule.nextRun.zonesLabel}`
+                            :   'No upcoming cycles.'}
                         </Text>
                     </View>
-                )}
+                }
             </View>
 
             <View>
@@ -131,7 +130,9 @@ export function ActiveScheduleHero({
 
             <View style={styles.actions}>
                 <View style={styles.actionSlot}>
-                    <Button variant='primary' onPress={onSwitchProfile}>Switch profile</Button>
+                    <Button variant='primary' onPress={onSwitchProfile}>
+                        Switch profile
+                    </Button>
                 </View>
                 <View style={styles.actionSlot}>
                     <Button variant='secondary' onPress={onToggleSkip}>
@@ -156,7 +157,10 @@ function RuleRow({
     dim?: boolean;
     last?: boolean;
 }) {
-    const valueColor = good ? colors.accent : dim ? colors['fg-dim'] : colors.fg;
+    const valueColor =
+        good ? colors.accent
+        : dim ? colors['fg-dim']
+        : colors.fg;
     return (
         <View style={[styles.ruleRow, last ? null : styles.ruleRowDivider]} accessibilityLabel={`${label}: ${value}`}>
             <Text style={styles.ruleLabel}>{label}</Text>
@@ -179,7 +183,7 @@ const styles = StyleSheet.create({
         alignItems: 'center',
         justifyContent: 'space-between',
     },
-    runningPill: {
+    enabledPill: {
         flexDirection: 'row',
         alignItems: 'center',
         gap: 8,
@@ -190,14 +194,14 @@ const styles = StyleSheet.create({
         borderColor: colors['accent-border'],
         borderRadius: 4,
     },
-    runningDot: {
+    enabledDot: {
         width: 7,
         height: 7,
         borderRadius: 4,
         backgroundColor: colors.accent,
         boxShadow: `0 0 10px ${colors.accent}`,
     },
-    runningLabel: {
+    enabledLabel: {
         fontFamily: FontFamily.sansMedium,
         fontSize: 11,
         lineHeight: 11,
