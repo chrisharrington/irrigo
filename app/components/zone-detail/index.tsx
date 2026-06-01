@@ -36,9 +36,6 @@ export type ZoneDetailProps = {
     /** Required. Whether the activity query is still in its first load. The component renders a hint when this is true and `activity` is empty. */
     isActivityLoading: boolean;
 
-    /** Required. IANA timezone used to format each recent-run row's date and start time. Sourced from `useNextRun().data?.timezone` by the route. APP-71. */
-    siteTimezone: string;
-
     /** Required. Fires when the user taps "Run now". Hidden when `zone.isRunning` is true (the Stop-watering button takes its place). */
     onRunNow: () => void;
 
@@ -63,7 +60,6 @@ export function ZoneDetail({
     nextRun,
     activity,
     isActivityLoading,
-    siteTimezone,
     onRunNow,
     onStopWatering,
     isStopping = false,
@@ -149,7 +145,7 @@ export function ZoneDetail({
                     <Text style={styles.emptyState}>No runs recorded yet.</Text>
                 :   <View style={styles.fireLog}>
                         {activity.map(row => (
-                            <RecentRunRow key={row.id} row={row} siteTimezone={siteTimezone} />
+                            <RecentRunRow key={row.id} row={row} />
                         ))}
                     </View>
                 }
@@ -167,10 +163,10 @@ function AttrRow({ label, value, mono = false }: { label: string; value: string;
     );
 }
 
-function RecentRunRow({ row, siteTimezone }: { row: ActivityDto; siteTimezone: string }) {
+function RecentRunRow({ row }: { row: ActivityDto }) {
     return (
         <View style={styles.fireRow}>
-            <Text style={styles.fireDate}>{formatActivityRowDate(row.date, row.startedAt, siteTimezone)}</Text>
+            <Text style={styles.fireDate}>{formatActivityRowDate(row.date, row.startedAt)}</Text>
             <Text style={styles.fireApplied}>
                 {row.appliedDepthMm.toFixed(1)} mm · {row.durationMin} min
             </Text>

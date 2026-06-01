@@ -1,6 +1,7 @@
 import { formatActivityRowDate, formatCountdown, formatEndsAt, formatLastRan, formatNextRunDate, formatRelativeTime, formatTimeOfDay } from '.';
 
-const TZ = 'America/Edmonton';
+// The test env is pinned to America/Edmonton (TZ in package.json), so
+// device-local formatting reads as MDT (UTC-6) for the warm-month fixtures.
 // 2026-05-23T15:00:00Z = 09:00 MDT on 2026-05-23 (Saturday).
 const NOW = new Date('2026-05-23T15:00:00.000Z');
 
@@ -79,28 +80,26 @@ describe('formatTimeOfDay', () => {
 });
 
 describe('formatActivityRowDate', () => {
-    it(`formats both the day and the time-of-day from startedAt in the supplied site timezone.`, () => {
+    it(`formats both the day and the time-of-day from startedAt in the device timezone.`, () => {
         // 2026-05-13T15:00:00Z = 09:00 MDT on 2026-05-13.
-        expect(formatActivityRowDate('2026-05-13', '2026-05-13T15:00:00.000Z', TZ)).toBe('May 13 · 9:00 am');
+        expect(formatActivityRowDate('2026-05-13', '2026-05-13T15:00:00.000Z')).toBe('May 13 · 9:00 am');
     });
 
     it(`keys both the day and the time off startedAt — so a UTC instant that rolls back to the previous local day renders on that local day.`, () => {
         // 2026-05-14T05:30:00Z = 23:30 MDT on 2026-05-13. The bare 'date'
         // field says May 14 (the planner's scheduled-night bucket); the
         // formatter prefers startedAt and shows the actual local day.
-        expect(formatActivityRowDate('2026-05-14', '2026-05-14T05:30:00.000Z', TZ)).toBe('May 13 · 11:30 pm');
+        expect(formatActivityRowDate('2026-05-14', '2026-05-14T05:30:00.000Z')).toBe('May 13 · 11:30 pm');
     });
 
     it(`falls back to date-only 'MMM D' when startedAt is null.`, () => {
-        expect(formatActivityRowDate('2026-05-13', null, TZ)).toBe('May 13');
+        expect(formatActivityRowDate('2026-05-13', null)).toBe('May 13');
     });
 
-    it(`formats the date-only fallback verbatim without timezone math.`, () => {
-        // No matter what site timezone the caller supplies, a null startedAt
-        // returns the same calendar-day label — the bare YYYY-MM-DD string
-        // never shifts. Pass UTC here to prove no .tz() conversion happens.
-        expect(formatActivityRowDate('2026-05-13', null, 'UTC')).toBe('May 13');
-        expect(formatActivityRowDate('2026-05-13', null, TZ)).toBe('May 13');
+    it(`formats the date-only fallback verbatim from the day-only string.`, () => {
+        // A null startedAt returns the calendar-day label straight from the
+        // bare YYYY-MM-DD string — no instant, no timezone math.
+        expect(formatActivityRowDate('2026-05-13', null)).toBe('May 13');
     });
 });
 

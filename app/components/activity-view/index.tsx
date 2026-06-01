@@ -7,13 +7,11 @@ import { RefreshableScrollView } from '@/components/refreshable-scroll-view';
 import { ZoneFilterChipStrip } from '@/components/zone-filter-chip-strip';
 import { FontFamily } from '@/constants/fonts';
 import { useActivity } from '@/hooks/activity';
-import { useNextRun } from '@/hooks/next-run';
 import { useZones } from '@/hooks/zones';
 import config from '@/tailwind.config';
 
 const colors = config.theme.extend.colors;
 
-const DEFAULT_TIMEZONE = 'UTC';
 const ALL_ZONES_LABEL = 'all zones';
 
 /**
@@ -34,9 +32,8 @@ export type ActivityViewProps = {
 /**
  * Smart container for the Activity screen. Composes the eyebrow + page
  * title with a zone-filter chip strip and the chronological fire log
- * sourced from `GET /activity`. Reads `useNextRun()` only for the site
- * timezone (already cached after a Home-screen visit); falls back to UTC
- * when the cache hasn't been primed yet. Selecting a zone chip flips
+ * sourced from `GET /activity`. Row dates render in device-local time
+ * (APP-88). Selecting a zone chip flips
  * `useActivity({ zoneId })`'s query key, which React Query treats as a
  * fresh query — so the fire log re-fetches the first page automatically.
  * RN port of `ActivityView` from `Mobile.jsx` — minus the alert region,
@@ -47,9 +44,7 @@ export function ActivityView({ initialZoneId }: ActivityViewProps = {}) {
     const insets = useSafeAreaInsets();
     const [selectedZoneId, setSelectedZoneId] = useState<string | undefined>(initialZoneId);
     const activity = useActivity({ ...(selectedZoneId !== undefined ? { zoneId: selectedZoneId } : {}) });
-    const nextRun = useNextRun();
     const zones = useZones();
-    const siteTimezone = nextRun.data?.timezone ?? DEFAULT_TIMEZONE;
 
     const rows = activity.data?.pages.flatMap(page => page.activity) ?? [];
     const selectedZoneName = selectedZoneId === undefined
@@ -78,7 +73,7 @@ export function ActivityView({ initialZoneId }: ActivityViewProps = {}) {
                     <PlaceholderCard label='Failed to load activity.' tone='error' />
                 : rows.length === 0 ?
                     <PlaceholderCard label='No runs yet.' />
-                :   <FireLog rows={rows} siteTimezone={siteTimezone} />}
+                :   <FireLog rows={rows} />}
             </View>
         </RefreshableScrollView>
     );

@@ -1,11 +1,6 @@
 import dayjs from 'dayjs';
-import utc from 'dayjs/plugin/utc';
-import timezone from 'dayjs/plugin/timezone';
 
 import { MS_PER_DAY, MS_PER_HOUR, MS_PER_MINUTE } from '@/constants/duration';
-
-dayjs.extend(utc);
-dayjs.extend(timezone);
 
 /**
  * Formats `lastFiredAt` (an ISO-8601 UTC instant) as the human-readable
@@ -68,15 +63,15 @@ export function formatTimeOfDay(iso: string): string {
  * and falling back to the entry's calendar day when not.
  *
  * When `startedAt` is non-null, both the day and the time-of-day come from
- * the real instant (`'May 13 · 9:00 am'`) in the supplied IANA timezone —
+ * the real instant (`'May 13 · 9:00 am'`) in the device-local timezone —
  * the label stays internally consistent across midnight-rollover edge
  * cases. When `startedAt` is null (deferred planner entries with no
  * cycles), falls back to date-only (`'May 13'`) formatted directly from
- * the day-only `date` string without timezone math. APP-71 / APP-78.
+ * the day-only `date` string. APP-71 / APP-78 / APP-88.
  */
-export function formatActivityRowDate(date: string, startedAt: string | null, timezoneName: string): string {
+export function formatActivityRowDate(date: string, startedAt: string | null): string {
     if (startedAt !== null) {
-        return dayjs(startedAt).tz(timezoneName).format('MMM D · h:mm a');
+        return dayjs(startedAt).format('MMM D · h:mm a');
     }
     return dayjs(date).format('MMM D');
 }

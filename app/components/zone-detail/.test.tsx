@@ -74,7 +74,6 @@ describe('ZoneDetail', () => {
                 isActivityLoading={false}
                 onRunNow={jest.fn()}
                 onStopWatering={jest.fn()}
-                siteTimezone='America/Edmonton'
             />,
         );
 
@@ -93,7 +92,6 @@ describe('ZoneDetail', () => {
                 isActivityLoading={false}
                 onRunNow={jest.fn()}
                 onStopWatering={jest.fn()}
-                siteTimezone='America/Edmonton'
             />,
         );
 
@@ -123,7 +121,6 @@ describe('ZoneDetail', () => {
                 isActivityLoading={false}
                 onRunNow={jest.fn()}
                 onStopWatering={jest.fn()}
-                siteTimezone='America/Edmonton'
             />,
         );
 
@@ -140,7 +137,6 @@ describe('ZoneDetail', () => {
                 isActivityLoading={false}
                 onRunNow={jest.fn()}
                 onStopWatering={jest.fn()}
-                siteTimezone='America/Edmonton'
             />,
         );
 
@@ -156,7 +152,6 @@ describe('ZoneDetail', () => {
                 isActivityLoading={false}
                 onRunNow={jest.fn()}
                 onStopWatering={jest.fn()}
-                siteTimezone='America/Edmonton'
             />,
         );
 
@@ -178,7 +173,6 @@ describe('ZoneDetail', () => {
                 isActivityLoading={false}
                 onRunNow={jest.fn()}
                 onStopWatering={jest.fn()}
-                siteTimezone='America/Edmonton'
             />,
         );
 
@@ -207,7 +201,6 @@ describe('ZoneDetail', () => {
                 isActivityLoading={false}
                 onRunNow={jest.fn()}
                 onStopWatering={jest.fn()}
-                siteTimezone='America/Edmonton'
             />,
         );
 
@@ -227,7 +220,6 @@ describe('ZoneDetail', () => {
                 isActivityLoading={false}
                 onRunNow={jest.fn()}
                 onStopWatering={jest.fn()}
-                siteTimezone='America/Edmonton'
             />,
         );
 
@@ -243,7 +235,6 @@ describe('ZoneDetail', () => {
                 isActivityLoading={false}
                 onRunNow={jest.fn()}
                 onStopWatering={jest.fn()}
-                siteTimezone='America/Edmonton'
             />,
         );
 
@@ -259,7 +250,6 @@ describe('ZoneDetail', () => {
                 isActivityLoading
                 onRunNow={jest.fn()}
                 onStopWatering={jest.fn()}
-                siteTimezone='America/Edmonton'
             />,
         );
 
@@ -276,7 +266,6 @@ describe('ZoneDetail', () => {
                 isActivityLoading={false}
                 onRunNow={onRunNow}
                 onStopWatering={jest.fn()}
-                siteTimezone='America/Edmonton'
             />,
         );
 
@@ -295,7 +284,6 @@ describe('ZoneDetail', () => {
                 isActivityLoading={false}
                 onRunNow={jest.fn()}
                 onStopWatering={jest.fn()}
-                siteTimezone='America/Edmonton'
                 onViewActivity={onViewActivity}
             />,
         );
@@ -314,7 +302,6 @@ describe('ZoneDetail', () => {
                 isActivityLoading={false}
                 onRunNow={jest.fn()}
                 onStopWatering={jest.fn()}
-                siteTimezone='America/Edmonton'
             />,
         );
 
@@ -330,7 +317,6 @@ describe('ZoneDetail', () => {
                 isActivityLoading={false}
                 onRunNow={jest.fn()}
                 onStopWatering={jest.fn()}
-                siteTimezone='America/Edmonton'
             />,
         );
 
@@ -347,7 +333,6 @@ describe('ZoneDetail', () => {
                 isActivityLoading={false}
                 onRunNow={jest.fn()}
                 onStopWatering={jest.fn()}
-                siteTimezone='America/Edmonton'
             />,
         );
 
@@ -366,7 +351,6 @@ describe('ZoneDetail', () => {
                 isActivityLoading={false}
                 onRunNow={onRunNow}
                 onStopWatering={onStopWatering}
-                siteTimezone='America/Edmonton'
             />,
         );
 
