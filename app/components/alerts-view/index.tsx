@@ -54,18 +54,22 @@ export function AlertsView({ now = new Date() }: AlertsViewProps = {}) {
     const isEmpty = alerts.length === 0;
 
     // Per-filter counts shown on the chips.
-    const counts = useMemo(() => ({
-        all: alerts.length,
-        unread: alerts.filter(a => !a.ack).length,
-        critical: alerts.filter(a => a.tone === 'danger').length,
-    }), [alerts]);
+    const counts = useMemo(
+        () => ({
+            all: alerts.length,
+            unread: alerts.filter(a => !a.ack).length,
+            critical: alerts.filter(a => a.tone === 'danger').length,
+        }),
+        [alerts],
+    );
 
     // The list after the active filter, then split into recency groups.
     const visible = useMemo(() => applyFilter(alerts, filter), [alerts, filter]);
     const groups = useMemo(
-        () => GROUPS
-            .map(g => ({ ...g, rows: visible.filter(a => bucketFor(a.when, now) === g.id) }))
-            .filter(g => g.rows.length > 0),
+        () =>
+            GROUPS.map(g => ({ ...g, rows: visible.filter(a => bucketFor(a.when, now) === g.id) })).filter(
+                g => g.rows.length > 0,
+            ),
         [visible, now],
     );
 
@@ -80,7 +84,7 @@ export function AlertsView({ now = new Date() }: AlertsViewProps = {}) {
     const markAllDisabled = counts.unread === 0;
 
     return (
-        <View style={[styles.screen, { paddingTop: insets.top }]}>
+        <View style={styles.screen}>
             {/* Page heading + filter chips. The header row (back / title) was
                 removed per APP-82; the screen leans on the global app chrome
                 and OS/gesture back. "Mark all read" lives alongside the
@@ -109,9 +113,24 @@ export function AlertsView({ now = new Date() }: AlertsViewProps = {}) {
 
                 {!isEmpty && (
                     <View style={styles.chips}>
-                        <FilterChip label='All' count={counts.all} active={filter === 'all'} onPress={() => setFilter('all')} />
-                        <FilterChip label='Unread' count={counts.unread} active={filter === 'unread'} onPress={() => setFilter('unread')} />
-                        <FilterChip label='Critical' count={counts.critical} active={filter === 'critical'} onPress={() => setFilter('critical')} />
+                        <FilterChip
+                            label='All'
+                            count={counts.all}
+                            active={filter === 'all'}
+                            onPress={() => setFilter('all')}
+                        />
+                        <FilterChip
+                            label='Unread'
+                            count={counts.unread}
+                            active={filter === 'unread'}
+                            onPress={() => setFilter('unread')}
+                        />
+                        <FilterChip
+                            label='Critical'
+                            count={counts.critical}
+                            active={filter === 'critical'}
+                            onPress={() => setFilter('critical')}
+                        />
                     </View>
                 )}
             </View>
@@ -121,12 +140,11 @@ export function AlertsView({ now = new Date() }: AlertsViewProps = {}) {
                 style={styles.body}
                 contentContainerStyle={[styles.bodyContent, { paddingBottom: insets.bottom + 24 }]}
             >
-                {isEmpty ? (
+                {isEmpty ?
                     <EmptyState />
-                ) : groups.length === 0 ? (
+                : groups.length === 0 ?
                     <Text style={styles.noMatch}>No alerts match this filter.</Text>
-                ) : (
-                    groups.map((g, gi) => (
+                :   groups.map((g, gi) => (
                         <View key={g.id} style={gi === 0 ? null : styles.groupGap}>
                             <View style={styles.groupHeader}>
                                 <Text style={styles.groupLabel}>{g.label}</Text>
@@ -139,7 +157,7 @@ export function AlertsView({ now = new Date() }: AlertsViewProps = {}) {
                             </View>
                         </View>
                     ))
-                )}
+                }
             </RefreshableScrollView>
         </View>
     );
@@ -153,7 +171,17 @@ function applyFilter(alerts: readonly AlertDto[], filter: Filter): AlertDto[] {
 }
 
 /** A single filter chip with its count. */
-function FilterChip({ label, count, active, onPress }: { label: string; count: number; active: boolean; onPress: () => void }) {
+function FilterChip({
+    label,
+    count,
+    active,
+    onPress,
+}: {
+    label: string;
+    count: number;
+    active: boolean;
+    onPress: () => void;
+}) {
     return (
         <Pressable
             accessibilityRole='button'
