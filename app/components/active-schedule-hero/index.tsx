@@ -7,7 +7,7 @@ import { DayStrip } from '@/components/day-strip';
 import { Refresh } from '@/components/icons';
 import { TileGradient } from '@/components/tile-gradient';
 import { FontFamily } from '@/constants/fonts';
-import { daysArrayFromAllowed, formatDaysCsv, formatTimeWindow } from '@/lib/schedule-format';
+import { daysArrayFromAllowed, formatTimeWindow } from '@/lib/schedule-format';
 import config from '@/tailwind.config';
 
 const colors = config.theme.extend.colors;
@@ -51,9 +51,7 @@ export function ActiveScheduleHero({
     onToggleSkip,
 }: ActiveScheduleHeroProps) {
     const daysArray = useMemo(() => daysArrayFromAllowed(schedule.allowedDays), [schedule.allowedDays]);
-    const daysCsv = useMemo(() => formatDaysCsv(schedule.allowedDays), [schedule.allowedDays]);
     const window = useMemo(() => formatTimeWindow(schedule.allowedTimeWindows), [schedule.allowedTimeWindows]);
-    const summary = useMemo(() => `${daysCsv} · ${window}`, [daysCsv, window]);
 
     const rootOverride = schedule.rootDepthMOverride;
     const depletion = schedule.allowableDepletionFractionOverride;
@@ -81,7 +79,6 @@ export function ActiveScheduleHero({
 
             <View>
                 <Text style={styles.name}>{schedule.name}</Text>
-                <Text style={styles.summary}>{summary}</Text>
             </View>
 
             <DayStrip days={daysArray} />
