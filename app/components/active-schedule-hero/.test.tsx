@@ -30,7 +30,7 @@ const NULL_RULES_SCHEDULE: ScheduleListItem = {
 const noop = () => {};
 
 describe('ActiveScheduleHero', () => {
-    it('renders the schedule name and the days · window summary.', () => {
+    it('renders the schedule name and lights up the allowed days in the day strip.', () => {
         render(
             <ActiveScheduleHero
                 schedule={BASE_SCHEDULE}
@@ -42,7 +42,11 @@ describe('ActiveScheduleHero', () => {
         );
 
         expect(screen.getByText('Maintenance')).toBeOnTheScreen();
-        expect(screen.getByText('Mon · Wed · Fri · 22:00 → 06:00')).toBeOnTheScreen();
+        // allowedDays [1, 3, 5] → Mon / Wed / Fri are active; other days stay inactive.
+        expect(screen.getByLabelText('Monday: active')).toBeOnTheScreen();
+        expect(screen.getByLabelText('Wednesday: active')).toBeOnTheScreen();
+        expect(screen.getByLabelText('Friday: active')).toBeOnTheScreen();
+        expect(screen.getByLabelText('Tuesday: inactive')).toBeOnTheScreen();
     });
 
     it('renders the next-run labels when not skipping.', () => {
