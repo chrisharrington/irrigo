@@ -87,7 +87,11 @@ function AppShell() {
             <View style={{ paddingTop: insets.top, backgroundColor: '#000000' }}>
                 <Header
                     onMenuPress={() => setDrawerOpen(true)}
-                    onAlertsPress={() => router.push('/alerts' as never)}
+                    // `navigate` (not `push`) so re-tapping the bell while
+                    // already on /alerts is a no-op instead of stacking a
+                    // duplicate screen the user has to unwind on back-press
+                    // (APP-101). NAVIGATE dedupes on the focused route.
+                    onAlertsPress={() => router.navigate('/alerts' as never)}
                 />
             </View>
             <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: '#000000' } }}>

@@ -5,6 +5,7 @@ const mockHideAsync = jest.fn(() => Promise.resolve());
 const mockStatusBar = jest.fn();
 const mockStackScreen = jest.fn();
 const mockRouterPush = jest.fn();
+const mockRouterNavigate = jest.fn();
 const mockUsePathname = jest.fn(() => '/');
 const mockHeaderProps = jest.fn();
 const mockDrawerProps = jest.fn();
@@ -36,7 +37,7 @@ jest.mock('expo-router', () => {
     };
     return {
         Stack,
-        useRouter: () => ({ push: mockRouterPush }),
+        useRouter: () => ({ push: mockRouterPush, navigate: mockRouterNavigate }),
         usePathname: () => mockUsePathname(),
         DarkTheme: {
             dark: true,
@@ -165,6 +166,7 @@ describe('RootLayout', () => {
         mockHideAsync.mockClear();
         mockStackScreen.mockClear();
         mockRouterPush.mockReset();
+        mockRouterNavigate.mockReset();
         mockUsePathname.mockReset();
         mockUsePathname.mockReturnValue('/');
         mockHeaderProps.mockClear();
@@ -261,7 +263,20 @@ describe('RootLayout', () => {
 
         fireEvent.press(screen.getByLabelText('Alerts'));
 
-        expect(mockRouterPush).toHaveBeenCalledWith('/alerts');
+        expect(mockRouterNavigate).toHaveBeenCalledWith('/alerts');
+    });
+
+    it('uses the deduping navigate() API (not push) for the bell so re-tapping on /alerts does not stack a duplicate (APP-101).', () => {
+        render(<RootLayout />);
+
+        fireEvent.press(screen.getByLabelText('Alerts'));
+
+        // `navigate` is a no-op on the focused route, where `push` would stack
+        // a duplicate /alerts the user has to unwind on back-press. The dedup
+        // itself lives in React Navigation; the layout's contract is choosing
+        // navigate over push.
+        expect(mockRouterNavigate).toHaveBeenCalledWith('/alerts');
+        expect(mockRouterPush).not.toHaveBeenCalled();
     });
 
     it('routes via expo-router when the drawer selects a destination (APP-58).', () => {
