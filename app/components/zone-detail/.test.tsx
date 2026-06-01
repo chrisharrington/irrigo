@@ -370,7 +370,6 @@ describe('ZoneDetail', () => {
                 isActivityLoading={false}
                 onRunNow={jest.fn()}
                 onStopWatering={onStopWatering}
-                siteTimezone='America/Edmonton'
                 isStopping
             />,
         );

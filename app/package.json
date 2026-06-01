@@ -24,7 +24,7 @@
       "\\.css$": "<rootDir>/jest-style-mock.js"
     },
     "transformIgnorePatterns": [
-      "node_modules/(?!((jest-)?react-native|@react-native(-community)?|expo(nent)?|@expo(nent)?/.*|@expo-google-fonts/.*|@formatjs/.*|react-navigation|@react-navigation/.*|@unimodules/.*|unimodules|sentry-expo|native-base|react-native-svg|nativewind|react-native-css-interop))"
+      "node_modules/(?!((jest-)?react-native|@react-native(-community)?|expo(nent)?|@expo(nent)?/.*|@expo-google-fonts/.*|react-navigation|@react-navigation/.*|@unimodules/.*|unimodules|sentry-expo|native-base|react-native-svg|nativewind|react-native-css-interop))"
     ]
   },
   "dependencies": {
@@ -32,9 +32,6 @@
     "@expo-google-fonts/geist": "^0.4.2",
     "@expo-google-fonts/geist-mono": "^0.4.2",
     "@expo/vector-icons": "^15.0.3",
-    "@formatjs/intl-datetimeformat": "^7.4.7",
-    "@formatjs/intl-getcanonicallocales": "^3.2.9",
-    "@formatjs/intl-locale": "^5.3.8",
     "@tanstack/react-query": "^5.100.13",
     "dayjs": "^1.11.20",
     "expo": "^56",

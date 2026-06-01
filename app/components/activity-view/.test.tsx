@@ -169,14 +169,15 @@ describe('ActivityView', () => {
         await waitFor(() => expect(screen.getByText('No runs yet.')).toBeOnTheScreen());
     });
 
-    it('falls back to UTC for the date label when the next-run cache is unprimed.', async () => {
+    it('renders the activity date in device-local time, independent of the next-run cache (APP-88).', async () => {
+        // No next-run cache is primed — the date no longer depends on it. The
+        // test env is pinned to America/Edmonton (TZ in package.json).
         const { wrapper } = buildApiWrapper();
         mockFetch.mockImplementation(async (input: RequestInfo) => {
             const url = typeof input === 'string' ? input : input.url;
             if (url.includes('/activity')) {
                 return jsonResponse(activityResult([
-                    // 03:00 UTC on 2026-05-14 — same instant is 21:00 May 13
-                    // in Edmonton. A UTC fallback renders it as 'May 14 · 3:00 am'.
+                    // 03:00 UTC on 2026-05-14 = 21:00 MDT on 2026-05-13 (device-local).
                     buildActivity({ id: 'a-1', date: '2026-05-14', startedAt: '2026-05-14T03:00:00.000Z' }),
                 ]));
             }
@@ -185,7 +186,7 @@ describe('ActivityView', () => {
 
         render(<ActivityView />, { wrapper });
 
-        await waitFor(() => expect(screen.getByText('May 14 · 3:00 am')).toBeOnTheScreen());
+        await waitFor(() => expect(screen.getByText('May 13 · 9:00 pm')).toBeOnTheScreen());
     });
 
     it('flattens multi-page infinite-query results into a single visible list.', () => {
