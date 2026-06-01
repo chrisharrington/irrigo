@@ -30,6 +30,20 @@ describe('formatLastRan', () => {
         expect(formatLastRan(isoThreeDaysAgo, NOW)).toBe('3 nights ago');
     });
 
+    it('counts calendar nights, not 24h spans — a run 24-48h back across two midnights reads "2 nights ago". APP-87.', () => {
+        // 2026-05-22T05:00:00Z = 23:00 MDT on 2026-05-21, ~34h before NOW
+        // (09:00 MDT May 23). Two midnights have passed, so it is two nights
+        // ago — the raw-ms bucketing bug rendered this as "last night".
+        expect(formatLastRan('2026-05-22T05:00:00.000Z', NOW)).toBe('2 nights ago');
+    });
+
+    it('treats a run on the previous calendar day as "last night" even when read in the evening. APP-87.', () => {
+        // 2026-05-22T05:30:00Z = 23:30 MDT on 2026-05-21 (one calendar day
+        // before), read at 21:00 MDT on 2026-05-22 — ~21.5h, one midnight.
+        const eveningOfMay22 = new Date('2026-05-23T03:00:00.000Z'); // 21:00 MDT May 22
+        expect(formatLastRan('2026-05-22T05:30:00.000Z', eveningOfMay22)).toBe('last night');
+    });
+
     it('clamps future-dated input to "just now" (defensive: clock skew, upstream bugs). APP-55.', () => {
         const isoOneHourAhead = new Date(NOW.getTime() + 60 * 60_000).toISOString();
         expect(formatLastRan(isoOneHourAhead, NOW)).toBe('just now');

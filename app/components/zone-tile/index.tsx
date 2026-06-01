@@ -5,6 +5,7 @@ import type { ZoneSummary } from '@/api/types/zones';
 import { Battery } from '@/components/battery';
 import { TileGradient } from '@/components/tile-gradient';
 import { FontFamily } from '@/constants/fonts';
+import { useNow } from '@/hooks/now';
 import { formatLastRan } from '@/lib/relative-time';
 import config from '@/tailwind.config';
 
@@ -32,7 +33,11 @@ export type ZoneTileProps = {
  */
 export function ZoneTile({ zone, onPress, now }: ZoneTileProps) {
     const handlePress = useCallback(() => onPress(zone), [onPress, zone]);
-    const referenceNow = useMemo(() => now ?? new Date(), [now]);
+    // Refresh the reference clock every minute so the "Last ran ..." label
+    // stays accurate while Home stays mounted, instead of freezing at mount.
+    // A caller-supplied `now` (tests) disables the interval. APP-87.
+    const tickingNow = useNow(now === undefined ? 60_000 : null);
+    const referenceNow = now ?? tickingNow;
     const pastRaw = zone.currentDepletionMm >= zone.rawMm;
     const lastRan = useMemo(() => formatLastRan(zone.lastFiredAt, referenceNow), [zone.lastFiredAt, referenceNow]);
 

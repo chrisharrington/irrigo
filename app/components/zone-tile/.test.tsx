@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, within } from '@testing-library/react-native';
+import { act, fireEvent, render, screen, within } from '@testing-library/react-native';
 import { StyleSheet, type ViewStyle } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 
@@ -108,5 +108,38 @@ describe('ZoneTile', () => {
 
         expect(gradient.props.colors).toEqual([...TILE_GRADIENT_COLORS.elevated]);
         expect(style.borderColor).toBe(colors['accent-border']);
+    });
+
+    // Without a `now` prop the tile drives its own clock, so the footer must
+    // refresh as wall-clock time advances instead of freezing at mount. APP-87.
+    describe('live clock (no now prop)', () => {
+        beforeEach(() => {
+            jest.useFakeTimers();
+            // 2026-05-23T03:00:00Z = 21:00 MDT on 2026-05-22.
+            jest.setSystemTime(new Date('2026-05-23T03:00:00.000Z'));
+        });
+
+        afterEach(() => {
+            // Cancel the tile's interval without firing it post-test.
+            jest.clearAllTimers();
+            jest.useRealTimers();
+        });
+
+        it('refreshes the "Last ran" footer as the day rolls over.', () => {
+            // Ran 23:00 MDT on 2026-05-21 — one midnight before the mounted "now".
+            const zone: ZoneSummary = { ...HEALTHY_ZONE, lastFiredAt: '2026-05-22T05:00:00.000Z' };
+            render(<ZoneTile zone={zone} onPress={() => {}} />);
+
+            expect(screen.getByText('Last ran last night')).toBeOnTheScreen();
+
+            act(() => {
+                // Advance to the next evening (21:00 MDT May 23) and let one
+                // interval tick fire so the tile re-reads the clock.
+                jest.setSystemTime(new Date('2026-05-24T03:00:00.000Z'));
+                jest.advanceTimersByTime(60_000);
+            });
+
+            expect(screen.getByText('Last ran 2 nights ago')).toBeOnTheScreen();
+        });
     });
 });
