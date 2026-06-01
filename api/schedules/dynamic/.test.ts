@@ -2180,5 +2180,104 @@ describe('planZoneSchedule', () => {
 
             expect(decision).toBeUndefined();
         });
+
+        it('reports an operator-skip when day 0 carries a skip-tonight marker', () => {
+            const zone = createTestZone({ currentDepletionMm: 30 });
+            const weather = createWeatherDays(
+                [
+                    { evapotranspirationMmPerDay: 2.0, rainfallMm: 0 },
+                    { evapotranspirationMmPerDay: 2.0, rainfallMm: 0 },
+                ],
+                dayjs('2026-05-04'),
+            );
+
+            const { decision } = planZoneSchedule(zone, weather, [], {
+                allowedDays: null,
+                allowedTimeWindows: null,
+                skippedNightDate: '2026-05-04',
+            });
+
+            expect(decision).toBeDefined();
+            expect(decision!.outcome).toBe('skipped');
+            expect(decision!.reason).toBe('operator-skip');
+        });
+
+        it('reports a no-anchor deferral when day 0 is the last forecast day', () => {
+            // A single-day forecast above the trigger has no next-day sunrise to
+            // anchor the overnight block to, so the planner defers (API-76).
+            const zone = createTestZone({ currentDepletionMm: 30 });
+            const weather = createDryPeriod(1, 2.0);
+
+            const { decision } = planZoneSchedule(zone, weather);
+
+            expect(decision).toBeDefined();
+            expect(decision!.outcome).toBe('deferred');
+            expect(decision!.reason).toBe('no-anchor');
+        });
+
+        it('reports a window-too-short deferral when the overnight window can not fit one cycle', () => {
+            // Day 1's sunrise is 00:30, leaving a 30-minute [midnight, sunrise]
+            // window — too short for even one infiltration-capped cycle.
+            const zone = createTestZone({ currentDepletionMm: 30 });
+            const weather = createWeatherDays(
+                [
+                    { evapotranspirationMmPerDay: 2.0, rainfallMm: 0 },
+                    { evapotranspirationMmPerDay: 2.0, rainfallMm: 0, sunrise: dayjs('2026-05-05').hour(0).minute(30).second(0).millisecond(0) },
+                ],
+                dayjs('2026-05-04'),
+            );
+
+            const { decision } = planZoneSchedule(zone, weather);
+
+            expect(decision).toBeDefined();
+            expect(decision!.outcome).toBe('deferred');
+            expect(decision!.reason).toBe('window-too-short');
+        });
+
+        it('reports a no-cycle-fit deferral when busy windows leave no room for any cycle', () => {
+            // A cross-zone busy window covering the entire [midnight, sunrise]
+            // block leaves no residual gap, so no cycle count fits.
+            const zone = createTestZone({ currentDepletionMm: 30 });
+            const weather = createWeatherDays(
+                [
+                    { evapotranspirationMmPerDay: 2.0, rainfallMm: 0 },
+                    { evapotranspirationMmPerDay: 2.0, rainfallMm: 0 },
+                ],
+                dayjs('2026-05-04'),
+            );
+            const fullNight = {
+                start: dayjs('2026-05-05').hour(0).minute(0).second(0).millisecond(0),
+                end: dayjs('2026-05-05').hour(6).minute(0).second(0).millisecond(0),
+            };
+
+            const { decision } = planZoneSchedule(zone, weather, [fullNight]);
+
+            expect(decision).toBeDefined();
+            expect(decision!.outcome).toBe('deferred');
+            expect(decision!.reason).toBe('no-cycle-fit');
+        });
+
+        it('reports a past-window deferral when every placed cycle has already passed', () => {
+            // An in-flight replan whose past window (epoch → now) extends beyond
+            // the anchor sunrise drops every placed cycle as already-fired.
+            const zone = createTestZone({ currentDepletionMm: 30 });
+            const weather = createWeatherDays(
+                [
+                    { evapotranspirationMmPerDay: 2.0, rainfallMm: 0 },
+                    { evapotranspirationMmPerDay: 2.0, rainfallMm: 0 },
+                ],
+                dayjs('2026-05-04'),
+            );
+            const pastWindow = {
+                start: dayjs(0),
+                end: dayjs('2026-05-05').hour(7).minute(0).second(0).millisecond(0),
+            };
+
+            const { decision } = planZoneSchedule(zone, weather, [pastWindow]);
+
+            expect(decision).toBeDefined();
+            expect(decision!.outcome).toBe('deferred');
+            expect(decision!.reason).toBe('past-window');
+        });
     });
 });

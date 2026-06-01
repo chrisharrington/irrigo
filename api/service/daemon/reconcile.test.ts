@@ -100,6 +100,9 @@ function defaultRepos(scheduleEntries: ScheduleEntriesRepository): DaemonService
             clearStaleSkipMarkers: async () => undefined,
         },
         scheduleEntries,
+        schedulingDecisions: {
+            record: async () => undefined,
+        },
         weatherState: {
             markFetchSuccessful: async () => undefined,
             isStale: async () => false,

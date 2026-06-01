@@ -134,6 +134,9 @@ function defaultRepos(scheduleEntries: ScheduleEntriesRepository, onAdvanceDeple
             clearStaleSkipMarkers: async () => undefined,
         },
         scheduleEntries,
+        schedulingDecisions: {
+            record: async () => undefined,
+        },
         weatherState: {
             markFetchSuccessful: async () => undefined,
             isStale: async () => false,
