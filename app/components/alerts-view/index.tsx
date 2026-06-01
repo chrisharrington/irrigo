@@ -9,8 +9,6 @@ import { ChevL } from '@/components/icons';
 import { RefreshableScrollView } from '@/components/refreshable-scroll-view';
 import { FontFamily } from '@/constants/fonts';
 import { useAckAlert, useAlerts } from '@/hooks/alerts';
-import { useNextRun } from '@/hooks/next-run';
-import { getSiteTimezone } from '@/lib/site-timezone';
 import config from '@/tailwind.config';
 import { AlertCard } from './alert-card';
 import { bucketFor, type AlertBucket } from './bucketing';
@@ -34,7 +32,7 @@ const GROUPS: ReadonlyArray<{ id: AlertBucket; label: string }> = [
 export type AlertsViewProps = {
     /**
      * Optional. Reference time used to bucket and timestamp each alert
-     * against the site clock. Defaults to the current wall clock; tests
+     * against the device clock. Defaults to the current wall clock; tests
      * inject a fixed value so assertions are stable.
      */
     now?: Date;
@@ -53,11 +51,9 @@ export function AlertsView({ now = new Date() }: AlertsViewProps = {}) {
     const insets = useSafeAreaInsets();
     const router = useRouter();
     const { data } = useAlerts();
-    const nextRun = useNextRun();
     const ackAlert = useAckAlert();
     const [filter, setFilter] = useState<Filter>('all');
 
-    const timezone = nextRun.data?.timezone ?? getSiteTimezone();
     const alerts = useMemo(() => data ?? [], [data]);
     const isEmpty = alerts.length === 0;
 
@@ -72,9 +68,9 @@ export function AlertsView({ now = new Date() }: AlertsViewProps = {}) {
     const visible = useMemo(() => applyFilter(alerts, filter), [alerts, filter]);
     const groups = useMemo(
         () => GROUPS
-            .map(g => ({ ...g, rows: visible.filter(a => bucketFor(a.when, now, timezone) === g.id) }))
+            .map(g => ({ ...g, rows: visible.filter(a => bucketFor(a.when, now) === g.id) }))
             .filter(g => g.rows.length > 0),
-        [visible, now, timezone],
+        [visible, now],
     );
 
     const onMarkAllRead = useCallback(() => {
@@ -148,7 +144,7 @@ export function AlertsView({ now = new Date() }: AlertsViewProps = {}) {
                             </View>
                             <View style={styles.groupRows}>
                                 {g.rows.map(a => (
-                                    <AlertCard key={a.id} alert={a} now={now} timezone={timezone} />
+                                    <AlertCard key={a.id} alert={a} now={now} />
                                 ))}
                             </View>
                         </View>

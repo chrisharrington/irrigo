@@ -32,26 +32,23 @@ export type AlertCardProps = {
 
     /** Required. "Now" anchor used to format the timestamp. */
     now: Date;
-
-    /** Required. IANA timezone the site clock runs in. */
-    timezone: string;
 };
 
 /**
  * A single alert row on the Alerts screen. RN port of the mock's `AlertCard`
  * ([`Alerts.jsx`](app/design/ui_kit/Alerts.jsx)): a 3px left tone strip, a
- * kind tag derived from the wire `class`, a monospace site-local timestamp
+ * kind tag derived from the wire `class`, a monospace device-local timestamp
  * with an unread dot, the title (brighter when unread), and the body sub-
  * text. Unread cards (`!ack`) get a tone-tinted background wash.
  *
  * Non-interactive — there is no per-alert detail surface today — but carries
  * an accessibility label of the title plus sub for screen readers.
  */
-export function AlertCard({ alert, now, timezone }: AlertCardProps) {
+export function AlertCard({ alert, now }: AlertCardProps) {
     const unread = !alert.ack,
         palette = TONE_PALETTE[alert.tone],
         kind = KIND_LABEL[alert.class],
-        timestamp = formatAlertTimestamp(alert.when, now, timezone),
+        timestamp = formatAlertTimestamp(alert.when, now),
         label = alert.sub !== null ? `${alert.title}. ${alert.sub}` : alert.title;
 
     return (
