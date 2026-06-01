@@ -186,6 +186,42 @@ describe('AlertsView', () => {
         });
     });
 
+    it('marks the Mark all read label pointer-transparent so taps reach the button (APP-81).', () => {
+        // Regression guard: the old hand-rolled Pressable wrapped a bare Text
+        // that swallowed the touch on a real device, so onPress never fired.
+        // The Button primitive declares pointerEvents='none' on its label.
+        const wrapper = seed([buildAlert({ id: 'a-1', ack: false })]);
+
+        render(<AlertsView now={NOW} />, { wrapper });
+
+        expect(screen.getByText('Mark all read').props.pointerEvents).toBe('none');
+    });
+
+    it('clears the list to the empty state after Mark all read (APP-81).', async () => {
+        // The server drops acked alerts from GET /alerts, so a successful
+        // ack-all should refetch to the empty list and render "Nothing to flag".
+        mockFetch.mockImplementation((input: unknown) => {
+            const url = String(input);
+            if (url.includes('/ack')) {
+                currentAlerts = [];
+                return Promise.resolve(jsonResponse({ status: 'acked' }));
+            }
+            if (url.endsWith('/alerts')) return Promise.resolve(jsonResponse({ alerts: currentAlerts }));
+            return Promise.resolve(jsonResponse({}));
+        });
+        const wrapper = seed([
+            buildAlert({ id: 'a-1', ack: false }),
+            buildAlert({ id: 'a-2', ack: false, title: 'Forecast stale', tone: 'warn', class: 'weather-stale' }),
+        ]);
+
+        render(<AlertsView now={NOW} />, { wrapper });
+        fireEvent.press(screen.getByLabelText('Mark all read'));
+
+        await waitFor(() => {
+            expect(screen.getByText('Nothing to flag')).toBeOnTheScreen();
+        });
+    });
+
     it('disables Mark all read when there are no unread alerts.', () => {
         const wrapper = seed([
             buildAlert({ id: 'a-1', ack: true }),
