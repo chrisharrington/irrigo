@@ -5,11 +5,13 @@ import Expo, {
     type ExpoPushTicket,
 } from 'expo-server-sdk';
 import type { Database } from '@/db';
+import type { NotificationSettingsDto } from '@/models/notification-settings';
 import type { PushAlertEvent, PushRegistration } from '@/models/push-token';
 import {
     createPushTokensRepository,
     type PushTokensRepository,
 } from '@/repositories/push-tokens';
+import { getNotificationSettings } from '@/service/notification-settings';
 
 const RECEIPT_POLL_DELAY_MS = 15_000;
 
@@ -104,9 +106,29 @@ export async function unregisterPushToken(token: string): Promise<void> {
 }
 
 /**
- * Fires an Expo Push to every registered token for a single alert. Called by
- * the alerter on insert (a brand-new alert) — dedup-updates suppress it,
- * matching the existing "loud once, quiet until acked" semantics.
+ * Self-contained content of a single push notification, fanned out unchanged
+ * to every registered device by `sendPushToAll`. `data` rides along as the
+ * Expo `data` payload (the client routes on it); `priority` maps to Expo's
+ * delivery priority and defaults to `'default'`.
+ */
+export type PushMessageContent = {
+    title: string;
+    body: string;
+    data?: Record<string, unknown>;
+    priority?: 'default' | 'high';
+};
+
+/**
+ * The notification categories the operator can toggle. Each is exactly a key
+ * of `NotificationSettingsDto`, so gating is a single flag lookup — see
+ * `sendCategoryPush`.
+ */
+export type NotificationCategory = keyof NotificationSettingsDto;
+
+/**
+ * Fires one Expo Push to every registered token, carrying the given content.
+ * The general send primitive underlying both the gated `sendCategoryPush` and
+ * the alert dispatcher.
  *
  * Best-effort throughout: chunk-level send failures are logged at `warn` and
  * the remaining chunks still attempt to deliver. Tickets are scanned for
@@ -115,24 +137,18 @@ export async function unregisterPushToken(token: string): Promise<void> {
  * receipt poll — Expo surfaces most `DeviceNotRegistered` outcomes there, not
  * in the immediate ticket response.
  */
-export async function dispatchAlertPush(event: PushAlertEvent): Promise<void> {
+export async function sendPushToAll(content: PushMessageContent): Promise<void> {
     const tokens = await getRepo().listAll();
     if (tokens.length === 0) return;
 
     const client = getExpo();
 
-    const data: Record<string, unknown> = {
-        alertId: event.alertId,
-        class: event.class,
-    };
-    if (event.zoneId !== null) data['zoneId'] = event.zoneId;
-
     const messages: ExpoPushMessage[] = tokens.map(t => ({
         to: t.token,
-        title: event.title,
-        body: event.sub ?? event.title,
-        data,
-        priority: event.tone === 'danger' ? 'high' : 'default',
+        title: content.title,
+        body: content.body,
+        ...(content.data !== undefined ? { data: content.data } : {}),
+        priority: content.priority ?? 'default',
     }));
 
     const chunks = client.chunkPushNotifications(messages);
@@ -184,6 +200,44 @@ export async function dispatchAlertPush(event: PushAlertEvent): Promise<void> {
             console.warn('push: unhandled receipt poll failure; swallowing.', err);
         });
     }, RECEIPT_POLL_DELAY_MS);
+}
+
+/**
+ * Sends a push for `category`, gated on the live `notification_settings` flag
+ * of the same name (API-101). When the toggle is off the push is suppressed —
+ * logged, never sent. The single entry point producers should use so the
+ * operator's per-event toggles take effect on the very next event without a
+ * restart. Requires `bootNotificationSettingsService` to have run.
+ */
+export async function sendCategoryPush(category: NotificationCategory, content: PushMessageContent): Promise<void> {
+    const flags = await getNotificationSettings();
+    if (!flags[category]) {
+        console.log(`push: ${category} notification suppressed by settings toggle.`);
+        return;
+    }
+    await sendPushToAll(content);
+}
+
+/**
+ * Fires an Expo Push to every registered token for a single alert. Called by
+ * the alerter on insert (a brand-new alert) — dedup-updates suppress it,
+ * matching the existing "loud once, quiet until acked" semantics. Gated on the
+ * `error` toggle via `sendCategoryPush`, so disabling Errors in the app
+ * silences failure pushes.
+ */
+export async function dispatchAlertPush(event: PushAlertEvent): Promise<void> {
+    const data: Record<string, unknown> = {
+        alertId: event.alertId,
+        class: event.class,
+    };
+    if (event.zoneId !== null) data['zoneId'] = event.zoneId;
+
+    await sendCategoryPush('error', {
+        title: event.title,
+        body: event.sub ?? event.title,
+        data,
+        priority: event.tone === 'danger' ? 'high' : 'default',
+    });
 }
 
 /**
