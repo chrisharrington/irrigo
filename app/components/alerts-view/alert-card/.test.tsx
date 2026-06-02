@@ -30,7 +30,7 @@ describe('AlertCard', () => {
 
         expect(screen.getByText('Controller unreachable')).toBeOnTheScreen();
         expect(screen.getByText('CONNECTION')).toBeOnTheScreen();
-        expect(screen.getByText('2:02 pm')).toBeOnTheScreen();
+        expect(screen.getByText('14:02')).toBeOnTheScreen();
     });
 
     it('derives the kind tag from the wire class.', () => {

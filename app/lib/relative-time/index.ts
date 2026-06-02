@@ -57,12 +57,12 @@ export function formatCountdown(iso: string | null, now: Date): string {
 }
 
 /**
- * Formats `iso` as `'10:23 pm'` style in the device-local timezone. Named-zone
- * conversion was dropped on the client (APP-88) — dayjs's `.tz()` renders UTC on
- * Hermes-on-Android — so the operator sees their own device clock.
+ * Formats `iso` as `'22:23'` (24-hour) style in the device-local timezone.
+ * Named-zone conversion was dropped on the client (APP-88) — dayjs's `.tz()`
+ * renders UTC on Hermes-on-Android — so the operator sees their own device clock.
  */
 export function formatTimeOfDay(iso: string): string {
-    return dayjs(iso).format('h:mm a');
+    return dayjs(iso).format('HH:mm');
 }
 
 /**
@@ -70,7 +70,7 @@ export function formatTimeOfDay(iso: string): string {
  * and falling back to the entry's calendar day when not.
  *
  * When `startedAt` is non-null, both the day and the time-of-day come from
- * the real instant (`'May 13 · 9:00 am'`) in the device-local timezone —
+ * the real instant (`'May 13 · 09:00'`) in the device-local timezone —
  * the label stays internally consistent across midnight-rollover edge
  * cases. When `startedAt` is null (deferred planner entries with no
  * cycles), falls back to date-only (`'May 13'`) formatted directly from
@@ -78,18 +78,18 @@ export function formatTimeOfDay(iso: string): string {
  */
 export function formatActivityRowDate(date: string, startedAt: string | null): string {
     if (startedAt !== null) {
-        return dayjs(startedAt).format('MMM D · h:mm a');
+        return dayjs(startedAt).format('MMM D · HH:mm');
     }
     return dayjs(date).format('MMM D');
 }
 
 /**
- * Formats `iso` for the hero's "ends ..." suffix (`'ends 5:48 am'`) in the
+ * Formats `iso` for the hero's "ends ..." suffix (`'ends 05:48'`) in the
  * device-local timezone. Identical formatter to `formatTimeOfDay`; named
  * separately for grep-ability at call sites.
  */
 export function formatEndsAt(iso: string): string {
-    return dayjs(iso).format('h:mm a');
+    return dayjs(iso).format('HH:mm');
 }
 
 /**

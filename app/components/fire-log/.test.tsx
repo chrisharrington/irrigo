@@ -17,7 +17,7 @@ function buildActivity(overrides?: Partial<ActivityDto>): ActivityDto {
         zone: { id: 'z-1', name: 'North', slug: 'north' },
         appliedDepthMm: 14,
         durationMin: 62,
-        // 09:00 MDT on 2026-05-13 → 'May 13 · 9:00 am'.
+        // 09:00 MDT on 2026-05-13 → 'May 13 · 09:00'.
         startedAt: '2026-05-13T15:00:00.000Z',
         depletionBeforeMm: 30,
         depletionAfterMm: 16,
@@ -67,15 +67,15 @@ describe('FireLog', () => {
         expect(screen.getByText('30 → 16 mm')).toBeOnTheScreen();
     });
 
-    it('formats the date label via formatActivityRowDate (device-local MMM D · h:mm a) when startedAt is present.', () => {
-        // 2026-05-13T15:00Z = 09:00 MDT on 2026-05-13 → 'May 13 · 9:00 am'.
+    it('formats the date label via formatActivityRowDate (device-local MMM D · HH:mm) when startedAt is present.', () => {
+        // 2026-05-13T15:00Z = 09:00 MDT on 2026-05-13 → 'May 13 · 09:00'.
         render(
             <FireLog
                 rows={[buildActivity({ date: '2026-05-13', startedAt: '2026-05-13T15:00:00.000Z' })]}
             />,
         );
 
-        expect(screen.getByText('May 13 · 9:00 am')).toBeOnTheScreen();
+        expect(screen.getByText('May 13 · 09:00')).toBeOnTheScreen();
     });
 
     it('falls back to date-only `MMM D` when startedAt is null (APP-78).', () => {

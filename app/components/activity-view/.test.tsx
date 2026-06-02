@@ -186,7 +186,7 @@ describe('ActivityView', () => {
 
         render(<ActivityView />, { wrapper });
 
-        await waitFor(() => expect(screen.getByText('May 13 · 9:00 pm')).toBeOnTheScreen());
+        await waitFor(() => expect(screen.getByText('May 13 · 21:00')).toBeOnTheScreen());
     });
 
     it('flattens multi-page infinite-query results into a single visible list.', () => {

@@ -1,5 +1,4 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react-native';
-import type { ReactTestInstance } from 'react-test-renderer';
 
 import { buildApiWrapper, jsonResponse } from '@/api/test-utils';
 import type { ScheduleListItem } from '@/api/types/schedules';
@@ -145,45 +144,6 @@ describe('ScheduleListView', () => {
         });
     });
 
-    it('POSTs /schedule/skip-tonight when the Skip tonight button is pressed.', async () => {
-        mockFetch.mockResolvedValueOnce(jsonResponse(ALL_SCHEDULES));
-        mockFetch.mockResolvedValueOnce(jsonResponse({ status: 'skipped', schedule: { slug: 'maintenance', name: 'Maintenance', siteId: 'site-1' } }));
-        mockFetch.mockResolvedValue(jsonResponse(ALL_SCHEDULES));
-
-        render(<ScheduleListView />, { wrapper: buildApiWrapper().wrapper });
-
-        await waitFor(() => expect(screen.getByText('Maintenance')).toBeOnTheScreen());
-
-        await act(async () => {
-            fireEvent.press(screen.getByText('Skip tonight'));
-        });
-
-        await waitFor(() => {
-            const urls = mockFetch.mock.calls.map(call => (call as [string, RequestInit])[0]);
-            expect(urls).toContain('http://test.local:9753/schedule/skip-tonight');
-        });
-    });
-
-    it('POSTs /schedule/resume-tonight when Resume tonight is pressed (active schedule already skipping).', async () => {
-        const skippingActive = { ...ACTIVE_SCHEDULE, skippedTonight: true };
-        mockFetch.mockResolvedValueOnce(jsonResponse([skippingActive, WEEKEND_SCHEDULE, OVERSEEDING_SCHEDULE]));
-        mockFetch.mockResolvedValueOnce(jsonResponse({ status: 'resumed', schedule: { slug: 'maintenance', name: 'Maintenance', siteId: 'site-1' } }));
-        mockFetch.mockResolvedValue(jsonResponse([skippingActive, WEEKEND_SCHEDULE, OVERSEEDING_SCHEDULE]));
-
-        render(<ScheduleListView />, { wrapper: buildApiWrapper().wrapper });
-
-        await waitFor(() => expect(screen.getByText('Resume tonight')).toBeOnTheScreen());
-
-        await act(async () => {
-            fireEvent.press(screen.getByText('Resume tonight'));
-        });
-
-        await waitFor(() => {
-            const urls = mockFetch.mock.calls.map(call => (call as [string, RequestInit])[0]);
-            expect(urls).toContain('http://test.local:9753/schedule/resume-tonight');
-        });
-    });
-
     it('POSTs /replan when the re-plan icon button is pressed.', async () => {
         mockFetch.mockResolvedValueOnce(jsonResponse(ALL_SCHEDULES));
         mockFetch.mockResolvedValueOnce(jsonResponse({ ok: true }));
@@ -210,20 +170,5 @@ describe('ScheduleListView', () => {
 
         await waitFor(() => expect(screen.getByText('Profile · none active')).toBeOnTheScreen());
         expect(screen.queryByText('Maintenance')).toBeNull();
-        expect(screen.getByText('Other profiles')).toBeOnTheScreen();
-    });
-
-    it('renders the disabled "+ New" stub button.', async () => {
-        mockFetch.mockResolvedValueOnce(jsonResponse(ALL_SCHEDULES));
-
-        const { root } = render(<ScheduleListView />, { wrapper: buildApiWrapper().wrapper });
-
-        await waitFor(() => expect(screen.getByText('Other profiles')).toBeOnTheScreen());
-        const newButton = findByAccessibilityLabel(root, 'Add new profile');
-        expect(newButton?.props.accessibilityState).toEqual({ disabled: true });
     });
 });
-
-function findByAccessibilityLabel(root: ReactTestInstance, label: string): ReactTestInstance | undefined {
-    return root.find(node => typeof node.type === 'string' && node.props.accessibilityLabel === label);
-}

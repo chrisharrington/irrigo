@@ -176,17 +176,17 @@ describe('ZoneDetail', () => {
             />,
         );
 
-        expect(screen.getByText('May 3 · 9:00 am')).toBeOnTheScreen();
+        expect(screen.getByText('May 3 · 09:00')).toBeOnTheScreen();
         expect(screen.getByText('9.0 mm · 30 min')).toBeOnTheScreen();
         expect(screen.getByText('22.0 → 0.0 mm')).toBeOnTheScreen();
-        expect(screen.getByText('May 2 · 9:00 am')).toBeOnTheScreen();
+        expect(screen.getByText('May 2 · 09:00')).toBeOnTheScreen();
         expect(screen.getByText('4.5 mm · 15 min')).toBeOnTheScreen();
         expect(screen.getByText('13.0 → 0.0 mm')).toBeOnTheScreen();
     });
 
     it('formats recent-run dates in the supplied site timezone from startedAt (APP-71 / APP-78).', () => {
         // 2026-05-14T05:30Z = 23:30 MDT on 2026-05-13 — still May 13 locally,
-        // and the time should read 11:30 pm site-local. The `date` field
+        // and the time should read 23:30 site-local. The `date` field
         // says May 14 (planner's scheduled-night bucket); the formatter
         // prefers `startedAt` and shows the actual local day.
         const activity = [
@@ -204,7 +204,7 @@ describe('ZoneDetail', () => {
             />,
         );
 
-        expect(screen.getByText('May 13 · 11:30 pm')).toBeOnTheScreen();
+        expect(screen.getByText('May 13 · 23:30')).toBeOnTheScreen();
     });
 
     it('falls back to date-only `MMM D` on recent-run rows when startedAt is null (APP-78).', () => {

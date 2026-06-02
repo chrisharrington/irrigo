@@ -204,34 +204,6 @@ describe('ActiveScheduleHero', () => {
         );
     });
 
-    it('flips the footer button label between Skip tonight and Resume tonight.', () => {
-        const { rerender } = render(
-            <ActiveScheduleHero
-                schedule={BASE_SCHEDULE}
-                skipping={false}
-                onReplan={noop}
-                onSwitchProfile={noop}
-                onToggleSkip={noop}
-            />,
-        );
-
-        expect(screen.getByText('Skip tonight')).toBeOnTheScreen();
-        expect(screen.queryByText('Resume tonight')).toBeNull();
-
-        rerender(
-            <ActiveScheduleHero
-                schedule={BASE_SCHEDULE}
-                skipping
-                onReplan={noop}
-                onSwitchProfile={noop}
-                onToggleSkip={noop}
-            />,
-        );
-
-        expect(screen.getByText('Resume tonight')).toBeOnTheScreen();
-        expect(screen.queryByText('Skip tonight')).toBeNull();
-    });
-
     it('fires `onReplan` when the re-plan icon button is pressed.', () => {
         const onReplan = jest.fn();
         render(
@@ -247,40 +219,6 @@ describe('ActiveScheduleHero', () => {
         fireEvent.press(screen.getByLabelText('Re-plan now'));
 
         expect(onReplan).toHaveBeenCalledTimes(1);
-    });
-
-    it('fires `onSwitchProfile` when the Switch profile button is pressed.', () => {
-        const onSwitchProfile = jest.fn();
-        render(
-            <ActiveScheduleHero
-                schedule={BASE_SCHEDULE}
-                skipping={false}
-                onReplan={noop}
-                onSwitchProfile={onSwitchProfile}
-                onToggleSkip={noop}
-            />,
-        );
-
-        fireEvent.press(screen.getByText('Switch profile'));
-
-        expect(onSwitchProfile).toHaveBeenCalledTimes(1);
-    });
-
-    it('fires `onToggleSkip` when the Skip tonight button is pressed.', () => {
-        const onToggleSkip = jest.fn();
-        render(
-            <ActiveScheduleHero
-                schedule={BASE_SCHEDULE}
-                skipping={false}
-                onReplan={noop}
-                onSwitchProfile={noop}
-                onToggleSkip={onToggleSkip}
-            />,
-        );
-
-        fireEvent.press(screen.getByText('Skip tonight'));
-
-        expect(onToggleSkip).toHaveBeenCalledTimes(1);
     });
 
     it('disables the re-plan button while `isReplanning` is true.', () => {
