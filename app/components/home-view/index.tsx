@@ -1,7 +1,7 @@
-import { useEffect, useRef } from 'react';
 import { useRouter } from 'expo-router';
-import { StyleSheet, Text, View } from 'react-native';
 import * as SplashScreen from 'expo-splash-screen';
+import { useEffect, useRef } from 'react';
+import { StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import type { ZoneSummary } from '@/api/types/zones';
@@ -64,6 +64,10 @@ export function HomeView() {
 
             <SystemDisabledWrapper disabled={!irrigationEnabled}>
                 <View style={styles.body}>
+                    <View style={styles.subHeading}>
+                        <Text style={styles.h2}>Next Run</Text>
+                    </View>
+
                     {nextRun.isPending ?
                         <PlaceholderCard label='Loading next run…' />
                     : nextRun.isError || nextRun.data == null ?
@@ -72,7 +76,7 @@ export function HomeView() {
                         // no timezone is threaded from the API.
                     :   <NextRunHero nextRun={nextRun.data} />}
 
-                    <View style={styles.zonesHeading}>
+                    <View style={styles.subHeading}>
                         <Text style={styles.h2}>Zones</Text>
                         {zones.data !== undefined && zones.data.length > 0 ?
                             <Text style={styles.zonesMeta}>
@@ -94,6 +98,10 @@ export function HomeView() {
                             </View>
                         </>
                     }
+
+                    <View style={styles.subHeading}>
+                        <Text style={styles.h2}>Active Schedule</Text>
+                    </View>
 
                     {activeSchedule !== null && (
                         <ActiveScheduleChip
@@ -194,7 +202,7 @@ const styles = StyleSheet.create({
     body: {
         gap: 18,
     },
-    zonesHeading: {
+    subHeading: {
         flexDirection: 'row',
         alignItems: 'baseline',
         justifyContent: 'space-between',

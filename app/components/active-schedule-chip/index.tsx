@@ -1,10 +1,10 @@
 import { useCallback, useMemo } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
+import type { ScheduleListItem } from '@/api/types/schedules';
 import { TileGradient } from '@/components/tile-gradient';
 import { FontFamily } from '@/constants/fonts';
 import { SUN_FIRST_DAY_LETTERS, daysArrayFromAllowed } from '@/lib/schedule-format';
-import type { ScheduleListItem } from '@/api/types/schedules';
 import config from '@/tailwind.config';
 
 const colors = config.theme.extend.colors;
@@ -83,8 +83,6 @@ const styles = StyleSheet.create({
     card: {
         borderWidth: 1,
         borderColor: colors['accent-border'],
-        borderLeftWidth: 3,
-        borderLeftColor: colors.accent,
         padding: 14,
         gap: 10,
     },

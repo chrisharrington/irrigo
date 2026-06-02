@@ -70,20 +70,16 @@ export function NextRunHero({ nextRun, now }: NextRunHeroProps) {
     const timezoneAbbreviation = getDeviceTimezoneAbbreviation(resolvedNow);
     const badgeLabel = badgeLabelForState(nextRun.state);
 
-    const timeAccessibilityLabel = timezoneAbbreviation
-        ? `Next run at ${timeOfDay} ${timezoneAbbreviation}`
-        : `Next run at ${timeOfDay}`;
+    const timeAccessibilityLabel =
+        timezoneAbbreviation ? `Next run at ${timeOfDay} ${timezoneAbbreviation}` : `Next run at ${timeOfDay}`;
 
     return (
         <TileGradient style={[styles.card, styles.cardActive]} accessibilityLabel={timeAccessibilityLabel}>
             <View style={styles.headerRow}>
                 <View style={styles.headerText}>
-                    <Text style={[styles.eyebrow, { color: colors.accent }]}>Next run</Text>
                     <View style={styles.timeRow}>
                         <Text style={styles.time}>{timeOfDay}</Text>
-                        {timezoneAbbreviation !== '' && (
-                            <Text style={styles.timezone}>{timezoneAbbreviation}</Text>
-                        )}
+                        {timezoneAbbreviation !== '' && <Text style={styles.timezone}>{timezoneAbbreviation}</Text>}
                     </View>
                     <Text style={styles.subtitle}>{dateLabel}</Text>
                 </View>
@@ -160,7 +156,6 @@ const styles = StyleSheet.create({
         textTransform: 'uppercase',
     },
     timeRow: {
-        marginTop: 6,
         flexDirection: 'row',
         alignItems: 'baseline',
         gap: 8,
