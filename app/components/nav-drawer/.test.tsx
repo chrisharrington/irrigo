@@ -43,7 +43,7 @@ const SAMPLE_INACTIVE: ScheduleListItem = {
 };
 
 describe('NavDrawer', () => {
-    it('renders the brand row, three nav items, close button, and footer when visible.', async () => {
+    it('renders the brand row, four nav items, close button, and footer when visible.', async () => {
         const { wrapper, client } = buildApiWrapper();
         client.setQueryData(keys.schedules.list(), [SAMPLE_ACTIVE, SAMPLE_INACTIVE]);
 
@@ -58,6 +58,7 @@ describe('NavDrawer', () => {
         expect(screen.queryByLabelText('Zones')).toBeNull();
         expect(screen.getByLabelText('Schedules')).toBeOnTheScreen();
         expect(screen.getByLabelText('Activity')).toBeOnTheScreen();
+        expect(screen.getByLabelText('Settings')).toBeOnTheScreen();
         expect(screen.getByLabelText('Close menu')).toBeOnTheScreen();
         await waitFor(() => expect(screen.getByText('Maintenance')).toBeOnTheScreen());
     });
@@ -89,6 +90,21 @@ describe('NavDrawer', () => {
 
         expect(onSelect).toHaveBeenCalledTimes(1);
         expect(onSelect).toHaveBeenCalledWith('activity');
+    });
+
+    it('calls onSelect with the settings id when the Settings item is tapped.', () => {
+        const onSelect = jest.fn();
+        const { wrapper, client } = buildApiWrapper();
+        client.setQueryData(keys.schedules.list(), [SAMPLE_ACTIVE]);
+
+        render(
+            <NavDrawer visible onClose={jest.fn()} activeId='home' onSelect={onSelect} />,
+            { wrapper },
+        );
+        fireEvent.press(screen.getByLabelText('Settings'));
+
+        expect(onSelect).toHaveBeenCalledTimes(1);
+        expect(onSelect).toHaveBeenCalledWith('settings');
     });
 
     it('also calls onClose after a nav item is selected so the drawer dismisses.', () => {

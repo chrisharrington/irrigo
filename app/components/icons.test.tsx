@@ -16,6 +16,7 @@ import {
     Pause,
     Play,
     Refresh,
+    Settings,
     X,
     Zone,
 } from './icons';
@@ -36,6 +37,7 @@ const icons: ReadonlyArray<readonly [string, ComponentType<IconProps>]> = [
     ['Menu', Menu],
     ['X', X],
     ['Check', Check],
+    ['Settings', Settings],
 ];
 
 describe('Irrigo icons', () => {

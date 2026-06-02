@@ -39,6 +39,7 @@ const ROUTE_FOR_NAV_ID: Record<NavItemId, string> = {
     home: '/',
     schedules: '/schedules',
     activity: '/activity',
+    settings: '/settings',
 };
 
 function pathnameToActiveId(pathname: string): NavItemId {
