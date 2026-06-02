@@ -1434,6 +1434,23 @@ describe('buildApp /settings/notifications routes', () => {
             await app.close();
         });
 
+        it('returns 400 when the body is not a JSON object', async () => {
+            const app = buildApp({
+                getStatus: () => buildStatus(),
+                notificationSettings: { get: async () => DEFAULTS, update: async (patch) => ({ ...DEFAULTS, ...patch }) },
+            });
+
+            const res = await app.inject({
+                method: 'PATCH',
+                url: '/settings/notifications',
+                payload: ['scheduleStart'],
+            });
+
+            expect(res.statusCode).toBe(400);
+            expect(res.json()).toMatchObject({ error: 'bad-request' });
+            await app.close();
+        });
+
         it('returns 400 when a known field carries a non-boolean value', async () => {
             const app = buildApp({
                 getStatus: () => buildStatus(),

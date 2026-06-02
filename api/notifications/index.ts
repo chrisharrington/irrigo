@@ -2,6 +2,8 @@ import dayjs from 'dayjs';
 import utc from 'dayjs/plugin/utc';
 import timezone from 'dayjs/plugin/timezone';
 
+import { getNotificationSettings } from '@/service/notification-settings';
+
 dayjs.extend(utc);
 dayjs.extend(timezone);
 
@@ -85,10 +87,16 @@ export type Notifier = (event: NotificationEvent, context?: NotificationContext)
 export const noopNotifier: Notifier = async () => {};
 
 /**
- * Reads notification config from env at construction time and returns a
+ * Reads the HA transport config from env at construction time and returns a
  * `Notifier` closure. If `HA_URL`, `HA_TOKEN`, or `HA_NOTIFY_SERVICE` is
  * missing, returns `noopNotifier` and logs a single `console.warn` so the
  * operator knows notifications are off.
+ *
+ * The per-event on/off toggles are NOT snapshotted here — they live in the
+ * notification-settings singleton row and are read live on each event via
+ * `getNotificationSettings()` (API-101), so a `PATCH /settings/notifications`
+ * takes effect on the very next event without a restart. Requires
+ * `bootNotificationSettingsService` to have run before the first event fires.
  */
 export function createNotifier(): Notifier {
     const url = process.env.HA_URL;
@@ -100,21 +108,14 @@ export function createNotifier(): Notifier {
         return noopNotifier;
     }
 
-    const flags = {
-        scheduleStart: parseBoolean(process.env.NOTIFY_ON_SCHEDULE_START, true),
-        scheduleEnd: parseBoolean(process.env.NOTIFY_ON_SCHEDULE_END, true),
-        wateringStarted: parseBoolean(process.env.NOTIFY_ON_WATERING_START, false),
-        wateringEnded: parseBoolean(process.env.NOTIFY_ON_WATERING_END, false),
-        error: parseBoolean(process.env.NOTIFY_ON_ERROR, true),
-    };
-
     const endpoint = `${url.endsWith('/') ? url.slice(0, -1) : url}/api/services/notify/${service}`;
 
     return async (event, context) => {
+        const flags = await getNotificationSettings();
         if (event === 'schedule-begun' && !flags.scheduleStart) return;
         if (event === 'schedule-ended' && !flags.scheduleEnd) return;
-        if (event === 'watering-started' && !flags.wateringStarted) return;
-        if (event === 'watering-ended' && !flags.wateringEnded) return;
+        if (event === 'watering-started' && !flags.wateringStart) return;
+        if (event === 'watering-ended' && !flags.wateringEnd) return;
         if (event === 'error' && !flags.error) return;
 
         const message = buildMessage(event, context);
@@ -200,12 +201,4 @@ function formatNextIrrigation(
 
 function roundMin(value: number): number {
     return Math.round(value * 10) / 10;
-}
-
-function parseBoolean(raw: string | undefined, fallback: boolean): boolean {
-    if (raw === undefined) return fallback;
-    const lower = raw.trim().toLowerCase();
-    if (lower === 'true' || lower === '1') return true;
-    if (lower === 'false' || lower === '0' || lower === '') return false;
-    return fallback;
 }
