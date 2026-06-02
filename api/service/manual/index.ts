@@ -3,6 +3,8 @@ import type { ActiveManualSnapshot, ManualController, ManualControllerDeps } fro
 import type { Zone } from '@/models';
 import { createManualRepository, type ManualRepository } from '@/repositories/manual';
 import type { TimerHandle } from '@/service/daemon/runtime';
+import { noopCategoryPush } from '@/service/push-tokens';
+import { wateringEndedMessage, wateringStartedMessage } from '@/service/push-tokens/lifecycle-messages';
 
 export type { ActiveManualSnapshot, ManualController, ManualControllerDeps } from '@/models/manual';
 
@@ -84,6 +86,7 @@ type ActiveManualFire = {
  */
 export function createManualController(deps: ManualControllerDeps): ManualController {
     const { clock, openZone, closeZone, notifier, isAnyScheduledInFlight, isIrrigationEnabled } = deps;
+    const pushNotify = deps.pushNotify ?? noopCategoryPush;
     let current: ActiveManualFire | null = null;
 
     const ensureSystemEnabled = async (action: string, zone: Zone): Promise<void> => {
@@ -117,7 +120,7 @@ export function createManualController(deps: ManualControllerDeps): ManualContro
         const openedAt = clock.now();
         current = { zone, openedAt, willCloseAt: null };
         console.log(`manual: opened zone ${zone.id} at ${openedAt.toISOString()}.`);
-        await notifier('watering-started', { zoneName: zone.name, reason: 'manual' });
+        await pushNotify('wateringStart', wateringStartedMessage({ zoneName: zone.name, zoneId: zone.id, reason: 'manual' }));
 
         return { since: openedAt };
     };
@@ -163,7 +166,7 @@ export function createManualController(deps: ManualControllerDeps): ManualContro
         }
 
         console.log(`manual: closed zone ${zone.id} at ${closedAt.toISOString()}.`);
-        await notifier('watering-ended', { zoneName: zone.name, reason: 'manual' });
+        await pushNotify('wateringEnd', wateringEndedMessage({ zoneName: zone.name, zoneId: zone.id, reason: 'manual' }));
         return { closed: true };
     };
 
@@ -186,7 +189,7 @@ export function createManualController(deps: ManualControllerDeps): ManualContro
         }
 
         console.log(`manual: scheduled close for zone ${zone.id} at ${closedAt.toISOString()}.`);
-        await notifier('watering-ended', { zoneName: zone.name, reason: 'manual' });
+        await pushNotify('wateringEnd', wateringEndedMessage({ zoneName: zone.name, zoneId: zone.id, reason: 'manual' }));
     };
 
     const run: ManualController['run'] = async (zone, durationMin) => {
@@ -220,7 +223,7 @@ export function createManualController(deps: ManualControllerDeps): ManualContro
 
         current = { zone, openedAt, willCloseAt, closeHandle, cycleId: cycleId ?? undefined, runDurationMin: durationMin };
         console.log(`manual: opened zone ${zone.id} at ${openedAt.toISOString()} for ${durationMin} min (auto-close).`);
-        await notifier('watering-started', { zoneName: zone.name, durationMin, reason: 'manual' });
+        await pushNotify('wateringStart', wateringStartedMessage({ zoneName: zone.name, zoneId: zone.id, durationMin, reason: 'manual' }));
 
         return { since: openedAt, willCloseAt };
     };
@@ -251,7 +254,7 @@ export function createManualController(deps: ManualControllerDeps): ManualContro
             if (active.cycleId !== undefined) {
                 await getRepo().updateCycleClosedAt(active.cycleId, closedAt);
             }
-            await notifier('watering-ended', { zoneName: active.zone.name, reason: 'shutdown' });
+            await pushNotify('wateringEnd', wateringEndedMessage({ zoneName: active.zone.name, zoneId: active.zone.id, reason: 'shutdown' }));
         } catch (err) {
             const reason = err instanceof Error ? err.message : String(err);
             console.error(`manual: shutdown closeZone failed for zone ${active.zone.id}.`, err);

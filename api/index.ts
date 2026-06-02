@@ -47,6 +47,7 @@ import {
     bootPushTokensService,
     dispatchAlertPush,
     registerPushToken,
+    sendCategoryPush,
     unregisterPushToken,
 } from '@/service/push-tokens';
 import Expo from 'expo-server-sdk';
@@ -904,6 +905,7 @@ if (import.meta.main) {
     const alerter = createAlerter(alertsDb, notifier, dispatchAlertPush);
     const daemon = await daemonStart({
         notifier,
+        pushNotify: sendCategoryPush,
         alerter,
         openZone: effectiveOpenZone,
         closeZone: effectiveCloseZone,
@@ -914,6 +916,7 @@ if (import.meta.main) {
         openZone: effectiveOpenZone,
         closeZone: effectiveCloseZone,
         notifier,
+        pushNotify: sendCategoryPush,
         isAnyScheduledInFlight: () => daemon.getStatus().activeZones.length > 0,
         isIrrigationEnabled: async () => (await getSystemState()).irrigationEnabled,
     });

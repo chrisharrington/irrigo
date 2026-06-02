@@ -126,6 +126,22 @@ export type PushMessageContent = {
 export type NotificationCategory = keyof NotificationSettingsDto;
 
 /**
+ * Injectable shape of `sendCategoryPush` — a gated push for one category. The
+ * daemon and manual controller take one of these so lifecycle producers can
+ * fire Expo pushes without importing the push singleton directly (and so tests
+ * can record the calls). `sendCategoryPush` satisfies it; production wires that
+ * in, tests pass a recorder, and `noopCategoryPush` is the safe default.
+ */
+export type CategoryPushNotifier = (category: NotificationCategory, content: PushMessageContent) => Promise<void>;
+
+/**
+ * No-op `CategoryPushNotifier`: resolves immediately, sends nothing. The
+ * default when no push channel is injected (tests, or a daemon booted without
+ * push wiring).
+ */
+export const noopCategoryPush: CategoryPushNotifier = async () => {};
+
+/**
  * Fires one Expo Push to every registered token, carrying the given content.
  * The general send primitive underlying both the gated `sendCategoryPush` and
  * the alert dispatcher.

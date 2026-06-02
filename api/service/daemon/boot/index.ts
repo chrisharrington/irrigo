@@ -2,6 +2,7 @@ import type { Alerter } from '@/alerts';
 import type { ZoneRelayState } from '@/data/home-assistant';
 import type { WeatherData, Zone } from '@/models';
 import type { Notifier } from '@/notifications';
+import type { CategoryPushNotifier } from '@/service/push-tokens';
 import type { ScheduleEntriesRepository } from '@/repositories/schedule-entries';
 import type { ZonesRepository } from '@/repositories/zones';
 import { getSystemState } from '@/service/system';
@@ -17,6 +18,8 @@ export type BootDeps = {
     clock: Clock;
     registry: TimerRegistry;
     notifier: Notifier;
+    /** Gated Expo push for lifecycle notifications, passed through to reconcile + armCycle. */
+    pushNotify?: CategoryPushNotifier;
     alerter: Alerter;
     openZone: (zone: Zone) => Promise<void>;
     closeZone: (zone: Zone) => Promise<void>;
@@ -55,13 +58,14 @@ export type RunBootSequenceResult = {
  */
 export async function runBootSequence(input: RunBootSequenceInput): Promise<RunBootSequenceResult> {
     const { morningTickMinutesAfterSunrise, deps } = input;
-    const { clock, registry, notifier, alerter, openZone, closeZone, getZoneState, getWeather, zonesRepo, scheduleEntriesRepo } = deps;
+    const { clock, registry, notifier, pushNotify, alerter, openZone, closeZone, getZoneState, getWeather, zonesRepo, scheduleEntriesRepo } = deps;
 
     const enabledZonesAtBoot = await zonesRepo.loadEnabled();
     const reconcileSummary = await reconcileCycleAndRelayState({
         clock,
         registry,
         notifier,
+        pushNotify,
         alerter,
         closeZone,
         getZoneState,
@@ -76,7 +80,7 @@ export async function runBootSequence(input: RunBootSequenceInput): Promise<RunB
         console.warn(`daemon: system irrigation is disabled (since ${systemAtBoot.since}); skipping arm of ${futureCycles.length} future cycle(s).`);
     } else {
         for (const { cycle, zone } of futureCycles) {
-            armCycle({ clock, registry, zone, cycle, openZone, closeZone, notifier, alerter });
+            armCycle({ clock, registry, zone, cycle, openZone, closeZone, notifier, pushNotify, alerter });
         }
     }
 

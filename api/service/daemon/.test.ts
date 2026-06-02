@@ -19,6 +19,7 @@ import type { ZoneJoinedRow, ZonesRepository } from '@/repositories/zones';
 import { joinedRowToZone } from '@/repositories/zones';
 import { planZoneSchedule } from '@/schedules/dynamic';
 import type { NotificationContext, NotificationEvent, Notifier } from '@/notifications';
+import type { CategoryPushNotifier, NotificationCategory, PushMessageContent } from '@/service/push-tokens';
 import { bootSystemService } from '@/service/system';
 import { bootDaemonService, computeNextMorningAt, computeNextRePlanAt, start } from '.';
 import type { Clock, TimerHandle } from './runtime';
@@ -56,6 +57,16 @@ function recordingNotifier(): { notifier: Notifier; calls: RecordedNotification[
         calls.push({ event, context });
     };
     return { notifier, calls };
+}
+
+type RecordedPush = { category: NotificationCategory; content: PushMessageContent };
+
+function recordingPush(): { pushNotify: CategoryPushNotifier; calls: RecordedPush[] } {
+    const calls: RecordedPush[] = [];
+    const pushNotify: CategoryPushNotifier = async (category, content) => {
+        calls.push({ category, content });
+    };
+    return { pushNotify, calls };
 }
 
 function recordingAlerter(): { alerter: Alerter; calls: AlertEvent[] } {
@@ -1205,7 +1216,7 @@ describe('start', () => {
         expect(clearStaleToday!.value.format('YYYY-MM-DD')).toBe('2026-05-04');
     });
 
-    it('does not emit schedule-begun or schedule-ended for boot-armed cycles', async () => {
+    it('does not emit any lifecycle push for boot-armed cycles', async () => {
         const futureRow = buildFutureCycleRow({
             cycle: { id: 'cycle-boot', startTime: new Date('2026-05-04T11:00:00.000Z'), durationMin: 8 },
             zone: { id: 'zone-boot', name: 'Boot Zone' },
@@ -1213,13 +1224,13 @@ describe('start', () => {
         const stub = createDaemonReposStub({ futureCycles: [futureRow] });
         bootDaemonService({ repos: stub.repos, alertsDb: stub.alertsDb });
         const { clock, advanceTo } = createFakeClock(NOW);
-        const { notifier, calls } = recordingNotifier();
+        const { pushNotify, calls } = recordingPush();
 
         await start({
             clock,
             rePlanHourLocal: 4,
             siteTimezone: 'UTC',
-            notifier,
+            pushNotify,
             runPlan: async () => ({ entries: [], projectedNextDepletionMm: 0 }),
             openZone: async () => {},
             closeZone: async () => {},
@@ -1227,18 +1238,16 @@ describe('start', () => {
 
         await advanceTo(new Date('2026-05-04T12:08:30.000Z'));
 
-        expect(calls.some(c => c.event === 'schedule-begun')).toBe(false);
-        expect(calls.some(c => c.event === 'schedule-ended')).toBe(false);
-        expect(calls.some(c => c.event === 'watering-started')).toBe(false);
-        expect(calls.some(c => c.event === 'watering-ended')).toBe(false);
+        // Boot-armed cycles carry no schedule markers, so no lifecycle push fires.
+        expect(calls).toHaveLength(0);
     });
 
-    it('rePlan tags the earliest cycle with schedule-begun and the latest with schedule-ended', async () => {
+    it('rePlan tags the earliest cycle with a scheduleStart push and the latest with scheduleEnd', async () => {
         const enabledRow = buildJoinedRow({ zone: { id: 'zone-rp', name: 'Replan Zone' } });
         const stub = createDaemonReposStub({ enabledZones: [enabledRow] });
         bootDaemonService({ repos: stub.repos, alertsDb: stub.alertsDb });
         const { clock, advanceTo } = createFakeClock(NOW);
-        const { notifier, calls } = recordingNotifier();
+        const { pushNotify, calls } = recordingPush();
         const planned = buildEntry('2026-05-04', [
             { startTime: '2026-05-04T13:00:00Z', durationMin: 6 },
             { startTime: '2026-05-04T14:00:00Z', durationMin: 6 },
@@ -1248,7 +1257,7 @@ describe('start', () => {
             clock,
             rePlanHourLocal: 4,
             siteTimezone: 'UTC',
-            notifier,
+            pushNotify,
             runPlan: async () => ({ entries: [planned], projectedNextDepletionMm: 0 }),
             openZone: async () => {},
             closeZone: async () => {},
@@ -1257,26 +1266,22 @@ describe('start', () => {
         await control.rePlan();
         await advanceTo(new Date('2026-05-04T14:06:30.000Z'));
 
-        const begunCalls = calls.filter(c => c.event === 'schedule-begun');
-        expect(begunCalls).toHaveLength(1);
-        expect(begunCalls[0]?.context).toEqual({ scheduleNight: '2026-05-04' });
+        const begun = calls.filter(c => c.category === 'scheduleStart');
+        expect(begun).toHaveLength(1);
+        expect(begun[0]?.content.body).toBe('Schedule started for the night of 2026-05-04.');
 
-        const endedCalls = calls.filter(c => c.event === 'schedule-ended');
-        expect(endedCalls).toHaveLength(1);
-        expect(endedCalls[0]?.context).toMatchObject({
-            scheduleNight: '2026-05-04',
-            perZoneRuntimeMin: { 'Replan Zone': 12 },
-            siteTimezone: 'UTC',
-        });
-        expect(endedCalls[0]?.context).not.toHaveProperty('nextIrrigation');
+        const ended = calls.filter(c => c.category === 'scheduleEnd');
+        expect(ended).toHaveLength(1);
+        // Two 6-min cycles on the one zone sum to 12 min; single night → no next-irrigation line.
+        expect(ended[0]?.content.body).toBe('Watered Replan Zone 12 min.');
     });
 
-    it('rePlan over a multi-night plan points each schedule-ended at the next night', async () => {
+    it('rePlan over a multi-night plan points each scheduleEnd push at the next night', async () => {
         const enabledRow = buildJoinedRow({ zone: { id: 'zone-multi', name: 'Multi Zone' } });
         const stub = createDaemonReposStub({ enabledZones: [enabledRow] });
         bootDaemonService({ repos: stub.repos, alertsDb: stub.alertsDb });
         const { clock, advanceTo } = createFakeClock(NOW);
-        const { notifier, calls } = recordingNotifier();
+        const { pushNotify, calls } = recordingPush();
         const tomorrowStart = new Date('2026-05-04T14:00:00Z');
         const tonight = buildEntry('2026-05-04', [{ startTime: '2026-05-04T13:00:00Z', durationMin: 4 }]);
         const tomorrow = buildEntry('2026-05-05', [{ startTime: tomorrowStart.toISOString(), durationMin: 4 }]);
@@ -1285,7 +1290,7 @@ describe('start', () => {
             clock,
             rePlanHourLocal: 4,
             siteTimezone: 'UTC',
-            notifier,
+            pushNotify,
             runPlan: async () => ({ entries: [tonight, tomorrow], projectedNextDepletionMm: 0 }),
             openZone: async () => {},
             closeZone: async () => {},
@@ -1294,15 +1299,15 @@ describe('start', () => {
         await control.rePlan();
         await advanceTo(new Date('2026-05-04T14:04:30.000Z'));
 
-        const begun = calls.filter(c => c.event === 'schedule-begun');
-        const ended = calls.filter(c => c.event === 'schedule-ended');
-        expect(begun.map(c => c.context?.scheduleNight)).toEqual(['2026-05-04', '2026-05-05']);
-        expect(ended[0]?.context).toMatchObject({
-            scheduleNight: '2026-05-04',
-            nextIrrigation: { zoneName: 'Multi Zone', startTime: tomorrowStart },
-        });
-        expect(ended[1]?.context).toMatchObject({ scheduleNight: '2026-05-05' });
-        expect(ended[1]?.context).not.toHaveProperty('nextIrrigation');
+        const begun = calls.filter(c => c.category === 'scheduleStart');
+        const ended = calls.filter(c => c.category === 'scheduleEnd');
+        expect(begun.map(c => c.content.body)).toEqual([
+            'Schedule started for the night of 2026-05-04.',
+            'Schedule started for the night of 2026-05-05.',
+        ]);
+        // First night points at the next; the last night has no next irrigation.
+        expect(ended[0]?.content.body).toContain('Next irrigation: Multi Zone on ');
+        expect(ended[1]?.content.body).not.toContain('Next irrigation');
     });
 
     describe('cross-zone deconfliction', () => {

@@ -3,6 +3,7 @@ import type { AlertEvent, Alerter } from '@/alerts';
 import type { Zone } from '@/models';
 import type { PersistedCycle } from '@/models/cycle';
 import type { NotificationContext, NotificationEvent, Notifier } from '@/notifications';
+import type { CategoryPushNotifier, NotificationCategory, PushMessageContent } from '@/service/push-tokens';
 import type { ScheduleEntriesRepository } from '@/repositories/schedule-entries';
 import {
     armCloseOnly,
@@ -165,6 +166,16 @@ function recordingAlerter(): { alerter: Alerter; calls: AlertEvent[] } {
     return { alerter, calls };
 }
 
+type RecordedPush = { category: NotificationCategory; content: PushMessageContent };
+
+function recordingPush(): { pushNotify: CategoryPushNotifier; calls: RecordedPush[] } {
+    const calls: RecordedPush[] = [];
+    const pushNotify: CategoryPushNotifier = async (category, content) => {
+        calls.push({ category, content });
+    };
+    return { pushNotify, calls };
+}
+
 describe('armCycle', () => {
     let repo: ScheduleEntriesRepository;
     let updates: CycleUpdate[];
@@ -227,10 +238,11 @@ describe('armCycle', () => {
         expect(updates.filter(u => u.cycleId === 'cycle-B').some(u => u.closedAt instanceof Date)).toBe(true);
     });
 
-    it('emits schedule-begun on first cycle when scheduleStart marker is set', async () => {
+    it('emits a scheduleStart push on first cycle when scheduleStart marker is set', async () => {
         const { clock, advanceTo } = createFakeClock(NOW);
         const registry = new TimerRegistry();
-        const { notifier, calls } = recordingNotifier();
+        const { notifier } = recordingNotifier();
+        const { pushNotify, calls } = recordingPush();
         const { alerter } = recordingAlerter();
 
         armCycle({
@@ -241,13 +253,14 @@ describe('armCycle', () => {
             openZone: async () => {},
             closeZone: async () => {},
             notifier,
+            pushNotify,
             alerter,
             scheduleStart: { scheduleNight: '2026-05-04' },
         });
 
         await advanceTo(new Date('2026-05-04T13:00:01.000Z'));
 
-        expect(calls.some(c => c.event === 'schedule-begun')).toBe(true);
+        expect(calls.some(c => c.category === 'scheduleStart')).toBe(true);
     });
 
     it('calls advanceDepletion(zone.id, 0, closedAt) on the zones repo after the relay closes', async () => {

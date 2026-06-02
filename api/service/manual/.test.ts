@@ -3,6 +3,7 @@ import type { Zone } from '@/models';
 import type { ManualRepository } from '@/repositories/manual';
 import type { Clock, TimerHandle } from '@/service/daemon/runtime';
 import type { NotificationContext, NotificationEvent, Notifier } from '@/notifications';
+import type { CategoryPushNotifier, NotificationCategory, PushMessageContent } from '@/service/push-tokens';
 import {
     BusyError,
     bootManualService,
@@ -19,6 +20,16 @@ function recordingNotifier(): { notifier: Notifier; calls: RecordedNotification[
         calls.push({ event, context });
     };
     return { notifier, calls };
+}
+
+type RecordedPush = { category: NotificationCategory; content: PushMessageContent };
+
+function recordingPush(): { pushNotify: CategoryPushNotifier; calls: RecordedPush[] } {
+    const calls: RecordedPush[] = [];
+    const pushNotify: CategoryPushNotifier = async (category, content) => {
+        calls.push({ category, content });
+    };
+    return { pushNotify, calls };
 }
 
 type ScheduledTimer = { handle: number; fireAt: number; cb: () => void };
@@ -123,12 +134,14 @@ describe('manual controller — open', () => {
     it('opens the relay, records active state, returns the open timestamp', async () => {
         const { clock } = createFakeClock(NOW);
         const opens: Zone[] = [];
-        const { notifier, calls } = recordingNotifier();
+        const { notifier } = recordingNotifier();
+        const { pushNotify, calls: pushCalls } = recordingPush();
         const controller = createManualController({
             clock,
             openZone: async (z) => { opens.push(z); },
             closeZone: async () => {},
             notifier,
+            pushNotify,
             isAnyScheduledInFlight: () => false,
             isIrrigationEnabled: async () => true,
         });
@@ -140,8 +153,9 @@ describe('manual controller — open', () => {
         expect(opens[0]?.id).toBe('zone-001');
         expect(result.since.getTime()).toBe(NOW.getTime());
         expect(controller.getActiveZone()).toEqual({ zoneId: 'zone-001', zoneName: 'Front Lawn', since: NOW, willCloseAt: null });
-        const started = calls.find(c => c.event === 'watering-started');
-        expect(started?.context).toEqual({ zoneName: 'Front Lawn', reason: 'manual' });
+        const started = pushCalls.find(c => c.category === 'wateringStart');
+        expect(started?.content.body).toBe('Front Lawn watering started (manual fire).');
+        expect(started?.content.data).toEqual({ category: 'wateringStart', zoneId: 'zone-001' });
         // `open` alone doesn't write — the write happens at close (or up-front in `run`).
         expect(writes).toHaveLength(0);
         expect(updates).toHaveLength(0);
@@ -211,12 +225,14 @@ describe('manual controller — close', () => {
     it('closes the active zone, calls writeManualRecord with elapsed duration, clears state', async () => {
         const { clock, advanceTo } = createFakeClock(NOW);
         const closes: Zone[] = [];
-        const { notifier, calls } = recordingNotifier();
+        const { notifier } = recordingNotifier();
+        const { pushNotify, calls: pushCalls } = recordingPush();
         const controller = createManualController({
             clock,
             openZone: async () => {},
             closeZone: async (z) => { closes.push(z); },
             notifier,
+            pushNotify,
             isAnyScheduledInFlight: () => false,
             isIrrigationEnabled: async () => true,
         });
@@ -235,7 +251,7 @@ describe('manual controller — close', () => {
         // close on an `open`-then-`close` path uses writeManualRecord, not updateCycleClosedAt.
         expect(updates).toHaveLength(0);
         expect(controller.getActiveZone()).toBeNull();
-        expect(calls.some(c => c.event === 'watering-ended')).toBe(true);
+        expect(pushCalls.some(c => c.category === 'wateringEnd')).toBe(true);
     });
 
     it('records duration as elapsed time between open and close', async () => {
@@ -359,12 +375,14 @@ describe('manual controller — run', () => {
     it('opens, calls writeManualRecord upfront with the planned duration, and schedules the auto-close', async () => {
         const { clock, advanceTo, getPendingCount } = createFakeClock(NOW);
         const closes: Zone[] = [];
-        const { notifier, calls } = recordingNotifier();
+        const { notifier } = recordingNotifier();
+        const { pushNotify, calls: pushCalls } = recordingPush();
         const controller = createManualController({
             clock,
             openZone: async () => {},
             closeZone: async (z) => { closes.push(z); },
             notifier,
+            pushNotify,
             isAnyScheduledInFlight: () => false,
             isIrrigationEnabled: async () => true,
         });
@@ -378,8 +396,8 @@ describe('manual controller — run', () => {
         expect(writes[0]?.durationMin).toBe(15);
         expect(writes[0]?.openedAt).toEqual(NOW);
         expect(writes[0]?.closedAt).toBeNull();
-        const started = calls.find(c => c.event === 'watering-started');
-        expect(started?.context).toEqual({ zoneName: 'Front Lawn', durationMin: 15, reason: 'manual' });
+        const started = pushCalls.find(c => c.category === 'wateringStart');
+        expect(started?.content.body).toBe('Front Lawn watering started (~15 min) (manual fire).');
         expect(getPendingCount()).toBe(1);
 
         await advanceTo(new Date('2026-05-04T15:15:30.000Z'));
@@ -390,7 +408,7 @@ describe('manual controller — run', () => {
         expect(updates[0]?.cycleId).toBe('cycle-1');
         expect(updates[0]?.closedAt).toEqual(new Date('2026-05-04T15:15:00.000Z'));
         expect(controller.getActiveZone()).toBeNull();
-        expect(calls.some(c => c.event === 'watering-ended')).toBe(true);
+        expect(pushCalls.some(c => c.category === 'wateringEnd')).toBe(true);
     });
 
     it('clears state and emits an error when the auto-close fires but closeZone rejects', async () => {
@@ -546,12 +564,14 @@ describe('manual controller — getActiveZone and shutdown', () => {
     it('shutdown closes any active manual zone and cancels the close timer', async () => {
         const { clock, advanceTo, getPendingCount } = createFakeClock(NOW);
         const closes: Zone[] = [];
-        const { notifier, calls } = recordingNotifier();
+        const { notifier } = recordingNotifier();
+        const { pushNotify, calls: pushCalls } = recordingPush();
         const controller = createManualController({
             clock,
             openZone: async () => {},
             closeZone: async (z) => { closes.push(z); },
             notifier,
+            pushNotify,
             isAnyScheduledInFlight: () => false,
             isIrrigationEnabled: async () => true,
         });
@@ -564,8 +584,8 @@ describe('manual controller — getActiveZone and shutdown', () => {
         expect(closes).toHaveLength(1);
         expect(getPendingCount()).toBe(0);
         expect(controller.getActiveZone()).toBeNull();
-        const ended = calls.find(c => c.event === 'watering-ended');
-        expect(ended?.context).toEqual({ zoneName: 'Front Lawn', reason: 'shutdown' });
+        const ended = pushCalls.find(c => c.category === 'wateringEnd');
+        expect(ended?.content.body).toBe('Front Lawn watering ended (closed during daemon shutdown).');
         // shutdown stamps closed_at via the repo.
         expect(updates).toHaveLength(1);
 
