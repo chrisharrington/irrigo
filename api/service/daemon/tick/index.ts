@@ -155,7 +155,6 @@ export async function runTickForZone(input: RunTickForZoneInput): Promise<RunTic
                             title: 'HA actuation history stale',
                             sub: `Depletion advanced from weather only. Last fetch error: ${reason}.`,
                             zoneId: zone.id,
-                            zoneName: zone.name,
                         });
                     }
                     const result = reconcileFromActuationHistory({
@@ -279,7 +278,6 @@ async function emitWeatherStaleIfStale(
             tone: 'warn',
             title: 'Weather API stale',
             sub: `Planner using fallback ET zero. Last fetch error: ${reason}.`,
-            zoneName: zone.name,
         });
     }
 }

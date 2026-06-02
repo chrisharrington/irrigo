@@ -83,9 +83,7 @@ export async function reconcileCycleAndRelayState(deps: ReconcileDeps): Promise<
                 tone: 'danger',
                 title: 'HA state query failed',
                 sub: `Last attempt failed: ${reason}.`,
-                zoneId: zone.id,
-                zoneName: zone.name,
-            });
+                zoneId: zone.id,            });
             summary.errors += 1;
             continue;
         }
@@ -114,9 +112,7 @@ export async function reconcileCycleAndRelayState(deps: ReconcileDeps): Promise<
                     tone: 'danger',
                     title: 'HA close failed during reconcile',
                     sub: `Last attempt failed: ${reason}.`,
-                    zoneId: zone.id,
-                    zoneName: zone.name,
-                });
+                    zoneId: zone.id,                });
                 summary.errors += 1;
                 continue;
             }
@@ -130,9 +126,7 @@ export async function reconcileCycleAndRelayState(deps: ReconcileDeps): Promise<
                 tone: 'danger',
                 title: 'Missed close',
                 sub: `Relay was still open past planned close at ${plannedCloseAt.toISOString()}.`,
-                zoneId: zone.id,
-                zoneName: zone.name,
-            });
+                zoneId: zone.id,            });
             continue;
         }
 
@@ -147,9 +141,7 @@ export async function reconcileCycleAndRelayState(deps: ReconcileDeps): Promise<
             tone: 'danger',
             title: 'Missed close',
             sub: `Cycle missed expected close; recorded closed at ${closedAt.toISOString()}.`,
-            zoneId: zone.id,
-            zoneName: zone.name,
-        });
+            zoneId: zone.id,        });
     }
 
     for (const zone of managedZones) {
@@ -167,9 +159,7 @@ export async function reconcileCycleAndRelayState(deps: ReconcileDeps): Promise<
                 tone: 'danger',
                 title: 'HA state query failed during sweep',
                 sub: `Last attempt failed: ${reason}.`,
-                zoneId: zone.id,
-                zoneName: zone.name,
-            });
+                zoneId: zone.id,            });
             summary.errors += 1;
             continue;
         }
@@ -186,9 +176,7 @@ export async function reconcileCycleAndRelayState(deps: ReconcileDeps): Promise<
                 tone: 'danger',
                 title: 'HA close failed for orphan relay',
                 sub: `Last attempt failed: ${reason}.`,
-                zoneId: zone.id,
-                zoneName: zone.name,
-            });
+                zoneId: zone.id,            });
             summary.errors += 1;
             continue;
         }
@@ -199,9 +187,7 @@ export async function reconcileCycleAndRelayState(deps: ReconcileDeps): Promise<
             tone: 'danger',
             title: 'Orphan relay closed',
             sub: `Relay was on at boot with no in-flight cycle backing it.`,
-            zoneId: zone.id,
-            zoneName: zone.name,
-        });
+            zoneId: zone.id,        });
     }
 
     return summary;

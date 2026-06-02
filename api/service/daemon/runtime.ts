@@ -153,7 +153,6 @@ async function runOpen(inputs: ArmCycleInputs): Promise<void> {
             title: 'HA open failed',
             sub: `Last attempt failed: ${reason}.`,
             zoneId: zone.id,
-            zoneName: zone.name,
         });
         return;
     }
@@ -235,7 +234,6 @@ async function runClose(inputs: RunCloseInputs): Promise<void> {
             title: 'HA close failed',
             sub: `Last attempt failed: ${reason}.`,
             zoneId: zone.id,
-            zoneName: zone.name,
         });
         return;
     }
@@ -287,7 +285,6 @@ export async function closeAllInFlight(inputs: {
                 title: 'HA close failed during shutdown',
                 sub: `Last attempt failed: ${reason}.`,
                 zoneId: zone.id,
-                zoneName: zone.name,
             });
         }
         registry.clearInFlight(cycleId);

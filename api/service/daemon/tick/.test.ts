@@ -201,7 +201,7 @@ describe('runTickForZone — morning', () => {
         expect(depletionAdvances[0]?.depletionMm).toBeCloseTo(7, 6);
         const stale = alertCalls.filter(a => a.class === 'actuation-stale');
         expect(stale).toHaveLength(1);
-        expect(stale[0]).toMatchObject({ class: 'actuation-stale', tone: 'warn', zoneId: 'zone-001', zoneName: 'North' });
+        expect(stale[0]).toMatchObject({ class: 'actuation-stale', tone: 'warn', zoneId: 'zone-001' });
     });
 });
 
@@ -364,7 +364,7 @@ describe('runTickForZone — weather failure', () => {
 
         const weatherAlerts = alertCalls.filter(a => a.class === 'weather-stale');
         expect(weatherAlerts).toHaveLength(1);
-        expect(weatherAlerts[0]).toMatchObject({ tone: 'warn', title: 'Weather API stale', zoneName: 'North' });
+        expect(weatherAlerts[0]).toMatchObject({ tone: 'warn', title: 'Weather API stale' });
         expect(result).toEqual({ cyclesToArm: [], newBusyWindows: [], observedSunrise: null });
     });
 

@@ -902,7 +902,7 @@ if (import.meta.main) {
     bootTonightService({ db: typedDb });
     bootPushTokensService({ db: typedDb, expo });
     bootDaemonService({ db: typedDb });
-    const alerter = createAlerter(alertsDb, notifier, dispatchAlertPush);
+    const alerter = createAlerter(alertsDb, dispatchAlertPush);
     const daemon = await daemonStart({
         notifier,
         pushNotify: sendCategoryPush,

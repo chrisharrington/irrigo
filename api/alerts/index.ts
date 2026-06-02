@@ -1,7 +1,6 @@
 import { and, desc, eq, isNull, sql } from 'drizzle-orm';
 import { alerts } from '@/db/schema';
 import type { PushDispatcher } from '@/models/push-token';
-import type { Notifier } from '@/notifications';
 
 /**
  * Operator-facing failure classes recorded by the daemon. The set is closed:
@@ -20,11 +19,6 @@ export type AlertTone = 'warn' | 'danger';
  * Payload supplied by writers when a failure is detected. `zoneId` is
  * optional: zone-scoped failures pin to a zone, global failures (weather
  * stale) omit it. Dedup uses `(class, zoneId)` as the key.
- *
- * `zoneName` is transport-only context for the optional HA push fired by the
- * alerter — it is not persisted on the alert row (the same name is already
- * baked into `sub` for the UI to render). Callers pass it alongside `zoneId`
- * when they have a `Zone` in hand at the failure site.
  */
 export type AlertEvent = {
     class: AlertClass;
@@ -32,7 +26,6 @@ export type AlertEvent = {
     title: string;
     sub?: string;
     zoneId?: string;
-    zoneName?: string;
 };
 
 /**
@@ -104,23 +97,19 @@ function rowToDto(row: AlertRow): AlertDto {
  * rows are left alone so the next failure creates a fresh row visible to the
  * UI again.
  *
- * If `notifier` is supplied, the alerter also fires an HA push notification
- * — but **only on insert** (a brand-new alert), not on update (a duplicate of
- * an active condition). This keeps push notifications "loud once, quiet until
- * acked," matching the design's *"loud when present, gone when not"* intent
- * and avoiding the spam loop that prompted API-40.
- *
  * If `pushDispatcher` is supplied, the alerter also fires an Expo Push to
- * every registered device — again, **only on insert**, never on dedup-update.
+ * every registered device — but **only on insert** (a brand-new alert), not on
+ * update (a duplicate of an active condition). This keeps push notifications
+ * "loud once, quiet until acked," matching the design's *"loud when present,
+ * gone when not"* intent and avoiding the spam loop that prompted API-40.
  * Dispatcher errors are caught and logged at `warn` so a transport failure
  * never disrupts the alert write.
  *
  * @param db - Drizzle client (typed loosely so tests can supply a recording stub).
- * @param notifier - Optional HA push channel. Fires on new alerts only.
  * @param pushDispatcher - Optional Expo Push channel. Fires on new alerts only.
  * @returns An `Alerter` closure that persists to the `alerts` table.
  */
-export function createAlerter(db: AlertsDb, notifier?: Notifier, pushDispatcher?: PushDispatcher): Alerter {
+export function createAlerter(db: AlertsDb, pushDispatcher?: PushDispatcher): Alerter {
     return async event => {
         const matchExisting = and(
             eq(alerts.class, event.class),
@@ -161,14 +150,6 @@ export function createAlerter(db: AlertsDb, notifier?: Notifier, pushDispatcher?
             .returning({ id: alerts.id });
         const alertId = inserted[0]!.id;
         console.log(`alerts: inserted new ${event.class} alert.`);
-
-        if (notifier) {
-            await notifier('error', {
-                ...(event.zoneName !== undefined ? { zoneName: event.zoneName } : {}),
-                errorTitle: event.title,
-                ...(event.sub !== undefined ? { errorSub: event.sub } : {}),
-            });
-        }
 
         if (pushDispatcher) {
             await pushDispatcher({
