@@ -3,7 +3,6 @@ import { StyleSheet, Text, View } from 'react-native';
 
 import type { ScheduleListItem } from '@/api/types/schedules';
 import { ActiveScheduleHero } from '@/components/active-schedule-hero';
-import { Button } from '@/components/button';
 import { ScheduleRow } from '@/components/schedule-row';
 import { SwitchScheduleModal } from '@/components/switch-schedule-modal';
 import { FontFamily } from '@/constants/fonts';
@@ -80,12 +79,6 @@ export function ScheduleListView() {
                 />
             )}
 
-            <View style={styles.otherHeading}>
-                <Button variant='ghost' size='sm' disabled accessibilityLabel='Add new profile'>
-                    + New
-                </Button>
-            </View>
-
             <View style={styles.otherList}>
                 {others.map(schedule => (
                     <ScheduleRow key={schedule.id} schedule={schedule} onSwitch={setPendingSwitch} />
@@ -133,12 +126,6 @@ const styles = StyleSheet.create({
         fontSize: 14,
         lineHeight: 20,
         color: colors.warn,
-    },
-    otherHeading: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        justifyContent: 'space-between',
-        marginTop: 6,
     },
     otherList: {
         gap: 8,
