@@ -5,17 +5,35 @@ import type {
     ExpoPushReceiptId,
     ExpoPushTicket,
 } from 'expo-server-sdk';
+import { NOTIFICATION_SETTINGS_DEFAULTS, type NotificationSettingsDto } from '@/models/notification-settings';
 import type { PushAlertEvent } from '@/models/push-token';
 import type { PushToken, PushTokensRepository } from '@/repositories/push-tokens';
+import { bootNotificationSettingsService } from '@/service/notification-settings';
 import {
     bootPushTokensService,
     dispatchAlertPush,
     pollReceipts,
     registerPushToken,
+    sendCategoryPush,
+    sendPushToAll,
     unregisterPushToken,
     type ExpoPushClient,
+    type NotificationCategory,
     type SchedulePoll,
 } from '.';
+
+/**
+ * Boots the notification-settings service with a fake singleton row so the
+ * gated push paths (`sendCategoryPush`, `dispatchAlertPush`) can read flags.
+ * Defaults to {@link NOTIFICATION_SETTINGS_DEFAULTS} (error on), so existing
+ * dispatch assertions hold unless a test overrides a flag.
+ */
+function bootSettings(overrides?: Partial<NotificationSettingsDto>): void {
+    const row: NotificationSettingsDto = { ...NOTIFICATION_SETTINGS_DEFAULTS, ...overrides };
+    bootNotificationSettingsService({
+        repo: { findSingleton: async () => row, upsertSingleton: async () => {} },
+    });
+}
 
 const NOW = new Date('2026-05-22T12:00:00.000Z');
 const CHUNK_LIMIT = 100;
@@ -205,6 +223,9 @@ describe('dispatchAlertPush', () => {
 
     beforeEach(() => {
         warnSpy = spyOn(console, 'warn').mockImplementation(() => {});
+        // dispatchAlertPush now reads flags.error before sending; default the
+        // singleton to error-on so the existing send assertions below hold.
+        bootSettings();
     });
 
     afterEach(() => {
@@ -407,6 +428,162 @@ describe('dispatchAlertPush', () => {
         expect(repoState.deletes).toEqual(['tok-100']);
         expect(captured).toHaveLength(1);
     });
+
+    it('does not send (or poll) when the error toggle is off', async () => {
+        bootSettings({ error: false });
+        const { repo } = fakeRepo([buildToken()]);
+        const { expo, state: expoState } = fakeExpoClient();
+        const { schedulePoll, captured } = recordSchedulePoll();
+        bootPushTokensService({ repo, expo, schedulePoll });
+
+        await dispatchAlertPush(buildAlertEvent());
+
+        expect(expoState.sendChunks).toEqual([]);
+        expect(captured).toEqual([]);
+    });
+
+    it('sends when the error toggle is on', async () => {
+        bootSettings({ error: true });
+        const { repo } = fakeRepo([buildToken()]);
+        const { expo, state: expoState } = fakeExpoClient();
+        const { schedulePoll } = recordSchedulePoll();
+        bootPushTokensService({ repo, expo, schedulePoll });
+
+        await dispatchAlertPush(buildAlertEvent());
+
+        expect(expoState.sendChunks).toHaveLength(1);
+    });
+});
+
+describe('sendPushToAll', () => {
+    let warnSpy: ReturnType<typeof spyOn>;
+
+    beforeEach(() => {
+        warnSpy = spyOn(console, 'warn').mockImplementation(() => {});
+    });
+
+    afterEach(() => {
+        warnSpy.mockRestore();
+    });
+
+    it('does nothing and calls no SDK methods when no tokens are registered', async () => {
+        const { repo } = fakeRepo([]);
+        const { expo, state: expoState } = fakeExpoClient();
+        const { schedulePoll, captured } = recordSchedulePoll();
+        bootPushTokensService({ repo, expo, schedulePoll });
+
+        await sendPushToAll({ title: 'T', body: 'B' });
+
+        expect(expoState.sendChunks).toEqual([]);
+        expect(captured).toEqual([]);
+    });
+
+    it('builds one message per token with the given title, body, data, and priority', async () => {
+        const { repo } = fakeRepo([
+            buildToken({ token: 'tok-1' }),
+            buildToken({ id: 'pt-2', token: 'tok-2' }),
+        ]);
+        const { expo, state: expoState } = fakeExpoClient();
+        const { schedulePoll } = recordSchedulePoll();
+        bootPushTokensService({ repo, expo, schedulePoll });
+
+        await sendPushToAll({
+            title: 'Schedule started',
+            body: 'Tonight run began',
+            data: { category: 'scheduleStart' },
+            priority: 'high',
+        });
+
+        expect(expoState.sendChunks).toHaveLength(1);
+        const sent = expoState.sendChunks[0]!;
+        expect(sent.map(m => m.to)).toEqual(['tok-1', 'tok-2']);
+        expect(sent[0]!.title).toBe('Schedule started');
+        expect(sent[0]!.body).toBe('Tonight run began');
+        expect(sent[0]!.data).toEqual({ category: 'scheduleStart' });
+        expect(sent[0]!.priority).toBe('high');
+    });
+
+    it(`defaults priority to 'default' and omits data when not supplied`, async () => {
+        const { repo } = fakeRepo([buildToken()]);
+        const { expo, state: expoState } = fakeExpoClient();
+        const { schedulePoll } = recordSchedulePoll();
+        bootPushTokensService({ repo, expo, schedulePoll });
+
+        await sendPushToAll({ title: 'T', body: 'B' });
+
+        const msg = expoState.sendChunks[0]![0]!;
+        expect(msg.priority).toBe('default');
+        expect('data' in msg).toBe(false);
+    });
+
+    it('chunks 150 tokens into a 100-token send and a 50-token send', async () => {
+        const rows = Array.from({ length: 150 }, (_, i) => buildToken({ id: `pt-${i}`, token: `tok-${i}` }));
+        const { repo } = fakeRepo(rows);
+        const { expo, state: expoState } = fakeExpoClient();
+        const { schedulePoll } = recordSchedulePoll();
+        bootPushTokensService({ repo, expo, schedulePoll });
+
+        await sendPushToAll({ title: 'T', body: 'B' });
+
+        expect(expoState.sendChunks).toHaveLength(2);
+        expect(expoState.sendChunks[0]!).toHaveLength(100);
+        expect(expoState.sendChunks[1]!).toHaveLength(50);
+    });
+
+    it('prunes tokens flagged DeviceNotRegistered and schedules a poll for ok tickets', async () => {
+        const { repo, state: repoState } = fakeRepo([
+            buildToken({ id: 'pt-A', token: 'tok-A' }),
+            buildToken({ id: 'pt-B', token: 'tok-B' }),
+        ]);
+        const { expo, state: expoState } = fakeExpoClient();
+        expoState.sendResults = [[
+            { status: 'ok', id: 'ticket-A' },
+            { status: 'error', message: 'gone', details: { error: 'DeviceNotRegistered' } },
+        ]];
+        const { schedulePoll, captured } = recordSchedulePoll();
+        bootPushTokensService({ repo, expo, schedulePoll });
+
+        await sendPushToAll({ title: 'T', body: 'B' });
+
+        expect(repoState.deletes).toEqual(['tok-B']);
+        expect(captured).toHaveLength(1);
+        expect(captured[0]!.delayMs).toBe(15_000);
+    });
+});
+
+describe('sendCategoryPush', () => {
+    const CATEGORIES: NotificationCategory[] = ['scheduleStart', 'scheduleEnd', 'wateringStart', 'wateringEnd', 'error'];
+
+    for (const category of CATEGORIES) {
+        it(`sends to all tokens when the ${category} toggle is on`, async () => {
+            const overrides: Partial<NotificationSettingsDto> = {};
+            overrides[category] = true;
+            bootSettings(overrides);
+            const { repo } = fakeRepo([buildToken()]);
+            const { expo, state: expoState } = fakeExpoClient();
+            const { schedulePoll } = recordSchedulePoll();
+            bootPushTokensService({ repo, expo, schedulePoll });
+
+            await sendCategoryPush(category, { title: 'T', body: 'B' });
+
+            expect(expoState.sendChunks).toHaveLength(1);
+        });
+
+        it(`suppresses the send (no SDK call, no poll) when the ${category} toggle is off`, async () => {
+            const overrides: Partial<NotificationSettingsDto> = {};
+            overrides[category] = false;
+            bootSettings(overrides);
+            const { repo } = fakeRepo([buildToken()]);
+            const { expo, state: expoState } = fakeExpoClient();
+            const { schedulePoll, captured } = recordSchedulePoll();
+            bootPushTokensService({ repo, expo, schedulePoll });
+
+            await sendCategoryPush(category, { title: 'T', body: 'B' });
+
+            expect(expoState.sendChunks).toEqual([]);
+            expect(captured).toEqual([]);
+        });
+    }
 });
 
 describe('pollReceipts', () => {
