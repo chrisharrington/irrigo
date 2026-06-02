@@ -1,6 +1,7 @@
 import type { Clock } from '@/service/daemon/runtime';
 import type { Zone } from '@/models';
 import type { Notifier } from '@/notifications';
+import type { CategoryPushNotifier } from '@/service/push-tokens';
 
 /**
  * Snapshot of the active manual fire (if any). Drives the HTTP status the
@@ -25,6 +26,12 @@ export type ManualControllerDeps = {
     openZone: (zone: Zone) => Promise<void>;
     closeZone: (zone: Zone) => Promise<void>;
     notifier: Notifier;
+    /**
+     * Gated Expo push for watering-lifecycle notifications. Defaults to a noop
+     * when unset. The HA `notifier` above still carries manual *error*
+     * notifications until API-50 retires it.
+     */
+    pushNotify?: CategoryPushNotifier;
 
     /**
      * Returns true if a scheduled cycle is currently in-flight. The controller

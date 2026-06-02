@@ -916,6 +916,7 @@ if (import.meta.main) {
         openZone: effectiveOpenZone,
         closeZone: effectiveCloseZone,
         notifier,
+        pushNotify: sendCategoryPush,
         isAnyScheduledInFlight: () => daemon.getStatus().activeZones.length > 0,
         isIrrigationEnabled: async () => (await getSystemState()).irrigationEnabled,
     });
