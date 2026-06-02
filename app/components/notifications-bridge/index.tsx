@@ -28,11 +28,25 @@ Notifications.setNotificationHandler({
     }),
 });
 
+/**
+ * The four lifecycle push categories emitted by the daemon + manual controller
+ * (API-104). Lifecycle pushes carry `data.category` (and a `zoneId` for the
+ * watering pair) but no `alertId` — that's how they're told apart from alert
+ * pushes, which carry `alertId` + an optional `zoneId`.
+ */
+const LIFECYCLE_CATEGORIES = ['scheduleStart', 'scheduleEnd', 'wateringStart', 'wateringEnd'] as const;
+type LifecyclePushCategory = (typeof LIFECYCLE_CATEGORIES)[number];
+
+function isLifecycleCategory(value: unknown): value is LifecyclePushCategory {
+    return typeof value === 'string' && (LIFECYCLE_CATEGORIES as readonly string[]).includes(value);
+}
+
 type BannerState = {
     tone: AlertRowTone;
     title: string;
     sub?: string;
-    zoneId?: string;
+    /** Deep-link target when the banner is tapped, or null for no navigation. */
+    route: string | null;
 };
 
 /**
@@ -75,10 +89,10 @@ export function NotificationsBridge() {
             const content = notification.request.content;
             const data = content.data ?? {};
             setBanner({
-                tone: toneFromData(data),
+                tone: toneForPush(data),
                 title: content.title ?? 'Irrigo alert',
                 ...(content.body ? { sub: content.body } : {}),
-                ...(typeof data.zoneId === 'string' ? { zoneId: data.zoneId } : {}),
+                route: routeForPush(data),
             });
         });
         return () => {
@@ -86,12 +100,13 @@ export function NotificationsBridge() {
         };
     }, []);
 
-    // Background tap → deep-link to the zone if the push carried a zoneId.
+    // Background tap → deep-link per the push's category / zone.
     useEffect(() => {
         const subscription = Notifications.addNotificationResponseReceivedListener(response => {
             const data = response.notification.request.content.data ?? {};
-            if (typeof data.zoneId === 'string') {
-                router.push(`/zone/${data.zoneId}` as never);
+            const route = routeForPush(data);
+            if (route !== null) {
+                router.push(route as never);
             }
         });
         return () => {
@@ -100,8 +115,8 @@ export function NotificationsBridge() {
     }, [router]);
 
     const handleBannerPress = useCallback(() => {
-        if (banner?.zoneId !== undefined) {
-            router.push(`/zone/${banner.zoneId}` as never);
+        if (banner?.route != null) {
+            router.push(banner.route as never);
         }
         setBanner(null);
     }, [banner, router]);
@@ -120,6 +135,33 @@ export function NotificationsBridge() {
             onDismiss={handleBannerDismiss}
         />
     );
+}
+
+/**
+ * Banner tone for a push. Lifecycle pushes (schedule / watering) are purely
+ * informational, so they paint `info`; alert pushes fall back to the
+ * failure-oriented `toneFromData` (default `danger`).
+ */
+function toneForPush(data: Record<string, unknown>): AlertRowTone {
+    if (isLifecycleCategory(data.category)) return 'info';
+    return toneFromData(data);
+}
+
+/**
+ * Resolves the deep-link a push routes to when tapped (foreground banner or
+ * background response), or null for no navigation:
+ *
+ * - lifecycle `scheduleStart` / `scheduleEnd` → Home (schedule state lives there);
+ * - lifecycle `wateringStart` / `wateringEnd` → the zone if one is attached, else the Activity feed;
+ * - alert pushes → the zone when a `zoneId` is present, else no navigation (matching pre-lifecycle behaviour).
+ */
+function routeForPush(data: Record<string, unknown>): string | null {
+    const zoneId = typeof data.zoneId === 'string' ? data.zoneId : undefined;
+    if (isLifecycleCategory(data.category)) {
+        if (data.category === 'scheduleStart' || data.category === 'scheduleEnd') return '/';
+        return zoneId !== undefined ? `/zone/${zoneId}` : '/activity';
+    }
+    return zoneId !== undefined ? `/zone/${zoneId}` : null;
 }
 
 /**
