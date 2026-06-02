@@ -37,15 +37,15 @@ export const irrigoDarkTheme: typeof DarkTheme = {
 
 const ROUTE_FOR_NAV_ID: Record<NavItemId, string> = {
     home: '/',
-    zones: '/zones',
     schedules: '/schedules',
     activity: '/activity',
 };
 
 function pathnameToActiveId(pathname: string): NavItemId {
-    // Strip trailing 's' off each plural id so `/zone/<slug>` resolves to
-    // the same tab as `/zones` (no separate /zone/* schedules / activity
-    // detail routes exist, but the form holds for them too).
+    // Strip trailing 's' off each plural id so a `/schedule/<slug>`-style
+    // detail route would still resolve to the same nav id as its `/schedules`
+    // list. Zone detail pages (`/zone/<slug>`) have no nav id since the Zones
+    // entry was removed (APP-102), so they fall back to 'home'.
     return (Object.keys(ROUTE_FOR_NAV_ID) as NavItemId[]).find(
         id => id !== 'home' && pathname.startsWith('/' + id.replace(/s$/, '')),
     ) ?? 'home';

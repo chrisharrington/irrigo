@@ -43,7 +43,7 @@ const SAMPLE_INACTIVE: ScheduleListItem = {
 };
 
 describe('NavDrawer', () => {
-    it('renders the brand row, four nav items, close button, and footer when visible.', async () => {
+    it('renders the brand row, three nav items, close button, and footer when visible.', async () => {
         const { wrapper, client } = buildApiWrapper();
         client.setQueryData(keys.schedules.list(), [SAMPLE_ACTIVE, SAMPLE_INACTIVE]);
 
@@ -55,7 +55,7 @@ describe('NavDrawer', () => {
         expect(screen.getByText('Irrigo')).toBeOnTheScreen();
         expect(screen.getByText('Calgary · 740 m²')).toBeOnTheScreen();
         expect(screen.getByLabelText('Home')).toBeOnTheScreen();
-        expect(screen.getByLabelText('Zones')).toBeOnTheScreen();
+        expect(screen.queryByLabelText('Zones')).toBeNull();
         expect(screen.getByLabelText('Schedules')).toBeOnTheScreen();
         expect(screen.getByLabelText('Activity')).toBeOnTheScreen();
         expect(screen.getByLabelText('Close menu')).toBeOnTheScreen();
@@ -85,10 +85,10 @@ describe('NavDrawer', () => {
             <NavDrawer visible onClose={jest.fn()} activeId='home' onSelect={onSelect} />,
             { wrapper },
         );
-        fireEvent.press(screen.getByLabelText('Zones'));
+        fireEvent.press(screen.getByLabelText('Activity'));
 
         expect(onSelect).toHaveBeenCalledTimes(1);
-        expect(onSelect).toHaveBeenCalledWith('zones');
+        expect(onSelect).toHaveBeenCalledWith('activity');
     });
 
     it('also calls onClose after a nav item is selected so the drawer dismisses.', () => {
@@ -126,14 +126,13 @@ describe('NavDrawer', () => {
         client.setQueryData(keys.schedules.list(), [SAMPLE_ACTIVE]);
 
         render(
-            <NavDrawer visible onClose={jest.fn()} activeId='zones' onSelect={jest.fn()} />,
+            <NavDrawer visible onClose={jest.fn()} activeId='activity' onSelect={jest.fn()} />,
             { wrapper },
         );
 
-        expect(screen.getByLabelText('Zones').props.accessibilityState).toMatchObject({ selected: true });
+        expect(screen.getByLabelText('Activity').props.accessibilityState).toMatchObject({ selected: true });
         expect(screen.getByLabelText('Home').props.accessibilityState).toMatchObject({ selected: false });
         expect(screen.getByLabelText('Schedules').props.accessibilityState).toMatchObject({ selected: false });
-        expect(screen.getByLabelText('Activity').props.accessibilityState).toMatchObject({ selected: false });
     });
 
     it('shows the active schedule name and formatted cadence in the footer.', async () => {
