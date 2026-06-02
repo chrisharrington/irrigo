@@ -156,3 +156,12 @@ export function Help({ size = DEFAULT_SIZE, color = DEFAULT_COLOR, strokeWidth =
         </Svg>
     );
 }
+
+export function Settings({ size = DEFAULT_SIZE, color = DEFAULT_COLOR, strokeWidth = 1.4, accessibilityLabel }: IconProps) {
+    return (
+        <Svg width={size} height={size} viewBox='0 0 16 16' fill='none' stroke={color} strokeWidth={strokeWidth} strokeLinecap='round' strokeLinejoin='round' accessibilityLabel={accessibilityLabel}>
+            <Circle cx={8} cy={8} r={2.5} />
+            <Path d='M8 4.6 V2 M8 11.4 V14 M11.4 8 H14 M4.6 8 H2 M10.4 5.6 L12.2 3.8 M5.6 5.6 L3.8 3.8 M10.4 10.4 L12.2 12.2 M5.6 10.4 L3.8 12.2' />
+        </Svg>
+    );
+}

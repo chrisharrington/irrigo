@@ -250,6 +250,14 @@ describe('RootLayout', () => {
         expect(screen.getByText('active:activity')).toBeOnTheScreen();
     });
 
+    it('maps /settings onto the settings nav id (APP-86).', () => {
+        mockUsePathname.mockReturnValue('/settings');
+
+        render(<RootLayout />);
+
+        expect(screen.getByText('active:settings')).toBeOnTheScreen();
+    });
+
     it('falls back to the home nav id for unknown pathnames (APP-58).', () => {
         mockUsePathname.mockReturnValue('/unknown-route');
 
@@ -286,8 +294,11 @@ describe('RootLayout', () => {
         // to verify routing without driving the real drawer animation.
         const drawerProps = mockDrawerProps.mock.calls.at(-1)?.[0] as { onSelect: (id: string) => void };
         drawerProps.onSelect('schedules');
-
         expect(mockRouterPush).toHaveBeenCalledWith('/schedules');
+
+        // The Settings entry added in APP-86 routes to /settings.
+        drawerProps.onSelect('settings');
+        expect(mockRouterPush).toHaveBeenCalledWith('/settings');
     });
 
     it('collapses the drawer when its onClose handler fires (APP-58).', () => {

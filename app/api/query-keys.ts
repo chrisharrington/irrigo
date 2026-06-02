@@ -36,4 +36,8 @@ export const keys = {
         all: () => ['health'] as const,
         status: () => ['health', 'status'] as const,
     },
+    settings: {
+        all: () => ['settings'] as const,
+        notifications: () => ['settings', 'notifications'] as const,
+    },
 } as const;

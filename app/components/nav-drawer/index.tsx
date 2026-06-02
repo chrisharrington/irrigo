@@ -20,7 +20,7 @@ import { BlurView } from 'expo-blur';
 
 import { BrandGlyph } from '@/components/brand-glyph';
 import { Button } from '@/components/button';
-import { Cal, History, Home as HomeIcon, X, type IconProps } from '@/components/icons';
+import { Cal, History, Home as HomeIcon, Settings, X, type IconProps } from '@/components/icons';
 import { FontFamily } from '@/constants/fonts';
 import { Duration } from '@/constants/motion';
 import { useSchedules } from '@/hooks/schedules';
@@ -42,7 +42,7 @@ const REANIMATED_EASING_STANDARD = Easing.bezier(0.2, 0.7, 0.2, 1);
  * The four nav destinations the drawer offers. Consumers map these to their
  * own routes; the drawer itself stays route-agnostic.
  */
-export type NavItemId = 'home' | 'schedules' | 'activity';
+export type NavItemId = 'home' | 'schedules' | 'activity' | 'settings';
 
 type NavItem = {
     id: NavItemId;
@@ -54,6 +54,7 @@ const NAV_ITEMS: readonly NavItem[] = [
     { id: 'home', label: 'Home', icon: HomeIcon },
     { id: 'schedules', label: 'Schedules', icon: Cal },
     { id: 'activity', label: 'Activity', icon: History },
+    { id: 'settings', label: 'Settings', icon: Settings },
 ];
 
 const DAY_LABELS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'] as const;
@@ -94,8 +95,8 @@ export type NavDrawerProps = {
 };
 
 /**
- * Irrigo's left-anchored nav drawer. Composes a brand row, three nav items
- * (Home / Schedules / Activity), and a glow-bordered footer card
+ * Irrigo's left-anchored nav drawer. Composes a brand row, four nav items
+ * (Home / Schedules / Activity / Settings), and a glow-bordered footer card
  * surfacing the currently-active schedule with a "Switch profile" shortcut.
  *
  * Controlled component — `visible`, `activeId`, `onClose`, and `onSelect`
