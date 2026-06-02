@@ -58,5 +58,13 @@ RUN bun install --frozen-lockfile
 # Re-run install on each start so package.json / bun.lock changes from the
 # bind mount land in the anonymous /app/app/node_modules volume. Near no-op
 # when the lock already matches what's installed.
-ENTRYPOINT ["sh", "-c", "bun install --frozen-lockfile && exec \"$0\" \"$@\""]
+#
+# `watchman watch-project` pre-warms the daemon and registers /app as a watch
+# root before Metro launches. Without this, Metro's startup probe for
+# watchman races the daemon's first-spawn cost, often times out, and silently
+# falls back to recursive `fs.watch` for the lifetime of the process. That
+# fallback misses inotify events for writes from the dev container (atomic
+# rename → new inode), which is what made Claude-authored edits invisible to
+# Metro until the container was restarted.
+ENTRYPOINT ["sh", "-c", "bun install --frozen-lockfile && watchman watch-project /app >/dev/null && exec \"$0\" \"$@\""]
 CMD ["bunx", "expo", "start", "--dev-client", "--port", "9097"]
