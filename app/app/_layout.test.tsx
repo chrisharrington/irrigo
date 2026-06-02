@@ -234,12 +234,12 @@ describe('RootLayout', () => {
         expect(screen.getByText('active:schedules')).toBeOnTheScreen();
     });
 
-    it('maps /zone/<slug> paths onto the zones nav id (APP-58).', () => {
+    it('falls back to the home nav id for /zone/<slug> paths now that the Zones entry is gone (APP-102).', () => {
         mockUsePathname.mockReturnValue('/zone/north');
 
         render(<RootLayout />);
 
-        expect(screen.getByText('active:zones')).toBeOnTheScreen();
+        expect(screen.getByText('active:home')).toBeOnTheScreen();
     });
 
     it('maps /activity onto the activity nav id (APP-58).', () => {
