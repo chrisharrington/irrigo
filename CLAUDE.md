@@ -11,7 +11,7 @@ Irrigation control system. The repo contains:
 First-time setup:
 
 1. `cp .env.example .env` — at the repo root. Docker Compose loads `.env` from the directory containing the compose file.
-2. Edit `.env` and fill in the required values: `HA_URL` (your Home Assistant base URL) and `HA_TOKEN` (a long-lived access token from HA → Profile → Security → Long-Lived Access Tokens). Postgres / pgAdmin / port values have working defaults and only need to be set if you're overriding them. To opt into push notifications via Home Assistant, set `HA_NOTIFY_SERVICE` (e.g. `mobile_app_pixel_8`). The per-event toggles (schedule start/end, watering start/end, error) are no longer env vars — they live in the `notification_settings` DB row and are read/changed at runtime via `GET` / `PATCH /settings/notifications` (defaults: schedule start/end + error on, watering start/end off).
+2. Edit `.env` and fill in the required values: `HA_URL` (your Home Assistant base URL) and `HA_TOKEN` (a long-lived access token from HA → Profile → Security → Long-Lived Access Tokens). Postgres / pgAdmin / port values have working defaults and only need to be set if you're overriding them. Operator notifications are delivered as Expo push to the mobile app (not via Home Assistant); the per-event toggles (schedule start/end, watering start/end, error) live in the `notification_settings` DB row and are read/changed at runtime via `GET` / `PATCH /settings/notifications` (defaults: schedule start/end + error on, watering start/end off).
 3. From the repo root, bring the stack up: `docker compose up` (or `bun --cwd=./api run up` for the variant that includes pgAdmin via the `tools` profile).
 
 `.env` is gitignored — never commit credentials.
