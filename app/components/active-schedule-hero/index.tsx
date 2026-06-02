@@ -114,7 +114,6 @@ export function ActiveScheduleHero({
                 :   <View>
                         <View style={styles.nextRunRow}>
                             <Text style={styles.nextRunBig}>{schedule.nextRun?.inLabel ?? '—'}</Text>
-                            <Text style={styles.nextRunFromNow}>from now</Text>
                         </View>
                         <Text style={styles.nextRunSub}>
                             {schedule.nextRun ?
