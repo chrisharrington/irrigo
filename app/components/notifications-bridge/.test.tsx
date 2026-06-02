@@ -1,4 +1,4 @@
-import { act, render, screen, waitFor } from '@testing-library/react-native';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react-native';
 
 jest.mock('expo-notifications', () => ({
     getPermissionsAsync: jest.fn(),
@@ -200,5 +200,151 @@ describe('NotificationsBridge', () => {
         });
 
         expect(mockPush).not.toHaveBeenCalled();
+    });
+
+    // --- Lifecycle pushes (APP-103): data.category, no alertId. ---
+
+    /**
+     * Renders the bridge and returns a function that fires a background-tap
+     * response with the given `data` payload through the captured handler.
+     */
+    async function captureResponseHandler(): Promise<(data: Record<string, unknown>) => void> {
+        getPermissionsAsync.mockResolvedValueOnce(buildPermission({ granted: true, status: 'granted' }));
+        getExpoPushTokenAsync.mockResolvedValueOnce({ data: 'ExponentPushToken[xyz]', type: 'expo' });
+        mockFetch.mockResolvedValue(jsonResponse({ status: 'registered' }));
+
+        let handler: ((event: unknown) => void) | undefined;
+        addNotificationResponseReceivedListener.mockImplementation((h: (event: unknown) => void) => {
+            handler = h;
+            return { remove: jest.fn() };
+        });
+
+        render(<NotificationsBridge />, { wrapper: buildApiWrapper().wrapper });
+        await waitFor(() => expect(handler).toBeDefined());
+
+        return (data: Record<string, unknown>) => {
+            act(() => {
+                handler?.({ notification: { request: { content: { data } } } });
+            });
+        };
+    }
+
+    it('shows an informational banner for a lifecycle push.', async () => {
+        getPermissionsAsync.mockResolvedValueOnce(buildPermission({ granted: true, status: 'granted' }));
+        getExpoPushTokenAsync.mockResolvedValueOnce({ data: 'ExponentPushToken[xyz]', type: 'expo' });
+        mockFetch.mockResolvedValue(jsonResponse({ status: 'registered' }));
+
+        let receivedHandler: ((event: unknown) => void) | undefined;
+        addNotificationReceivedListener.mockImplementation((handler: (event: unknown) => void) => {
+            receivedHandler = handler;
+            return { remove: jest.fn() };
+        });
+
+        render(<NotificationsBridge />, { wrapper: buildApiWrapper().wrapper });
+        await waitFor(() => expect(receivedHandler).toBeDefined());
+
+        act(() => {
+            receivedHandler?.({
+                request: {
+                    content: {
+                        title: 'Irrigation started',
+                        body: 'Schedule started for the night of 2026-06-09.',
+                        data: { category: 'scheduleStart' },
+                    },
+                },
+            });
+        });
+
+        expect(screen.getByText('Irrigation started')).toBeOnTheScreen();
+        expect(screen.getByText('Schedule started for the night of 2026-06-09.')).toBeOnTheScreen();
+    });
+
+    it('routes a scheduleStart background tap to Home.', async () => {
+        const fire = await captureResponseHandler();
+        fire({ category: 'scheduleStart' });
+        expect(mockPush).toHaveBeenCalledWith('/');
+    });
+
+    it('routes a scheduleEnd background tap to Home.', async () => {
+        const fire = await captureResponseHandler();
+        fire({ category: 'scheduleEnd' });
+        expect(mockPush).toHaveBeenCalledWith('/');
+    });
+
+    it('routes a wateringStart background tap with a zoneId to that zone.', async () => {
+        const fire = await captureResponseHandler();
+        fire({ category: 'wateringStart', zoneId: 'zone-009' });
+        expect(mockPush).toHaveBeenCalledWith('/zone/zone-009');
+    });
+
+    it('routes a wateringEnd background tap without a zoneId to the Activity feed.', async () => {
+        const fire = await captureResponseHandler();
+        fire({ category: 'wateringEnd' });
+        expect(mockPush).toHaveBeenCalledWith('/activity');
+    });
+
+    it('routes when a lifecycle foreground banner is tapped, then dismisses it.', async () => {
+        getPermissionsAsync.mockResolvedValueOnce(buildPermission({ granted: true, status: 'granted' }));
+        getExpoPushTokenAsync.mockResolvedValueOnce({ data: 'ExponentPushToken[xyz]', type: 'expo' });
+        mockFetch.mockResolvedValue(jsonResponse({ status: 'registered' }));
+
+        let receivedHandler: ((event: unknown) => void) | undefined;
+        addNotificationReceivedListener.mockImplementation((handler: (event: unknown) => void) => {
+            receivedHandler = handler;
+            return { remove: jest.fn() };
+        });
+
+        render(<NotificationsBridge />, { wrapper: buildApiWrapper().wrapper });
+        await waitFor(() => expect(receivedHandler).toBeDefined());
+
+        act(() => {
+            receivedHandler?.({
+                request: {
+                    content: {
+                        title: 'Watering started',
+                        body: 'Front Lawn watering started (manual fire).',
+                        data: { category: 'wateringStart', zoneId: 'zone-009' },
+                    },
+                },
+            });
+        });
+
+        fireEvent.press(screen.getByLabelText('Notification: Watering started'));
+
+        expect(mockPush).toHaveBeenCalledWith('/zone/zone-009');
+        expect(screen.queryByText('Watering started')).toBeNull();
+    });
+
+    it('dismisses without navigating when a banner with no route is tapped.', async () => {
+        getPermissionsAsync.mockResolvedValueOnce(buildPermission({ granted: true, status: 'granted' }));
+        getExpoPushTokenAsync.mockResolvedValueOnce({ data: 'ExponentPushToken[xyz]', type: 'expo' });
+        mockFetch.mockResolvedValue(jsonResponse({ status: 'registered' }));
+
+        let receivedHandler: ((event: unknown) => void) | undefined;
+        addNotificationReceivedListener.mockImplementation((handler: (event: unknown) => void) => {
+            receivedHandler = handler;
+            return { remove: jest.fn() };
+        });
+
+        render(<NotificationsBridge />, { wrapper: buildApiWrapper().wrapper });
+        await waitFor(() => expect(receivedHandler).toBeDefined());
+
+        // An alert push with no zoneId resolves to a null route.
+        act(() => {
+            receivedHandler?.({
+                request: {
+                    content: {
+                        title: 'Weather data stale',
+                        body: 'Planner is using fallback ET.',
+                        data: { alertId: 'alert-9', tone: 'warn' },
+                    },
+                },
+            });
+        });
+
+        fireEvent.press(screen.getByLabelText('Notification: Weather data stale'));
+
+        expect(mockPush).not.toHaveBeenCalled();
+        expect(screen.queryByText('Weather data stale')).toBeNull();
     });
 });
