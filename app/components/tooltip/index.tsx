@@ -1,5 +1,5 @@
 import { useCallback, useState, type ReactNode } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, Text, View, type StyleProp, type TextStyle } from 'react-native';
 
 import { Help } from '@/components/icons';
 import { Modal } from '@/components/modal';
@@ -20,6 +20,9 @@ export type TooltipProps = {
 
     /** Required. Sheet body. A single string renders one paragraph; an array renders one paragraph per entry; any other node renders as-is. */
     body: string | string[] | ReactNode;
+
+    /** Optional. Style override for the label text, so callers can match their surrounding typography. */
+    labelStyle?: StyleProp<TextStyle>;
 };
 
 /**
@@ -28,7 +31,7 @@ export type TooltipProps = {
  * the topic with a `title` and `body`. Mobile-first, tap-to-open — not a hover
  * popover. Dismisses via the backdrop or the Android back button.
  */
-export function Tooltip({ label, title, body }: TooltipProps) {
+export function Tooltip({ label, title, body, labelStyle }: TooltipProps) {
     const [isOpen, setOpen] = useState<boolean>(false);
 
     const open = useCallback(() => setOpen(true), []);
@@ -36,7 +39,7 @@ export function Tooltip({ label, title, body }: TooltipProps) {
 
     return (
         <View style={styles.row}>
-            <Text style={styles.label}>{label}</Text>
+            <Text style={[styles.label, labelStyle]}>{label}</Text>
 
             <Pressable
                 onPress={open}

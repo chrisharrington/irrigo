@@ -1,7 +1,11 @@
-import { fireEvent, render, screen } from '@testing-library/react-native';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react-native';
 
 import { ActiveScheduleHero } from '.';
 import type { ScheduleListItem } from '@/api/types/schedules';
+
+jest.mock('react-native-safe-area-context', () => ({
+    useSafeAreaInsets: () => ({ top: 0, bottom: 34, left: 0, right: 0 }),
+}));
 
 const BASE_SCHEDULE: ScheduleListItem = {
     id: 'sched-001',
@@ -135,6 +139,69 @@ describe('ActiveScheduleHero', () => {
         expect(screen.getByLabelText('End by sunrise: Off')).toBeOnTheScreen();
         expect(screen.getByLabelText('Root depth override: —')).toBeOnTheScreen();
         expect(screen.getByLabelText('Depletion fraction: —')).toBeOnTheScreen();
+    });
+
+    it('exposes a help trigger on the Root depth and Depletion rows, closed by default.', () => {
+        render(
+            <ActiveScheduleHero
+                schedule={BASE_SCHEDULE}
+                skipping={false}
+                onReplan={noop}
+                onSwitchProfile={noop}
+                onToggleSkip={noop}
+            />,
+        );
+
+        expect(screen.getByLabelText('What is Root depth override?')).toBeOnTheScreen();
+        expect(screen.getByLabelText('What is Depletion fraction?')).toBeOnTheScreen();
+        // Sheets stay closed until a trigger is tapped.
+        expect(screen.queryByText(/Management Allowable Depletion/)).toBeNull();
+    });
+
+    it('opens the Root depth help sheet with its title and body when the trigger is tapped.', () => {
+        render(
+            <ActiveScheduleHero
+                schedule={BASE_SCHEDULE}
+                skipping={false}
+                onReplan={noop}
+                onSwitchProfile={noop}
+                onToggleSkip={noop}
+            />,
+        );
+
+        fireEvent.press(screen.getByLabelText('What is Root depth override?'));
+
+        // The sheet heading and the row label share the text; both instances render.
+        expect(screen.getAllByText('Root depth override').length).toBeGreaterThan(1);
+        expect(screen.getByText(/the planner aims to refill/)).toBeOnTheScreen();
+    });
+
+    it('opens the Depletion fraction help sheet, and the backdrop dismisses it.', async () => {
+        const { root } = render(
+            <ActiveScheduleHero
+                schedule={BASE_SCHEDULE}
+                skipping={false}
+                onReplan={noop}
+                onSwitchProfile={noop}
+                onToggleSkip={noop}
+            />,
+        );
+
+        fireEvent.press(screen.getByLabelText('What is Depletion fraction?'));
+        expect(screen.getByText(/Management Allowable Depletion/)).toBeOnTheScreen();
+
+        const backdrop = root.find(
+            node =>
+                typeof node.type === 'string' &&
+                node.props.accessibilityLabel === 'Dismiss modal',
+        );
+        fireEvent.press(backdrop);
+
+        // The sheet animates closed before unmounting.
+        await waitFor(
+            () => expect(screen.queryByText(/Management Allowable Depletion/)).toBeNull(),
+            { timeout: 5000 },
+        );
     });
 
     it('flips the footer button label between Skip tonight and Resume tonight.', () => {

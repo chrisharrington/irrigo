@@ -1,5 +1,5 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react-native';
-import { Text } from 'react-native';
+import { StyleSheet, Text } from 'react-native';
 
 import { Tooltip } from '.';
 
@@ -53,6 +53,24 @@ describe('Tooltip', () => {
 
         expect(screen.getByText('First paragraph about roots.')).toBeOnTheScreen();
         expect(screen.getByText('Second paragraph about depth.')).toBeOnTheScreen();
+    });
+
+    it('applies a caller-supplied labelStyle to the label.', () => {
+        render(
+            <Tooltip
+                label='Root depth override'
+                title='Root depth override'
+                body='Body text.'
+                labelStyle={{ color: 'rgb(1, 2, 3)' }}
+            />,
+        );
+
+        const label = screen.getByText('Root depth override');
+        const style = StyleSheet.flatten(label.props.style as Parameters<typeof StyleSheet.flatten>[0]) as
+            | { color?: string }
+            | undefined;
+
+        expect(style?.color).toBe('rgb(1, 2, 3)');
     });
 
     it('renders a custom node body as supplied.', () => {
