@@ -146,3 +146,13 @@ export function Check({ size = DEFAULT_SIZE, color = DEFAULT_COLOR, strokeWidth 
         </Svg>
     );
 }
+
+export function Help({ size = DEFAULT_SIZE, color = DEFAULT_COLOR, strokeWidth = 1.4, accessibilityLabel }: IconProps) {
+    return (
+        <Svg width={size} height={size} viewBox='0 0 16 16' fill='none' stroke={color} strokeWidth={strokeWidth} strokeLinecap='round' strokeLinejoin='round' accessibilityLabel={accessibilityLabel}>
+            <Circle cx='8' cy='8' r='6.5' />
+            <Path d='M6.06 6 a 2 2 0 0 1 3.89 0.67 c 0 1.33 -2 2 -2 2' />
+            <Path d='M8 11.3 h 0.01' />
+        </Svg>
+    );
+}

@@ -105,7 +105,7 @@ describe('ActiveScheduleHero', () => {
         expect(screen.getByLabelText('Tonight skipped')).toBeOnTheScreen();
     });
 
-    it('renders all four rule rows with the schedule values.', () => {
+    it('renders the three rule rows with the schedule values.', () => {
         render(
             <ActiveScheduleHero
                 schedule={BASE_SCHEDULE}
@@ -116,13 +116,12 @@ describe('ActiveScheduleHero', () => {
             />,
         );
 
-        expect(screen.getByLabelText('Time window: 22:00 → 06:00')).toBeOnTheScreen();
         expect(screen.getByLabelText('End by sunrise: On')).toBeOnTheScreen();
         expect(screen.getByLabelText('Root depth override: 0.18 m')).toBeOnTheScreen();
         expect(screen.getByLabelText('Depletion fraction: 0.50')).toBeOnTheScreen();
     });
 
-    it('renders em-dashes and `Off`/`Any time` for the null-rule fallbacks.', () => {
+    it('renders em-dashes and `Off` for the null-rule fallbacks.', () => {
         render(
             <ActiveScheduleHero
                 schedule={NULL_RULES_SCHEDULE}
@@ -133,7 +132,6 @@ describe('ActiveScheduleHero', () => {
             />,
         );
 
-        expect(screen.getByLabelText('Time window: Any time')).toBeOnTheScreen();
         expect(screen.getByLabelText('End by sunrise: Off')).toBeOnTheScreen();
         expect(screen.getByLabelText('Root depth override: —')).toBeOnTheScreen();
         expect(screen.getByLabelText('Depletion fraction: —')).toBeOnTheScreen();
