@@ -14,6 +14,7 @@ import { getWeatherData } from '@/data/weather';
 import type { WeatherData, Zone } from '@/models';
 import type { PersistedCycle } from '@/models/cycle';
 import { noopNotifier, type Notifier } from '@/notifications';
+import { noopCategoryPush, type CategoryPushNotifier } from '@/service/push-tokens';
 import { runScheduleForZone, type RunScheduleForZoneOptions } from '@/schedules';
 import type { PlanZoneScheduleResult } from '@/schedules/dynamic';
 import { getSystemState } from '@/service/system';
@@ -97,6 +98,8 @@ export type DaemonOptions = {
     clock?: Clock;
     siteTimezone?: string;
     notifier?: Notifier;
+    /** Gated Expo push for lifecycle notifications. Defaults to a noop. Production wires `sendCategoryPush`. */
+    pushNotify?: CategoryPushNotifier;
     alerter?: Alerter;
 };
 
@@ -152,6 +155,7 @@ export async function start(options?: DaemonOptions): Promise<DaemonControl> {
 
     const registry = new TimerRegistry();
     const notifier = options?.notifier ?? noopNotifier;
+    const pushNotify = options?.pushNotify ?? noopCategoryPush;
     const alerter = options?.alerter ?? noopAlerter;
     let lastRePlanAt: Date | null = null;
     let started = false;
@@ -171,7 +175,7 @@ export async function start(options?: DaemonOptions): Promise<DaemonControl> {
     const { initialSunrise } = await runBootSequence({
         morningTickMinutesAfterSunrise,
         deps: {
-            clock, registry, notifier, alerter,
+            clock, registry, notifier, pushNotify, alerter,
             openZone, closeZone, getZoneState, getWeather,
             zonesRepo, scheduleEntriesRepo,
         },
@@ -260,7 +264,7 @@ export async function start(options?: DaemonOptions): Promise<DaemonControl> {
         }
 
         armCyclesWithScheduleMarkers(cyclesToArm, siteTimezone, ({ zone, cycle, scheduleStart, scheduleEnd }) => {
-            armCycle({ clock, registry, zone, cycle, openZone, closeZone, notifier, alerter, scheduleStart, scheduleEnd });
+            armCycle({ clock, registry, zone, cycle, openZone, closeZone, notifier, pushNotify, alerter, scheduleStart, scheduleEnd });
         });
 
         lastRePlanAt = clock.now();

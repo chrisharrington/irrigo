@@ -3,6 +3,7 @@ import type { ZoneRelayState } from '@/data/home-assistant';
 import type { Zone } from '@/models';
 import type { FutureCyclePair } from '@/models/cycle';
 import type { Notifier } from '@/notifications';
+import type { CategoryPushNotifier } from '@/service/push-tokens';
 import { armCloseOnly as defaultArmCloseOnly, type ArmCloseOnlyInputs, type Clock, type TimerRegistry } from './runtime';
 import { getScheduleEntriesRepo } from './state';
 
@@ -31,6 +32,8 @@ export type ReconcileDeps = {
     clock: Clock;
     registry: TimerRegistry;
     notifier: Notifier;
+    /** Gated Expo push for lifecycle notifications, passed through to `armCloseOnly`. */
+    pushNotify?: CategoryPushNotifier;
     alerter: Alerter;
     closeZone: (zone: Zone) => Promise<void>;
     getZoneState: (zone: Zone) => Promise<ZoneRelayState>;
@@ -55,7 +58,7 @@ export type ReconcileDeps = {
  */
 export async function reconcileCycleAndRelayState(deps: ReconcileDeps): Promise<ReconcileSummary> {
     const {
-        clock, registry, notifier, alerter, closeZone, getZoneState, managedZones,
+        clock, registry, notifier, pushNotify, alerter, closeZone, getZoneState, managedZones,
         loadInFlightCycles = () => getScheduleEntriesRepo().loadInFlightCycles(),
         armCloseOnly = defaultArmCloseOnly,
     } = deps;
@@ -93,7 +96,7 @@ export async function reconcileCycleAndRelayState(deps: ReconcileDeps): Promise<
         }
 
         if (state === 'on' && plannedCloseAt.getTime() > now.getTime()) {
-            armCloseOnly({ clock, registry, zone, cycle, closeZone, notifier, alerter, plannedCloseAt });
+            armCloseOnly({ clock, registry, zone, cycle, closeZone, notifier, pushNotify, alerter, plannedCloseAt });
             handledZoneIds.add(zone.id);
             summary.resumed += 1;
             console.log(`daemon: reconcile resumed cycle ${cycle.id} on zone ${zone.id} (closes at ${plannedCloseAt.toISOString()}).`);
