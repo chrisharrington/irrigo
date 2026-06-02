@@ -50,13 +50,13 @@ describe('bucketFor', () => {
 });
 
 describe('formatAlertTimestamp', () => {
-    it('formats new/today instants as 12-hour time of day.', () => {
-        expect(formatAlertTimestamp('2026-05-29T20:02:00.000Z', NOW)).toBe('2:02 pm');
+    it('formats new/today instants as 24-hour time of day.', () => {
+        expect(formatAlertTimestamp('2026-05-29T20:02:00.000Z', NOW)).toBe('14:02');
     });
 
     it('formats this-week instants with a weekday prefix.', () => {
         // 23:21 site-local on May 28 (a Thursday).
-        expect(formatAlertTimestamp('2026-05-29T05:21:00.000Z', NOW)).toBe('Thu 11:21 pm');
+        expect(formatAlertTimestamp('2026-05-29T05:21:00.000Z', NOW)).toBe('Thu 23:21');
     });
 
     it('formats older instants as a calendar date.', () => {

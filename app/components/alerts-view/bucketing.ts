@@ -45,11 +45,11 @@ export function bucketFor(when: string, now: Date): AlertBucket {
 
 /**
  * Formats an alert's `when` for the card's monospace timestamp slot, in
- * 12-hour device-local time. Resolution widens with age so older rows stay
+ * 24-hour device-local time. Resolution widens with age so older rows stay
  * legible:
  *
- *   - `new` / `today` → `'2:02 pm'`
- *   - `week`          → `'Mon 11:47 pm'`
+ *   - `new` / `today` → `'14:02'`
+ *   - `week`          → `'Mon 23:47'`
  *   - `older`         → `'May 12'`
  *
  * @param when - The alert's ISO-8601 UTC instant.
@@ -60,9 +60,9 @@ export function formatAlertTimestamp(when: string, now: Date): string {
     const target = dayjs(when),
         bucket = bucketFor(when, now);
 
-    if (bucket === 'week') return target.format('ddd h:mm a');
+    if (bucket === 'week') return target.format('ddd HH:mm');
     if (bucket === 'older') return target.format('MMM D');
-    return target.format('h:mm a');
+    return target.format('HH:mm');
 }
 
 /**
