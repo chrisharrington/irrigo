@@ -27,13 +27,17 @@ describe('0018 backfill maintenance end_by_sunrise', () => {
         expect(sql).toContain('"end_by_sunrise" is null');
     });
 
-    it('is registered in the journal as the newest migration', async () => {
+    it('is registered in the journal, ordered after the schema migration it backfills', async () => {
         const journal = await readJournalFile(DRIZZLE_DIR);
 
         const entry = journal.entries.find(e => e.tag === MIGRATION_TAG);
         expect(entry).toBeDefined();
 
-        const newestWhen = journal.entries.reduce((max, e) => (e.when > max ? e.when : max), 0);
-        expect(entry!.when).toBe(newestWhen);
+        // The backfill must sort strictly after 0017 (the last migration that
+        // predates it) so the verifier treats a DB stopped at 0017 as behind.
+        // It need not be the global newest — later migrations stack on top.
+        const previous = journal.entries.find(e => e.tag === '0017_thick_romulus');
+        expect(previous).toBeDefined();
+        expect(entry!.when).toBeGreaterThan(previous!.when);
     });
 });
