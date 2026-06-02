@@ -141,19 +141,6 @@ export function ActiveScheduleHero({
                     last
                 />
             </View>
-
-            <View style={styles.actions}>
-                <View style={styles.actionSlot}>
-                    <Button variant='primary' onPress={onSwitchProfile}>
-                        Switch profile
-                    </Button>
-                </View>
-                <View style={styles.actionSlot}>
-                    <Button variant='secondary' onPress={onToggleSkip}>
-                        {skipping ? 'Resume tonight' : 'Skip tonight'}
-                    </Button>
-                </View>
-            </View>
         </TileGradient>
     );
 }
@@ -333,12 +320,5 @@ const styles = StyleSheet.create({
         fontFamily: FontFamily.monoMedium,
         fontSize: 14,
         lineHeight: 16,
-    },
-    actions: {
-        flexDirection: 'row',
-        gap: 8,
-    },
-    actionSlot: {
-        flex: 1,
     },
 });
