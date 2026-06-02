@@ -1,6 +1,5 @@
 import type { Clock } from '@/service/daemon/runtime';
 import type { Zone } from '@/models';
-import type { Notifier } from '@/notifications';
 import type { CategoryPushNotifier } from '@/service/push-tokens';
 
 /**
@@ -25,11 +24,10 @@ export type ManualControllerDeps = {
     clock: Clock;
     openZone: (zone: Zone) => Promise<void>;
     closeZone: (zone: Zone) => Promise<void>;
-    notifier: Notifier;
     /**
      * Gated Expo push for watering-lifecycle notifications. Defaults to a noop
-     * when unset. The HA `notifier` above still carries manual *error*
-     * notifications until API-50 retires it.
+     * when unset. Failures on the manual path are surfaced synchronously (the
+     * `open`/`run` calls throw) and logged — there is no async failure push.
      */
     pushNotify?: CategoryPushNotifier;
 
