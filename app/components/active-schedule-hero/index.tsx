@@ -6,11 +6,30 @@ import { Button } from '@/components/button';
 import { DayStrip } from '@/components/day-strip';
 import { Refresh } from '@/components/icons';
 import { TileGradient } from '@/components/tile-gradient';
+import { Tooltip } from '@/components/tooltip';
 import { FontFamily } from '@/constants/fonts';
 import { daysArrayFromAllowed } from '@/lib/schedule-format';
 import config from '@/tailwind.config';
 
 const colors = config.theme.extend.colors;
+
+// Tooltip copy for the rule rows that carry a help trigger (APP-96 / APP-97).
+const ROOT_DEPTH_HELP = {
+    title: 'Root depth override',
+    body: [
+        `The depth of the wetted root zone the planner aims to refill, in meters. Each zone has a default root depth driven by its grass type. When this schedule sets an override, the planner uses the override instead — useful for short-rooted growth phases like overseeding (typically ~0.05 m).`,
+        `A dash (—) means no override is set and the zone's default applies.`,
+    ],
+};
+
+const DEPLETION_HELP = {
+    title: 'Depletion fraction',
+    body: [
+        `The fraction of plant-available soil water you're willing to let dry down before the next irrigation cycle (between 0 and 1). Combined with the zone's root depth and the soil's water-holding capacity, it sets the Management Allowable Depletion (MAD) — the trigger threshold for the next watering.`,
+        `Higher values = more drying allowed = less frequent watering. Lower values (e.g. 0.25 for overseeding) keep the soil consistently moist.`,
+        `A dash (—) means no override is set and the zone's default applies.`,
+    ],
+};
 
 /**
  * Props for the active schedule hero card.
@@ -113,11 +132,13 @@ export function ActiveScheduleHero({
                     label='Root depth override'
                     value={rootOverride !== null ? `${rootOverride.toFixed(2)} m` : '—'}
                     dim={rootOverride === null}
+                    help={ROOT_DEPTH_HELP}
                 />
                 <RuleRow
                     label='Depletion fraction'
                     value={depletion !== null ? depletion.toFixed(2) : '—'}
                     dim={depletion === null}
+                    help={DEPLETION_HELP}
                     last
                 />
             </View>
@@ -144,12 +165,14 @@ function RuleRow({
     good = false,
     dim = false,
     last = false,
+    help,
 }: {
     label: string;
     value: string;
     good?: boolean;
     dim?: boolean;
     last?: boolean;
+    help?: { title: string; body: string | string[] };
 }) {
     const valueColor =
         good ? colors.accent
@@ -157,7 +180,9 @@ function RuleRow({
         : colors.fg;
     return (
         <View style={[styles.ruleRow, last ? null : styles.ruleRowDivider]} accessibilityLabel={`${label}: ${value}`}>
-            <Text style={styles.ruleLabel}>{label}</Text>
+            {help ?
+                <Tooltip label={label} title={help.title} body={help.body} labelStyle={styles.ruleLabel} />
+            :   <Text style={styles.ruleLabel}>{label}</Text>}
             <Text style={[styles.ruleValue, { color: valueColor }]}>{value}</Text>
         </View>
     );
