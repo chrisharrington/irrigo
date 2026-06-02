@@ -1,4 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, mock, spyOn } from 'bun:test';
+import { bootNotificationSettingsService } from '@/service/notification-settings';
+import type { NotificationSettingsRow } from '@/repositories/notification-settings';
 import { createNotifier, noopNotifier, buildMessage } from '.';
 
 const mockFetch = mock(() => Promise.resolve({} as Response));
@@ -8,20 +10,23 @@ const HA_URL = 'http://ha.local:8123';
 const HA_TOKEN = 'test-token-456';
 const HA_NOTIFY_SERVICE = 'mobile_app_pixel_8';
 
-const ENV_KEYS = [
-    'HA_URL',
-    'HA_TOKEN',
-    'HA_NOTIFY_SERVICE',
-    'NOTIFY_ON_SCHEDULE_START',
-    'NOTIFY_ON_SCHEDULE_END',
-    'NOTIFY_ON_WATERING_START',
-    'NOTIFY_ON_WATERING_END',
-    'NOTIFY_ON_ERROR',
-] as const;
+const ENV_KEYS = ['HA_URL', 'HA_TOKEN', 'HA_NOTIFY_SERVICE'] as const;
+
+// The per-event toggles now live in the notification-settings service rather
+// than env, so these tests boot the service against a mutable fake whose flags
+// can be flipped between events. Defaults match the historical env defaults.
+const DEFAULT_FLAGS: NotificationSettingsRow = {
+    scheduleStart: true,
+    scheduleEnd: true,
+    wateringStart: false,
+    wateringEnd: false,
+    error: true,
+};
 
 describe('createNotifier', () => {
     let saved: Record<string, string | undefined>;
     let warnSpy: ReturnType<typeof spyOn>;
+    let flags: NotificationSettingsRow;
 
     beforeEach(() => {
         saved = {};
@@ -29,11 +34,13 @@ describe('createNotifier', () => {
         process.env.HA_URL = HA_URL;
         process.env.HA_TOKEN = HA_TOKEN;
         process.env.HA_NOTIFY_SERVICE = HA_NOTIFY_SERVICE;
-        delete process.env.NOTIFY_ON_SCHEDULE_START;
-        delete process.env.NOTIFY_ON_SCHEDULE_END;
-        delete process.env.NOTIFY_ON_WATERING_START;
-        delete process.env.NOTIFY_ON_WATERING_END;
-        delete process.env.NOTIFY_ON_ERROR;
+        flags = { ...DEFAULT_FLAGS };
+        bootNotificationSettingsService({
+            repo: {
+                findSingleton: async () => flags,
+                upsertSingleton: async (row) => { flags = row; },
+            },
+        });
         mockFetch.mockClear();
         mockFetch.mockResolvedValue({ ok: true, status: 200, statusText: 'OK' } as Response);
         warnSpy = spyOn(console, 'warn').mockImplementation(() => {});
@@ -95,8 +102,8 @@ describe('createNotifier', () => {
     });
 
     it('does not POST schedule events when their flag is set to false', async () => {
-        process.env.NOTIFY_ON_SCHEDULE_START = 'false';
-        process.env.NOTIFY_ON_SCHEDULE_END = 'false';
+        flags.scheduleStart = false;
+        flags.scheduleEnd = false;
         const notifier = createNotifier();
 
         await notifier('schedule-begun', { scheduleNight: '2026-05-15' });
@@ -129,8 +136,8 @@ describe('createNotifier', () => {
         expect(mockFetch).toHaveBeenCalledTimes(1);
     });
 
-    it('POSTs a watering-started event when NOTIFY_ON_WATERING_START=true', async () => {
-        process.env.NOTIFY_ON_WATERING_START = 'true';
+    it('POSTs a watering-started event when wateringStart is enabled', async () => {
+        flags.wateringStart = true;
         const notifier = createNotifier();
 
         await notifier('watering-started', { zoneName: 'Front Lawn', durationMin: 20 });
@@ -170,8 +177,8 @@ describe('createNotifier', () => {
         expect(warnSpy).toHaveBeenCalled();
     });
 
-    it('treats NOTIFY_ON_ERROR=false as disabled', async () => {
-        process.env.NOTIFY_ON_ERROR = 'false';
+    it('treats the error flag set to false as disabled', async () => {
+        flags.error = false;
         const notifier = createNotifier();
 
         await notifier('error', { errorTitle: 'HA open failed', errorSub: 'Last attempt failed: oops.' });
@@ -179,14 +186,16 @@ describe('createNotifier', () => {
         expect(mockFetch).not.toHaveBeenCalled();
     });
 
-    it('parses 1/0 as truthy/falsy for the flags', async () => {
-        process.env.NOTIFY_ON_WATERING_START = '1';
-        process.env.NOTIFY_ON_WATERING_END = '0';
+    it('reads the flags live, so flipping one mid-process affects the next event', async () => {
         const notifier = createNotifier();
 
+        // wateringStart starts false (default) — the first fire is suppressed.
         await notifier('watering-started', { zoneName: 'A' });
-        await notifier('watering-ended', { zoneName: 'A' });
+        expect(mockFetch).not.toHaveBeenCalled();
 
+        // Flip the flag on; the next event reads the new value and POSTs.
+        flags.wateringStart = true;
+        await notifier('watering-started', { zoneName: 'A' });
         expect(mockFetch).toHaveBeenCalledTimes(1);
     });
 });

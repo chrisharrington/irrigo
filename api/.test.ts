@@ -1346,6 +1346,130 @@ describe('buildApp /system routes', () => {
     });
 });
 
+describe('buildApp /settings/notifications routes', () => {
+    const DEFAULTS = { scheduleStart: true, scheduleEnd: true, wateringStart: false, wateringEnd: false, error: true };
+
+    describe('GET /settings/notifications', () => {
+        it('returns 200 with the settings DTO from the handler', async () => {
+            const app = buildApp({
+                getStatus: () => buildStatus(),
+                notificationSettings: {
+                    get: async () => DEFAULTS,
+                    update: async () => DEFAULTS,
+                },
+            });
+
+            const res = await app.inject({ method: 'GET', url: '/settings/notifications' });
+
+            expect(res.statusCode).toBe(200);
+            expect(res.json()).toEqual(DEFAULTS);
+            await app.close();
+        });
+
+        it('returns 404 when the handler is absent from BuildAppOptions', async () => {
+            const app = buildApp({ getStatus: () => buildStatus() });
+
+            const res = await app.inject({ method: 'GET', url: '/settings/notifications' });
+
+            expect(res.statusCode).toBe(404);
+            await app.close();
+        });
+    });
+
+    describe('PATCH /settings/notifications', () => {
+        it('passes the subset to the handler and echoes the updated DTO', async () => {
+            const patches: Array<Record<string, unknown>> = [];
+            const app = buildApp({
+                getStatus: () => buildStatus(),
+                notificationSettings: {
+                    get: async () => DEFAULTS,
+                    update: async (patch) => {
+                        patches.push(patch);
+                        return { ...DEFAULTS, ...patch };
+                    },
+                },
+            });
+
+            const res = await app.inject({
+                method: 'PATCH',
+                url: '/settings/notifications',
+                payload: { wateringStart: true, error: false },
+            });
+
+            expect(res.statusCode).toBe(200);
+            expect(res.json()).toEqual({ ...DEFAULTS, wateringStart: true, error: false });
+            expect(patches).toEqual([{ wateringStart: true, error: false }]);
+            await app.close();
+        });
+
+        it('accepts an empty body as a no-op and echoes the current DTO', async () => {
+            const app = buildApp({
+                getStatus: () => buildStatus(),
+                notificationSettings: { get: async () => DEFAULTS, update: async (patch) => ({ ...DEFAULTS, ...patch }) },
+            });
+
+            const res = await app.inject({ method: 'PATCH', url: '/settings/notifications', payload: {} });
+
+            expect(res.statusCode).toBe(200);
+            expect(res.json()).toEqual(DEFAULTS);
+            await app.close();
+        });
+
+        it('returns 400 for an unknown field without calling the handler', async () => {
+            let called = false;
+            const app = buildApp({
+                getStatus: () => buildStatus(),
+                notificationSettings: { get: async () => DEFAULTS, update: async (patch) => { called = true; return { ...DEFAULTS, ...patch }; } },
+            });
+
+            const res = await app.inject({
+                method: 'PATCH',
+                url: '/settings/notifications',
+                payload: { bogus: true },
+            });
+
+            expect(res.statusCode).toBe(400);
+            expect(res.json()).toMatchObject({ error: 'bad-request' });
+            expect(called).toBe(false);
+            await app.close();
+        });
+
+        it('returns 400 when the body is not a JSON object', async () => {
+            const app = buildApp({
+                getStatus: () => buildStatus(),
+                notificationSettings: { get: async () => DEFAULTS, update: async (patch) => ({ ...DEFAULTS, ...patch }) },
+            });
+
+            const res = await app.inject({
+                method: 'PATCH',
+                url: '/settings/notifications',
+                payload: ['scheduleStart'],
+            });
+
+            expect(res.statusCode).toBe(400);
+            expect(res.json()).toMatchObject({ error: 'bad-request' });
+            await app.close();
+        });
+
+        it('returns 400 when a known field carries a non-boolean value', async () => {
+            const app = buildApp({
+                getStatus: () => buildStatus(),
+                notificationSettings: { get: async () => DEFAULTS, update: async (patch) => ({ ...DEFAULTS, ...patch }) },
+            });
+
+            const res = await app.inject({
+                method: 'PATCH',
+                url: '/settings/notifications',
+                payload: { scheduleStart: 'yes' },
+            });
+
+            expect(res.statusCode).toBe(400);
+            expect(res.json()).toMatchObject({ error: 'bad-request' });
+            await app.close();
+        });
+    });
+});
+
 describe('wrapSystemWithReplan', () => {
     const buildState = (enabled: boolean) => ({ irrigationEnabled: enabled, since: '2026-05-21T12:00:00.000Z' });
 

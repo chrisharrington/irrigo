@@ -1,6 +1,7 @@
 export { alerts } from './alerts';
 export { grassTypes } from './grass-types';
 export { irrigationCycles } from './irrigation-cycles';
+export { notificationSettings, NOTIFICATION_SETTINGS_SINGLETON_ID } from './notification-settings';
 export { pushTokens } from './push-tokens';
 export { scheduleEntries } from './schedule-entries';
 export { schedulingDecisions } from './scheduling-decisions';
