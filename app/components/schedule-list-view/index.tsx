@@ -1,19 +1,14 @@
 import { useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 
+import type { ScheduleListItem } from '@/api/types/schedules';
 import { ActiveScheduleHero } from '@/components/active-schedule-hero';
 import { Button } from '@/components/button';
 import { ScheduleRow } from '@/components/schedule-row';
 import { SwitchScheduleModal } from '@/components/switch-schedule-modal';
 import { FontFamily } from '@/constants/fonts';
-import {
-    useEnableSchedule,
-    useResumeScheduleTonight,
-    useSchedules,
-    useSkipScheduleTonight,
-} from '@/hooks/schedules';
 import { useReplan } from '@/hooks/replan';
-import type { ScheduleListItem } from '@/api/types/schedules';
+import { useEnableSchedule, useResumeScheduleTonight, useSchedules, useSkipScheduleTonight } from '@/hooks/schedules';
 import config from '@/tailwind.config';
 
 const colors = config.theme.extend.colors;
@@ -53,9 +48,7 @@ export function ScheduleListView() {
     }
 
     const active = schedules.data.find(item => item.isActive) ?? schedules.data[0];
-    const others = active === undefined
-        ? []
-        : schedules.data.filter(item => item.id !== active.id);
+    const others = active === undefined ? [] : schedules.data.filter(item => item.id !== active.id);
     const skipping = active?.skippedTonight === true;
 
     const handleConfirmSwitch = (): void => {
@@ -88,7 +81,6 @@ export function ScheduleListView() {
             )}
 
             <View style={styles.otherHeading}>
-                <Text style={styles.h2}>Other profiles</Text>
                 <Button variant='ghost' size='sm' disabled accessibilityLabel='Add new profile'>
                     + New
                 </Button>
@@ -96,11 +88,7 @@ export function ScheduleListView() {
 
             <View style={styles.otherList}>
                 {others.map(schedule => (
-                    <ScheduleRow
-                        key={schedule.id}
-                        schedule={schedule}
-                        onSwitch={setPendingSwitch}
-                    />
+                    <ScheduleRow key={schedule.id} schedule={schedule} onSwitch={setPendingSwitch} />
                 ))}
             </View>
 
@@ -151,13 +139,6 @@ const styles = StyleSheet.create({
         alignItems: 'center',
         justifyContent: 'space-between',
         marginTop: 6,
-    },
-    h2: {
-        fontFamily: FontFamily.displaySemibold,
-        fontSize: 18,
-        lineHeight: 22,
-        letterSpacing: -0.09,
-        color: colors.fg,
     },
     otherList: {
         gap: 8,
