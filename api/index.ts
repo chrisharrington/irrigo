@@ -904,7 +904,6 @@ if (import.meta.main) {
     bootDaemonService({ db: typedDb });
     const alerter = createAlerter(alertsDb, dispatchAlertPush);
     const daemon = await daemonStart({
-        notifier,
         pushNotify: sendCategoryPush,
         alerter,
         openZone: effectiveOpenZone,

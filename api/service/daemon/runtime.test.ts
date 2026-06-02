@@ -2,7 +2,6 @@ import { beforeEach, describe, expect, it } from 'bun:test';
 import type { AlertEvent, Alerter } from '@/alerts';
 import type { Zone } from '@/models';
 import type { PersistedCycle } from '@/models/cycle';
-import type { NotificationContext, NotificationEvent, Notifier } from '@/notifications';
 import type { CategoryPushNotifier, NotificationCategory, PushMessageContent } from '@/service/push-tokens';
 import type { ScheduleEntriesRepository } from '@/repositories/schedule-entries';
 import {
@@ -148,16 +147,6 @@ function defaultRepos(scheduleEntries: ScheduleEntriesRepository, onAdvanceDeple
     };
 }
 
-type RecordedNotification = { event: NotificationEvent; context: NotificationContext | undefined };
-
-function recordingNotifier(): { notifier: Notifier; calls: RecordedNotification[] } {
-    const calls: RecordedNotification[] = [];
-    const notifier: Notifier = async (event, context) => {
-        calls.push({ event, context });
-    };
-    return { notifier, calls };
-}
-
 function recordingAlerter(): { alerter: Alerter; calls: AlertEvent[] } {
     const calls: AlertEvent[] = [];
     const alerter: Alerter = async (event) => {
@@ -192,7 +181,6 @@ describe('armCycle', () => {
         const registry = new TimerRegistry();
         const opens: string[] = [];
         const closes: string[] = [];
-        const { notifier } = recordingNotifier();
         const { alerter } = recordingAlerter();
 
         armCycle({
@@ -202,7 +190,6 @@ describe('armCycle', () => {
             cycle: buildCycle({ id: 'cycle-A', durationMin: 10 }),
             openZone: async (z) => { opens.push(z.id); },
             closeZone: async (z) => { closes.push(z.id); },
-            notifier,
             alerter,
         });
 
@@ -217,7 +204,6 @@ describe('armCycle', () => {
         const registry = new TimerRegistry();
         const opens: string[] = [];
         const closes: string[] = [];
-        const { notifier } = recordingNotifier();
         const { alerter } = recordingAlerter();
 
         armCycle({
@@ -227,7 +213,6 @@ describe('armCycle', () => {
             cycle: buildCycle({ id: 'cycle-B', durationMin: 5 }),
             openZone: async (z) => { opens.push(z.id); },
             closeZone: async (z) => { closes.push(z.id); },
-            notifier,
             alerter,
         });
 
@@ -241,7 +226,6 @@ describe('armCycle', () => {
     it('emits a scheduleStart push on first cycle when scheduleStart marker is set', async () => {
         const { clock, advanceTo } = createFakeClock(NOW);
         const registry = new TimerRegistry();
-        const { notifier } = recordingNotifier();
         const { pushNotify, calls } = recordingPush();
         const { alerter } = recordingAlerter();
 
@@ -252,7 +236,6 @@ describe('armCycle', () => {
             cycle: buildCycle(),
             openZone: async () => {},
             closeZone: async () => {},
-            notifier,
             pushNotify,
             alerter,
             scheduleStart: { scheduleNight: '2026-05-04' },
@@ -266,7 +249,6 @@ describe('armCycle', () => {
     it('calls advanceDepletion(zone.id, 0, closedAt) on the zones repo after the relay closes', async () => {
         const { clock, advanceTo } = createFakeClock(NOW);
         const registry = new TimerRegistry();
-        const { notifier } = recordingNotifier();
         const { alerter } = recordingAlerter();
         const { repo } = recordingScheduleEntriesRepo();
         const depletionAdvances: Array<{ zoneId: string; mm: number; reconciledAt: Date }> = [];
@@ -279,7 +261,6 @@ describe('armCycle', () => {
             cycle: buildCycle({ id: 'cycle-dep', durationMin: 5 }),
             openZone: async () => {},
             closeZone: async () => {},
-            notifier,
             alerter,
         });
 
@@ -294,7 +275,6 @@ describe('armCycle', () => {
     it('records HA open-failure alert and skips firedAt write on openZone error', async () => {
         const { clock, advanceTo } = createFakeClock(NOW);
         const registry = new TimerRegistry();
-        const { notifier } = recordingNotifier();
         const { alerter, calls } = recordingAlerter();
 
         armCycle({
@@ -304,7 +284,6 @@ describe('armCycle', () => {
             cycle: buildCycle({ id: 'cycle-fail' }),
             openZone: async () => { throw new Error('HA 502'); },
             closeZone: async () => {},
-            notifier,
             alerter,
         });
 
@@ -330,7 +309,6 @@ describe('armCloseOnly', () => {
         const { clock, advanceTo } = createFakeClock(NOW);
         const registry = new TimerRegistry();
         const closes: string[] = [];
-        const { notifier } = recordingNotifier();
         const { alerter } = recordingAlerter();
 
         armCloseOnly({
@@ -339,7 +317,6 @@ describe('armCloseOnly', () => {
             zone: buildZone(),
             cycle: buildCycle({ id: 'cycle-X' }),
             closeZone: async (z) => { closes.push(z.id); },
-            notifier,
             alerter,
             plannedCloseAt: new Date('2026-05-04T12:30:00.000Z'),
         });
@@ -354,7 +331,6 @@ describe('armCloseOnly', () => {
         const { clock, advanceTo } = createFakeClock(NOW);
         const registry = new TimerRegistry();
         const closes: string[] = [];
-        const { notifier } = recordingNotifier();
         const { alerter } = recordingAlerter();
 
         armCloseOnly({
@@ -363,7 +339,6 @@ describe('armCloseOnly', () => {
             zone: buildZone(),
             cycle: buildCycle({ id: 'cycle-late' }),
             closeZone: async (z) => { closes.push(z.id); },
-            notifier,
             alerter,
             plannedCloseAt: new Date('2026-05-04T10:00:00.000Z'),
         });
@@ -376,7 +351,6 @@ describe('armCloseOnly', () => {
     it('pre-registers the cycle as in-flight so getStatus reflects it before the close fires', async () => {
         const { clock } = createFakeClock(NOW);
         const registry = new TimerRegistry();
-        const { notifier } = recordingNotifier();
         const { alerter } = recordingAlerter();
 
         armCloseOnly({
@@ -385,7 +359,6 @@ describe('armCloseOnly', () => {
             zone: buildZone({ id: 'zone-resumed' }),
             cycle: buildCycle({ id: 'cycle-resumed' }),
             closeZone: async () => {},
-            notifier,
             alerter,
             plannedCloseAt: new Date('2026-05-04T12:30:00.000Z'),
         });
@@ -399,7 +372,6 @@ describe('armCloseOnly', () => {
     it('records HA close-failure alert when closeZone throws', async () => {
         const { clock, advanceTo } = createFakeClock(NOW);
         const registry = new TimerRegistry();
-        const { notifier } = recordingNotifier();
         const { alerter, calls } = recordingAlerter();
 
         armCloseOnly({
@@ -408,7 +380,6 @@ describe('armCloseOnly', () => {
             zone: buildZone(),
             cycle: buildCycle({ id: 'cycle-bad' }),
             closeZone: async () => { throw new Error('HA 504'); },
-            notifier,
             alerter,
             plannedCloseAt: new Date('2026-05-04T12:30:00.000Z'),
         });
