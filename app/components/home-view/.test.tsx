@@ -127,7 +127,7 @@ describe('HomeView', () => {
         setupSuccessfulFetch();
         render(<HomeView />, { wrapper: buildApiWrapper().wrapper });
 
-        await waitFor(() => expect(screen.getByText('10:23 pm')).toBeOnTheScreen());
+        await waitFor(() => expect(screen.getByText('22:23')).toBeOnTheScreen());
     });
 
     it('does not render the outer "Next run · <timezone>" eyebrow above the hero card.', async () => {
@@ -136,7 +136,7 @@ describe('HomeView', () => {
 
         // Wait for the page to stabilise, then assert the timezone-bearing
         // eyebrow is absent. The inner card's own "Next run" eyebrow stays.
-        await waitFor(() => expect(screen.getByText('10:23 pm')).toBeOnTheScreen());
+        await waitFor(() => expect(screen.getByText('22:23')).toBeOnTheScreen());
         expect(screen.queryByText(/Next run · America\/Edmonton/)).toBeNull();
     });
 
@@ -155,10 +155,10 @@ describe('HomeView', () => {
         });
         render(<HomeView />, { wrapper: buildApiWrapper().wrapper });
 
-        // 04:23Z reads as 10:23 pm MDT (device-local), not 4:23 am (the UTC
+        // 04:23Z reads as 22:23 MDT (device-local), not 04:23 (the UTC
         // reading the bogus DTO timezone would imply).
-        await waitFor(() => expect(screen.getByText('10:23 pm')).toBeOnTheScreen());
-        expect(screen.queryByText('4:23 am')).toBeNull();
+        await waitFor(() => expect(screen.getByText('22:23')).toBeOnTheScreen());
+        expect(screen.queryByText('04:23')).toBeNull();
     });
 
     it('renders a zone tile for every zone returned by /zones.', async () => {

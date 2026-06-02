@@ -82,28 +82,28 @@ describe('formatCountdown', () => {
 });
 
 describe('formatTimeOfDay', () => {
-    it('formats a UTC instant as a 12-hour clock with am/pm in the device timezone.', () => {
+    it('formats a UTC instant as a 24-hour clock in the device timezone.', () => {
         // 2026-05-23T04:23Z = 22:23 MDT on 2026-05-22 (Friday night).
-        expect(formatTimeOfDay('2026-05-23T04:23:00.000Z')).toBe('10:23 pm');
+        expect(formatTimeOfDay('2026-05-23T04:23:00.000Z')).toBe('22:23');
     });
 
-    it('renders the am side of the boundary.', () => {
+    it('zero-pads the morning side of the boundary.', () => {
         // 2026-05-23T11:48Z = 05:48 MDT on 2026-05-23 (Saturday morning).
-        expect(formatTimeOfDay('2026-05-23T11:48:00.000Z')).toBe('5:48 am');
+        expect(formatTimeOfDay('2026-05-23T11:48:00.000Z')).toBe('05:48');
     });
 });
 
 describe('formatActivityRowDate', () => {
     it(`formats both the day and the time-of-day from startedAt in the device timezone.`, () => {
         // 2026-05-13T15:00:00Z = 09:00 MDT on 2026-05-13.
-        expect(formatActivityRowDate('2026-05-13', '2026-05-13T15:00:00.000Z')).toBe('May 13 · 9:00 am');
+        expect(formatActivityRowDate('2026-05-13', '2026-05-13T15:00:00.000Z')).toBe('May 13 · 09:00');
     });
 
     it(`keys both the day and the time off startedAt — so a UTC instant that rolls back to the previous local day renders on that local day.`, () => {
         // 2026-05-14T05:30:00Z = 23:30 MDT on 2026-05-13. The bare 'date'
         // field says May 14 (the planner's scheduled-night bucket); the
         // formatter prefers startedAt and shows the actual local day.
-        expect(formatActivityRowDate('2026-05-14', '2026-05-14T05:30:00.000Z')).toBe('May 13 · 11:30 pm');
+        expect(formatActivityRowDate('2026-05-14', '2026-05-14T05:30:00.000Z')).toBe('May 13 · 23:30');
     });
 
     it(`falls back to date-only 'MMM D' when startedAt is null.`, () => {
@@ -119,7 +119,7 @@ describe('formatActivityRowDate', () => {
 
 describe('formatEndsAt', () => {
     it('formats the ends-at like formatTimeOfDay.', () => {
-        expect(formatEndsAt('2026-05-23T11:48:00.000Z')).toBe('5:48 am');
+        expect(formatEndsAt('2026-05-23T11:48:00.000Z')).toBe('05:48');
     });
 });
 

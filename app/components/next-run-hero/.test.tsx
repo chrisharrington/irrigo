@@ -63,7 +63,7 @@ describe('NextRunHero', () => {
             />,
         );
 
-        expect(screen.getByText('10:23 pm')).toBeOnTheScreen();
+        expect(screen.getByText('22:23')).toBeOnTheScreen();
     });
 
     it('renders the device timezone abbreviation next to the time (APP-88).', () => {
@@ -149,7 +149,7 @@ describe('NextRunHero', () => {
         );
 
         // The body of the card still renders — just the badge is suppressed.
-        expect(screen.getByText('10:23 pm')).toBeOnTheScreen();
+        expect(screen.getByText('22:23')).toBeOnTheScreen();
         // None of the badge labels appear.
         expect(screen.queryByText('Firing')).toBeNull();
         expect(screen.queryByText('Scheduled')).toBeNull();
