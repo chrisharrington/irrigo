@@ -7,7 +7,7 @@ import { DayStrip } from '@/components/day-strip';
 import { Refresh } from '@/components/icons';
 import { TileGradient } from '@/components/tile-gradient';
 import { FontFamily } from '@/constants/fonts';
-import { daysArrayFromAllowed, formatTimeWindow } from '@/lib/schedule-format';
+import { daysArrayFromAllowed } from '@/lib/schedule-format';
 import config from '@/tailwind.config';
 
 const colors = config.theme.extend.colors;
@@ -51,8 +51,6 @@ export function ActiveScheduleHero({
     onToggleSkip,
 }: ActiveScheduleHeroProps) {
     const daysArray = useMemo(() => daysArrayFromAllowed(schedule.allowedDays), [schedule.allowedDays]);
-    const window = useMemo(() => formatTimeWindow(schedule.allowedTimeWindows), [schedule.allowedTimeWindows]);
-
     const rootOverride = schedule.rootDepthMOverride;
     const depletion = schedule.allowableDepletionFractionOverride;
     const endBySunrise = schedule.endBySunrise === true;
@@ -110,7 +108,6 @@ export function ActiveScheduleHero({
 
             <View>
                 <Text style={[styles.eyebrow, { marginBottom: 8 }]}>Rules</Text>
-                <RuleRow label='Time window' value={window} />
                 <RuleRow label='End by sunrise' value={endBySunrise ? 'On' : 'Off'} good={endBySunrise} />
                 <RuleRow
                     label='Root depth override'

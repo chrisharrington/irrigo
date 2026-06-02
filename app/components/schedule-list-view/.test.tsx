@@ -6,6 +6,10 @@ import type { ScheduleListItem } from '@/api/types/schedules';
 
 import { ScheduleListView } from '.';
 
+jest.mock('react-native-safe-area-context', () => ({
+    useSafeAreaInsets: () => ({ top: 0, bottom: 34, left: 0, right: 0 }),
+}));
+
 const mockFetch = jest.fn();
 
 const ACTIVE_SCHEDULE: ScheduleListItem = {

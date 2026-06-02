@@ -1,8 +1,28 @@
 import { fireEvent, render, screen } from '@testing-library/react-native';
 import { StyleSheet, Text } from 'react-native';
 import { BlurView } from 'expo-blur';
+import type { ReactTestInstance } from 'react-test-renderer';
 
 import { Modal } from '.';
+
+jest.mock('react-native-safe-area-context', () => ({
+    useSafeAreaInsets: () => ({ top: 0, bottom: 34, left: 0, right: 0 }),
+}));
+
+// Flattened styles of every host node (string `type`) whose style satisfies
+// `predicate`. Walks host nodes only — the same technique the scrim/blur tests
+// use — to avoid the composite wrappers a `.parent` walk would hit.
+function hostStylesMatching(
+    root: ReactTestInstance,
+    predicate: (style: Record<string, unknown>) => boolean,
+): Record<string, unknown>[] {
+    return root
+        .findAll(node => typeof node.type === 'string')
+        .map(node => StyleSheet.flatten(node.props.style as Parameters<typeof StyleSheet.flatten>[0]) as
+            | Record<string, unknown>
+            | undefined)
+        .filter((style): style is Record<string, unknown> => style !== undefined && predicate(style));
+}
 
 describe('Modal', () => {
     it('renders its children when visible.', () => {
@@ -89,5 +109,100 @@ describe('Modal', () => {
         );
 
         expect(screen.getByLabelText('Switch schedule')).toBeOnTheScreen();
+    });
+
+    it('renders its children when visible in the bottom-sheet variant.', () => {
+        render(
+            <Modal visible onRequestClose={() => {}} variant='bottom-sheet'>
+                <Text>Sheet body</Text>
+            </Modal>,
+        );
+
+        expect(screen.getByText('Sheet body')).toBeOnTheScreen();
+    });
+
+    it('anchors the panel to the bottom of the screen in the bottom-sheet variant.', () => {
+        const { root } = render(
+            <Modal visible onRequestClose={() => {}} variant='bottom-sheet'>
+                <Text>Sheet body</Text>
+            </Modal>,
+        );
+
+        // The overlay anchors the sheet to the bottom edge.
+        expect(hostStylesMatching(root, style => style['justifyContent'] === 'flex-end')).toHaveLength(1);
+        expect(hostStylesMatching(root, style => style['justifyContent'] === 'center')).toHaveLength(0);
+    });
+
+    it('centres the panel by default.', () => {
+        const { root } = render(
+            <Modal visible onRequestClose={() => {}}>
+                <Text>Dialog body</Text>
+            </Modal>,
+        );
+
+        expect(hostStylesMatching(root, style => style['justifyContent'] === 'center')).toHaveLength(1);
+        expect(hostStylesMatching(root, style => style['justifyContent'] === 'flex-end')).toHaveLength(0);
+    });
+
+    it('pads the bottom-sheet panel by the bottom safe-area inset so content clears the nav bar.', () => {
+        const { root } = render(
+            <Modal visible onRequestClose={() => {}} variant='bottom-sheet'>
+                <Text>Sheet body</Text>
+            </Modal>,
+        );
+
+        // The sheet panel is the only node padded by the bottom inset (34).
+        const panels = hostStylesMatching(root, style => style['paddingBottom'] === 34);
+
+        expect(panels).toHaveLength(1);
+    });
+
+    it('renders the sheet panel as a flush, top-shadowed slab — no corner radius, no side borders.', () => {
+        const { root } = render(
+            <Modal visible onRequestClose={() => {}} variant='bottom-sheet'>
+                <Text>Sheet body</Text>
+            </Modal>,
+        );
+
+        const [panel] = hostStylesMatching(root, style => style['paddingBottom'] === 34);
+
+        // Square top corners and no left/right borders so it spans edge-to-edge.
+        expect(panel['borderTopLeftRadius']).toBeUndefined();
+        expect(panel['borderTopRightRadius']).toBeUndefined();
+        expect(panel['borderLeftWidth']).toBeUndefined();
+        expect(panel['borderRightWidth']).toBeUndefined();
+        // A hairline top border plus an upward-casting shadow on the top edge.
+        expect(panel['borderTopWidth']).toBe(1);
+        expect(panel['boxShadow']).toBe('0 -8px 24px rgba(0, 0, 0, 0.5)');
+    });
+
+    it('drives its own animation (animationType "none") and draws under the nav bar for the sheet.', () => {
+        const { root } = render(
+            <Modal visible onRequestClose={() => {}} variant='bottom-sheet'>
+                <Text>Sheet body</Text>
+            </Modal>,
+        );
+
+        const animated = root.find(node => node.props.animationType !== undefined);
+
+        // We fade the backdrop and slide the panel ourselves, so RN's own window
+        // animation is disabled.
+        expect(animated.props.animationType).toBe('none');
+        // Lets the sheet draw under the Android nav bar so it sits flush (APP-73).
+        expect(animated.props.navigationBarTranslucent).toBe(true);
+    });
+
+    it('fades the default centred variant in (animationType "fade").', () => {
+        const { root } = render(
+            <Modal visible onRequestClose={() => {}}>
+                <Text>Dialog body</Text>
+            </Modal>,
+        );
+
+        const animated = root.find(node => node.props.animationType !== undefined);
+
+        expect(animated.props.animationType).toBe('fade');
+        // The centred dialog keeps its own window inset behaviour unchanged.
+        expect(animated.props.navigationBarTranslucent).toBe(false);
     });
 });

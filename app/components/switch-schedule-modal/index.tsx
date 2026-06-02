@@ -26,11 +26,11 @@ export type SwitchScheduleModalProps = {
 };
 
 /**
- * Confirmation modal for switching the active irrigation profile. Wraps
- * the generic Modal primitive with the switch-flow copy. The server
- * always re-plans on schedule enable, so the action label is "Switch &
- * re-plan" and the body explains the implication. RN port of `SwitchModal`
- * from `Mobile.jsx`.
+ * Confirmation sheet for switching the active irrigation profile. Wraps
+ * the generic Modal primitive in its `bottom-sheet` variant (slides up from
+ * the bottom) with the switch-flow copy. The server always re-plans on
+ * schedule enable, so the action label is "Switch & re-plan" and the body
+ * explains the implication. RN port of `SwitchModal` from `Mobile.jsx`.
  */
 export function SwitchScheduleModal({
     schedule,
@@ -44,6 +44,7 @@ export function SwitchScheduleModal({
         <Modal
             visible={schedule !== null}
             onRequestClose={onCancel}
+            variant='bottom-sheet'
             accessibilityLabel={schedule !== null ? `Switch to ${name}?` : undefined}
         >
             <View style={styles.header}>
