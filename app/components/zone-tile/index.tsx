@@ -27,8 +27,8 @@ export type ZoneTileProps = {
 
 /**
  * One zone tile on the Home screen. Renders the zone's name + grass and
- * area summary, the depletion-vs-RAW large mono pair, the `Battery`
- * primitive, and a footer that flips to a danger-red "Runs tonight" when
+ * area summary, the water-held-vs-capacity large mono pair, the `Battery`
+ * primitive, and a footer that flips to a danger-red "Runs next" when
  * the zone is past RAW.
  */
 export function ZoneTile({ zone, onPress, now }: ZoneTileProps) {
@@ -39,14 +39,13 @@ export function ZoneTile({ zone, onPress, now }: ZoneTileProps) {
     const tickingNow = useNow(now === undefined ? 60_000 : null);
     const referenceNow = now ?? tickingNow;
     const pastRaw = zone.currentDepletionMm >= zone.rawMm;
+    // Water the bucket currently holds — capacity (RAW) minus depletion,
+    // clamped to 0 once the zone is past RAW. APP-104.
+    const heldMm = Math.max(0, zone.rawMm - zone.currentDepletionMm);
     const lastRan = useMemo(() => formatLastRan(zone.lastFiredAt, referenceNow), [zone.lastFiredAt, referenceNow]);
 
     return (
-        <Pressable
-            onPress={handlePress}
-            accessibilityRole='button'
-            accessibilityLabel={`Open ${zone.name}`}
-        >
+        <Pressable onPress={handlePress} accessibilityRole='button' accessibilityLabel={`Open ${zone.name}`}>
             <TileGradient style={styles.card}>
                 <View style={styles.headerRow}>
                     <View style={styles.headerText}>
@@ -57,7 +56,7 @@ export function ZoneTile({ zone, onPress, now }: ZoneTileProps) {
                     <View style={styles.depletionBlock}>
                         <View style={styles.depletionWrap}>
                             <Text style={[styles.depletion, pastRaw ? { color: colors.danger } : null]}>
-                                {zone.currentDepletionMm.toFixed(1)} mm
+                                {heldMm.toFixed(2)} mm
                             </Text>
                             <Text style={styles.rawLabel}> / {zone.rawMm} mm</Text>
                         </View>

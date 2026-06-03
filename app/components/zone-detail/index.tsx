@@ -50,8 +50,9 @@ export type ZoneDetailProps = {
 };
 
 /**
- * Zone detail screen body: header (LawnPatch + name + tone copy), battery
- * hero, Run-now CTA, physical attributes table, and recent runs log. Pure
+ * Zone detail screen body: header (LawnPatch + name + tone copy), water-
+ * available bucket hero, Run-now CTA, physical attributes table, and recent
+ * runs log. Pure
  * presentational — all data is supplied by the route, which composes
  * `useZone`, `useNextRun`, and `useActivity`.
  */
@@ -68,7 +69,9 @@ export function ZoneDetail({
     const geometry = computeBatteryGeometry(zone.currentDepletionMm, zone.rawMm);
     const toneColor = TONE_COLOR[geometry.tone];
     const statusCopy = computeZoneStatusCopy(zone, nextRun);
-    const scaleMaxMm = Math.round(geometry.scaleMax);
+    // Water the bucket currently holds — capacity (RAW) minus depletion,
+    // clamped to 0 once the zone is past RAW. APP-104.
+    const heldMm = Math.max(0, zone.rawMm - zone.currentDepletionMm);
 
     return (
         <View style={styles.container}>
@@ -87,18 +90,18 @@ export function ZoneDetail({
             </View>
 
             <View style={styles.heroCard}>
-                <Text style={styles.heroEyebrow}>Soil-moisture deficit</Text>
+                <Text style={styles.heroEyebrow}>Water available</Text>
                 <View style={styles.heroFigureRow}>
-                    <Text style={[styles.heroFigure, { color: toneColor }]}>{zone.currentDepletionMm.toFixed(1)}</Text>
+                    <Text style={[styles.heroFigure, { color: toneColor }]}>{heldMm.toFixed(2)}</Text>
                     <Text style={styles.heroUnit}>mm</Text>
                 </View>
                 <View style={styles.heroBattery}>
                     <Battery depletion={zone.currentDepletionMm} raw={zone.rawMm} tall />
                 </View>
                 <View style={styles.heroAxisRow}>
-                    <Text style={styles.heroAxisTick}>0</Text>
+                    <Text style={styles.heroAxisTick}>Empty</Text>
                     <Text style={[styles.heroAxisTick, { color: colors.warn }]}>RAW · {zone.rawMm}</Text>
-                    <Text style={styles.heroAxisTick}>{scaleMaxMm}</Text>
+                    <Text style={styles.heroAxisTick}>Full</Text>
                 </View>
             </View>
 

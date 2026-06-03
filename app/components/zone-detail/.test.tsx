@@ -65,7 +65,31 @@ function buildNextRun(): NextRunDto {
 }
 
 describe('ZoneDetail', () => {
-    it('renders the zone name, grass + area eyebrow, and depletion mm figure.', () => {
+    it('renders the zone name, grass + area eyebrow, and the water-available hero with Empty/Full axis.', () => {
+        // held = raw 22.5 − depletion 5 = 17.5 mm.
+        render(
+            <ZoneDetail
+                zone={buildZone({ currentDepletionMm: 5 })}
+                nextRun={undefined}
+                activity={[]}
+                isActivityLoading={false}
+                onRunNow={jest.fn()}
+                onStopWatering={jest.fn()}
+            />,
+        );
+
+        expect(screen.getByText('North')).toBeOnTheScreen();
+        expect(screen.getByText('Kentucky Bluegrass · 100 m²')).toBeOnTheScreen();
+        expect(screen.getByText('Water available')).toBeOnTheScreen();
+        expect(screen.getByText('17.5')).toBeOnTheScreen();
+        expect(screen.getByText('mm')).toBeOnTheScreen();
+        expect(screen.getByText('Empty')).toBeOnTheScreen();
+        expect(screen.getByText('Full')).toBeOnTheScreen();
+        expect(screen.getByText('RAW · 22.5')).toBeOnTheScreen();
+    });
+
+    it('clamps the water-available hero figure to 0.0 when the zone is past RAW.', () => {
+        // depletion 27.4 ≥ raw 22.5 → held = max(0, 22.5 − 27.4) = 0.
         render(
             <ZoneDetail
                 zone={buildZone({ currentDepletionMm: 27.4 })}
@@ -77,9 +101,7 @@ describe('ZoneDetail', () => {
             />,
         );
 
-        expect(screen.getByText('North')).toBeOnTheScreen();
-        expect(screen.getByText('Kentucky Bluegrass · 100 m²')).toBeOnTheScreen();
-        expect(screen.getByText('27.4')).toBeOnTheScreen();
+        expect(screen.getByText('0.0')).toBeOnTheScreen();
         expect(screen.getByText('mm')).toBeOnTheScreen();
     });
 
