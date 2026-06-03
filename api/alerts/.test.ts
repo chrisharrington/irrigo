@@ -1,7 +1,6 @@
 import { afterEach, beforeEach, describe, it, expect, spyOn } from 'bun:test';
 import { alerts } from '@/db/schema';
 import type { PushAlertEvent, PushDispatcher } from '@/models/push-token';
-import type { NotificationContext, NotificationEvent, Notifier } from '@/notifications';
 import {
     acknowledgeAlert,
     clearAlertsByClass,
@@ -155,65 +154,6 @@ describe('createAlerter', () => {
         expect(calls.selects).toHaveLength(2);
     });
 
-    describe('with notifier wired in', () => {
-        function recordingNotifier(): { notifier: Notifier; calls: Array<{ event: NotificationEvent; context?: NotificationContext }> } {
-            const calls: Array<{ event: NotificationEvent; context?: NotificationContext }> = [];
-            return { notifier: async (event, context) => { calls.push({ event, context }); }, calls };
-        }
-
-        it('fires the notifier with errorTitle=title and errorSub=sub on a brand-new insert', async () => {
-            const { db } = createRecorderStub([]);
-            const { notifier, calls: notifications } = recordingNotifier();
-
-            await createAlerter(db, notifier)(event({ zoneName: 'North' }));
-
-            expect(notifications).toHaveLength(1);
-            expect(notifications[0]).toEqual({
-                event: 'error',
-                context: {
-                    zoneName: 'North',
-                    errorTitle: 'HA close failed',
-                    errorSub: 'North · ECONNREFUSED',
-                },
-            });
-        });
-
-        it('omits errorSub from the context when the event has no sub', async () => {
-            const { db } = createRecorderStub([]);
-            const { notifier, calls: notifications } = recordingNotifier();
-
-            await createAlerter(db, notifier)(event({ sub: undefined, title: 'HA open failed' }));
-
-            expect(notifications[0]?.context?.errorTitle).toBe('HA open failed');
-            expect(notifications[0]?.context).not.toHaveProperty('errorSub');
-        });
-
-        it('omits zoneName from the context when the event has none (global alert)', async () => {
-            const { db } = createRecorderStub([]);
-            const { notifier, calls: notifications } = recordingNotifier();
-
-            await createAlerter(db, notifier)(event({ zoneName: undefined, zoneId: undefined }));
-
-            expect(notifications[0]?.context).not.toHaveProperty('zoneName');
-            expect(notifications[0]?.context?.errorTitle).toBe('HA close failed');
-        });
-
-        it('does NOT fire the notifier when an existing unacked alert is updated (dedup hit)', async () => {
-            const { db } = createRecorderStub([{ id: 'existing-001' }]);
-            const { notifier, calls: notifications } = recordingNotifier();
-
-            await createAlerter(db, notifier)(event());
-
-            expect(notifications).toEqual([]);
-        });
-
-        it('still works (no error) when notifier is omitted at construction', async () => {
-            const { db } = createRecorderStub([]);
-
-            await expect(createAlerter(db)(event())).resolves.toBeUndefined();
-        });
-    });
-
     describe('with pushDispatcher wired in', () => {
         function recordingDispatcher(impl?: PushDispatcher): {
             dispatcher: PushDispatcher;
@@ -231,7 +171,7 @@ describe('createAlerter', () => {
             const { db } = createRecorderStub([], 'alert-fresh-001');
             const { dispatcher, calls: dispatched } = recordingDispatcher();
 
-            await createAlerter(db, undefined, dispatcher)(event({ zoneName: 'North' }));
+            await createAlerter(db, dispatcher)(event());
 
             expect(dispatched).toEqual([
                 {
@@ -249,7 +189,7 @@ describe('createAlerter', () => {
             const { db } = createRecorderStub([{ id: 'existing-001' }]);
             const { dispatcher, calls: dispatched } = recordingDispatcher();
 
-            await createAlerter(db, undefined, dispatcher)(event());
+            await createAlerter(db, dispatcher)(event());
 
             expect(dispatched).toEqual([]);
         });
@@ -258,7 +198,7 @@ describe('createAlerter', () => {
             const { db } = createRecorderStub([], 'alert-global-002');
             const { dispatcher, calls: dispatched } = recordingDispatcher();
 
-            await createAlerter(db, undefined, dispatcher)(event({ sub: undefined, zoneId: undefined }));
+            await createAlerter(db, dispatcher)(event({ sub: undefined, zoneId: undefined }));
 
             expect(dispatched[0]?.sub).toBeNull();
             expect(dispatched[0]?.zoneId).toBeNull();
@@ -279,7 +219,7 @@ describe('createAlerter', () => {
                 const { db } = createRecorderStub([], 'alert-tolerated-003');
                 const failingDispatcher: PushDispatcher = async () => { throw new Error('expo down'); };
 
-                await expect(createAlerter(db, undefined, failingDispatcher)(event())).resolves.toBeUndefined();
+                await expect(createAlerter(db, failingDispatcher)(event())).resolves.toBeUndefined();
                 expect(warnSpy).toHaveBeenCalled();
             });
         });

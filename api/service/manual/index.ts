@@ -85,7 +85,7 @@ type ActiveManualFire = {
  * service tier; the repository handles only persistence.
  */
 export function createManualController(deps: ManualControllerDeps): ManualController {
-    const { clock, openZone, closeZone, notifier, isAnyScheduledInFlight, isIrrigationEnabled } = deps;
+    const { clock, openZone, closeZone, isAnyScheduledInFlight, isIrrigationEnabled } = deps;
     const pushNotify = deps.pushNotify ?? noopCategoryPush;
     let current: ActiveManualFire | null = null;
 
@@ -111,9 +111,7 @@ export function createManualController(deps: ManualControllerDeps): ManualContro
         try {
             await openZone(zone);
         } catch (err) {
-            const reason = err instanceof Error ? err.message : String(err);
             console.error(`manual: openZone failed for zone ${zone.id}.`, err);
-            await notifier('error', { zoneName: zone.name, errorTitle: 'Manual open failed', errorSub: `Last attempt failed: ${reason}.` });
             throw err;
         }
 
@@ -132,9 +130,7 @@ export function createManualController(deps: ManualControllerDeps): ManualContro
             try {
                 await closeZone(zone);
             } catch (err) {
-                const reason = err instanceof Error ? err.message : String(err);
-                console.error(`manual: defensive closeZone failed for zone ${zone.id}.`, err);
-                await notifier('error', { zoneName: zone.name, errorTitle: 'Manual close failed', errorSub: `Last attempt failed: ${reason}.` });
+                    console.error(`manual: defensive closeZone failed for zone ${zone.id}.`, err);
                 throw err;
             }
             console.log(`manual: defensive close for zone ${zone.id} (no active manual fire).`);
@@ -150,9 +146,7 @@ export function createManualController(deps: ManualControllerDeps): ManualContro
         try {
             await closeZone(zone);
         } catch (err) {
-            const reason = err instanceof Error ? err.message : String(err);
             console.error(`manual: closeZone failed for zone ${zone.id}.`, err);
-            await notifier('error', { zoneName: zone.name, errorTitle: 'Manual close failed', errorSub: `Last attempt failed: ${reason}.` });
             throw err;
         }
 
@@ -177,9 +171,7 @@ export function createManualController(deps: ManualControllerDeps): ManualContro
         try {
             await closeZone(zone);
         } catch (err) {
-            const reason = err instanceof Error ? err.message : String(err);
             console.error(`manual: scheduled close failed for zone ${zone.id}.`, err);
-            await notifier('error', { zoneName: zone.name, errorTitle: 'Manual close failed', errorSub: `Last attempt failed: ${reason}.` });
             return;
         }
 
@@ -205,9 +197,7 @@ export function createManualController(deps: ManualControllerDeps): ManualContro
         try {
             await openZone(zone);
         } catch (err) {
-            const reason = err instanceof Error ? err.message : String(err);
             console.error(`manual: openZone failed for zone ${zone.id}.`, err);
-            await notifier('error', { zoneName: zone.name, errorTitle: 'Manual run open failed', errorSub: `Last attempt failed: ${reason}.` });
             throw err;
         }
 
@@ -256,9 +246,7 @@ export function createManualController(deps: ManualControllerDeps): ManualContro
             }
             await pushNotify('wateringEnd', wateringEndedMessage({ zoneName: active.zone.name, zoneId: active.zone.id, reason: 'shutdown' }));
         } catch (err) {
-            const reason = err instanceof Error ? err.message : String(err);
             console.error(`manual: shutdown closeZone failed for zone ${active.zone.id}.`, err);
-            await notifier('error', { zoneName: active.zone.name, errorTitle: 'Shutdown close failed', errorSub: `Last attempt failed: ${reason}.` });
         }
     };
 

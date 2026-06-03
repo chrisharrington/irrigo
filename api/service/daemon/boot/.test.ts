@@ -3,7 +3,6 @@ import dayjs from 'dayjs';
 import type { Alerter, AlertEvent } from '@/alerts';
 import { createTestZone } from '@/mock/zone';
 import type { WeatherData, Zone } from '@/models';
-import type { Notifier } from '@/notifications';
 import type { ScheduleEntriesRepository } from '@/repositories/schedule-entries';
 import type { ZonesRepository } from '@/repositories/zones';
 import { bootSystemService } from '@/service/system';
@@ -19,10 +18,6 @@ function fakeClock(at: Date = NOW): Clock {
         setTimeout: () => 1 as TimerHandle,
         clearTimeout: () => {},
     };
-}
-
-function noopNotifier(): Notifier {
-    return async () => {};
 }
 
 function recordingAlerter(): { alerter: Alerter; calls: AlertEvent[] } {
@@ -56,7 +51,6 @@ function buildDeps(overrides: Partial<BootDeps> = {}): BootDeps {
     return {
         clock: fakeClock(),
         registry: new TimerRegistry(),
-        notifier: noopNotifier(),
         alerter: recordingAlerter().alerter,
         openZone: async () => {},
         closeZone: async () => {},

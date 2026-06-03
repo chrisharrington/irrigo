@@ -2,7 +2,6 @@ import { beforeEach, describe, expect, it } from 'bun:test';
 import type { Zone } from '@/models';
 import type { ManualRepository } from '@/repositories/manual';
 import type { Clock, TimerHandle } from '@/service/daemon/runtime';
-import type { NotificationContext, NotificationEvent, Notifier } from '@/notifications';
 import type { CategoryPushNotifier, NotificationCategory, PushMessageContent } from '@/service/push-tokens';
 import {
     BusyError,
@@ -11,16 +10,6 @@ import {
     MAX_RUN_DURATION_MIN,
     SystemDisabledError,
 } from '.';
-
-type RecordedNotification = { event: NotificationEvent; context: NotificationContext | undefined };
-
-function recordingNotifier(): { notifier: Notifier; calls: RecordedNotification[] } {
-    const calls: RecordedNotification[] = [];
-    const notifier: Notifier = async (event, context) => {
-        calls.push({ event, context });
-    };
-    return { notifier, calls };
-}
 
 type RecordedPush = { category: NotificationCategory; content: PushMessageContent };
 
@@ -134,13 +123,11 @@ describe('manual controller — open', () => {
     it('opens the relay, records active state, returns the open timestamp', async () => {
         const { clock } = createFakeClock(NOW);
         const opens: Zone[] = [];
-        const { notifier } = recordingNotifier();
         const { pushNotify, calls: pushCalls } = recordingPush();
         const controller = createManualController({
             clock,
             openZone: async (z) => { opens.push(z); },
             closeZone: async () => {},
-            notifier,
             pushNotify,
             isAnyScheduledInFlight: () => false,
             isIrrigationEnabled: async () => true,
@@ -168,7 +155,6 @@ describe('manual controller — open', () => {
             clock,
             openZone: async () => { openCalls += 1; },
             closeZone: async () => {},
-            notifier: async () => {},
             isAnyScheduledInFlight: () => true,
             isIrrigationEnabled: async () => true,
         });
@@ -183,7 +169,6 @@ describe('manual controller — open', () => {
             clock,
             openZone: async () => {},
             closeZone: async () => {},
-            notifier: async () => {},
             isAnyScheduledInFlight: () => false,
             isIrrigationEnabled: async () => true,
         });
@@ -192,22 +177,18 @@ describe('manual controller — open', () => {
         await expect(controller.open(buildZone({ id: 'zone-002', name: 'Back' }))).rejects.toBeInstanceOf(BusyError);
     });
 
-    it('does not retain state and emits an error notification when openZone throws', async () => {
+    it('rethrows and does not retain state when openZone throws', async () => {
         const { clock } = createFakeClock(NOW);
-        const { notifier, calls } = recordingNotifier();
         const controller = createManualController({
             clock,
             openZone: async () => { throw new Error('HA 502'); },
             closeZone: async () => {},
-            notifier,
             isAnyScheduledInFlight: () => false,
             isIrrigationEnabled: async () => true,
         });
 
         await expect(controller.open(buildZone())).rejects.toThrow('HA 502');
         expect(controller.getActiveZone()).toBeNull();
-        const errorCall = calls.find(c => c.event === 'error');
-        expect(errorCall?.context).toEqual({ zoneName: 'Front Lawn', errorTitle: 'Manual open failed', errorSub: 'Last attempt failed: HA 502.' });
     });
 });
 
@@ -225,13 +206,11 @@ describe('manual controller — close', () => {
     it('closes the active zone, calls writeManualRecord with elapsed duration, clears state', async () => {
         const { clock, advanceTo } = createFakeClock(NOW);
         const closes: Zone[] = [];
-        const { notifier } = recordingNotifier();
         const { pushNotify, calls: pushCalls } = recordingPush();
         const controller = createManualController({
             clock,
             openZone: async () => {},
             closeZone: async (z) => { closes.push(z); },
-            notifier,
             pushNotify,
             isAnyScheduledInFlight: () => false,
             isIrrigationEnabled: async () => true,
@@ -260,7 +239,6 @@ describe('manual controller — close', () => {
             clock,
             openZone: async () => {},
             closeZone: async () => {},
-            notifier: async () => {},
             isAnyScheduledInFlight: () => false,
             isIrrigationEnabled: async () => true,
         });
@@ -280,7 +258,6 @@ describe('manual controller — close', () => {
             clock,
             openZone: async () => {},
             closeZone: async (z) => { closes.push(z); },
-            notifier: async () => {},
             isAnyScheduledInFlight: () => false,
             isIrrigationEnabled: async () => true,
         });
@@ -296,12 +273,10 @@ describe('manual controller — close', () => {
 
     it('clears state even when closeZone rejects so subsequent calls do not see phantom state', async () => {
         const { clock } = createFakeClock(NOW);
-        const { notifier, calls } = recordingNotifier();
         const controller = createManualController({
             clock,
             openZone: async () => {},
             closeZone: async () => { throw new Error('HA timeout'); },
-            notifier,
             isAnyScheduledInFlight: () => false,
             isIrrigationEnabled: async () => true,
         });
@@ -311,8 +286,6 @@ describe('manual controller — close', () => {
         await expect(controller.close(zone)).rejects.toThrow('HA timeout');
 
         expect(controller.getActiveZone()).toBeNull();
-        const errorCall = calls.find(c => c.event === 'error');
-        expect(errorCall?.context?.errorTitle).toBe('Manual close failed');
     });
 });
 
@@ -333,7 +306,6 @@ describe('manual controller — run', () => {
             clock,
             openZone: async () => {},
             closeZone: async () => {},
-            notifier: async () => {},
             isAnyScheduledInFlight: () => false,
             isIrrigationEnabled: async () => true,
         });
@@ -348,7 +320,6 @@ describe('manual controller — run', () => {
             clock,
             openZone: async () => {},
             closeZone: async () => {},
-            notifier: async () => {},
             isAnyScheduledInFlight: () => false,
             isIrrigationEnabled: async () => true,
         });
@@ -364,7 +335,6 @@ describe('manual controller — run', () => {
             clock,
             openZone: async () => {},
             closeZone: async () => {},
-            notifier: async () => {},
             isAnyScheduledInFlight: () => false,
             isIrrigationEnabled: async () => true,
         });
@@ -375,13 +345,11 @@ describe('manual controller — run', () => {
     it('opens, calls writeManualRecord upfront with the planned duration, and schedules the auto-close', async () => {
         const { clock, advanceTo, getPendingCount } = createFakeClock(NOW);
         const closes: Zone[] = [];
-        const { notifier } = recordingNotifier();
         const { pushNotify, calls: pushCalls } = recordingPush();
         const controller = createManualController({
             clock,
             openZone: async () => {},
             closeZone: async (z) => { closes.push(z); },
-            notifier,
             pushNotify,
             isAnyScheduledInFlight: () => false,
             isIrrigationEnabled: async () => true,
@@ -411,14 +379,12 @@ describe('manual controller — run', () => {
         expect(pushCalls.some(c => c.category === 'wateringEnd')).toBe(true);
     });
 
-    it('clears state and emits an error when the auto-close fires but closeZone rejects', async () => {
+    it('clears state when the auto-close fires but closeZone rejects', async () => {
         const { clock, advanceTo } = createFakeClock(NOW);
-        const { notifier, calls } = recordingNotifier();
         const controller = createManualController({
             clock,
             openZone: async () => {},
             closeZone: async () => { throw new Error('HA 504'); },
-            notifier,
             isAnyScheduledInFlight: () => false,
             isIrrigationEnabled: async () => true,
         });
@@ -428,8 +394,6 @@ describe('manual controller — run', () => {
         await advanceTo(new Date('2026-05-04T15:05:30.000Z'));
 
         expect(controller.getActiveZone()).toBeNull();
-        const errorCall = calls.find(c => c.event === 'error' && c.context?.errorTitle === 'Manual close failed');
-        expect(errorCall?.context?.errorSub).toBe('Last attempt failed: HA 504.');
     });
 });
 
@@ -438,22 +402,22 @@ describe('manual controller — master kill switch', () => {
         bootManualService({ repo: fakeRepo().repo });
     });
 
-    it('open rejects with SystemDisabledError when isIrrigationEnabled returns false; no HA call, no notifier', async () => {
+    it('open rejects with SystemDisabledError when isIrrigationEnabled returns false; no HA call, no push', async () => {
         const { clock } = createFakeClock(NOW);
         let openCalls = 0;
-        const { notifier, calls } = recordingNotifier();
+        const { pushNotify, calls: pushCalls } = recordingPush();
         const controller = createManualController({
             clock,
             openZone: async () => { openCalls += 1; },
             closeZone: async () => {},
-            notifier,
+            pushNotify,
             isAnyScheduledInFlight: () => false,
             isIrrigationEnabled: async () => false,
         });
 
         await expect(controller.open(buildZone())).rejects.toBeInstanceOf(SystemDisabledError);
         expect(openCalls).toBe(0);
-        expect(calls).toHaveLength(0);
+        expect(pushCalls).toHaveLength(0);
         expect(controller.getActiveZone()).toBeNull();
     });
 
@@ -464,7 +428,6 @@ describe('manual controller — master kill switch', () => {
             clock,
             openZone: async () => { openCalls += 1; },
             closeZone: async () => {},
-            notifier: async () => {},
             isAnyScheduledInFlight: () => false,
             isIrrigationEnabled: async () => false,
         });
@@ -481,7 +444,6 @@ describe('manual controller — master kill switch', () => {
             clock,
             openZone: async () => {},
             closeZone: async () => { closeCalls += 1; },
-            notifier: async () => {},
             isAnyScheduledInFlight: () => false,
             isIrrigationEnabled: async () => enabled,
         });
@@ -504,7 +466,6 @@ describe('manual controller — master kill switch', () => {
             clock,
             openZone: async () => {},
             closeZone: async () => { closeCalls += 1; },
-            notifier: async () => {},
             isAnyScheduledInFlight: () => false,
             isIrrigationEnabled: async () => false,
         });
@@ -531,7 +492,6 @@ describe('manual controller — getActiveZone and shutdown', () => {
             clock,
             openZone: async () => {},
             closeZone: async () => {},
-            notifier: async () => {},
             isAnyScheduledInFlight: () => false,
             isIrrigationEnabled: async () => true,
         });
@@ -549,7 +509,6 @@ describe('manual controller — getActiveZone and shutdown', () => {
             clock,
             openZone: async () => {},
             closeZone: async () => {},
-            notifier: async () => {},
             isAnyScheduledInFlight: () => false,
             isIrrigationEnabled: async () => true,
         });
@@ -564,13 +523,11 @@ describe('manual controller — getActiveZone and shutdown', () => {
     it('shutdown closes any active manual zone and cancels the close timer', async () => {
         const { clock, advanceTo, getPendingCount } = createFakeClock(NOW);
         const closes: Zone[] = [];
-        const { notifier } = recordingNotifier();
         const { pushNotify, calls: pushCalls } = recordingPush();
         const controller = createManualController({
             clock,
             openZone: async () => {},
             closeZone: async (z) => { closes.push(z); },
-            notifier,
             pushNotify,
             isAnyScheduledInFlight: () => false,
             isIrrigationEnabled: async () => true,
@@ -601,7 +558,6 @@ describe('manual controller — getActiveZone and shutdown', () => {
             clock,
             openZone: async () => {},
             closeZone: async (z) => { closes.push(z); },
-            notifier: async () => {},
             isAnyScheduledInFlight: () => false,
             isIrrigationEnabled: async () => true,
         });

@@ -3,13 +3,11 @@ import type { AlertEvent, Alerter } from '@/alerts';
 import type { ZoneRelayState } from '@/data/home-assistant';
 import type { Zone } from '@/models';
 import type { FutureCyclePair } from '@/models/cycle';
-import type { NotificationContext, NotificationEvent, Notifier } from '@/notifications';
 import type { ScheduleEntriesRepository } from '@/repositories/schedule-entries';
 import { reconcileCycleAndRelayState, type ReconcileDeps } from './reconcile';
 import type { ArmCloseOnlyInputs, Clock, TimerHandle, TimerRegistry } from './runtime';
 import { setDaemonRepos, type DaemonServiceRepos } from './state';
 
-type RecordedNotification = { event: NotificationEvent; context: NotificationContext | undefined };
 
 const NOW = new Date('2026-05-04T12:00:00.000Z');
 
@@ -124,12 +122,10 @@ function buildDeps(overrides: {
     deps: ReconcileDeps;
     closes: Zone[];
     armCalls: ArmCloseOnlyInputs[];
-    notifications: RecordedNotification[];
     alertCalls: AlertEvent[];
 } {
     const closes: Zone[] = [];
     const armCalls: ArmCloseOnlyInputs[] = [];
-    const notifications: RecordedNotification[] = [];
     const now = overrides.now ?? NOW;
 
     const registry: TimerRegistry = {
@@ -143,10 +139,6 @@ function buildDeps(overrides: {
         snapshotInFlight: () => [],
     } as unknown as TimerRegistry;
 
-    const notifier: Notifier = async (event, context) => {
-        notifications.push({ event, context });
-    };
-
     const alertCalls: AlertEvent[] = [];
     const alerter: Alerter = async (event) => {
         alertCalls.push(event);
@@ -155,12 +147,10 @@ function buildDeps(overrides: {
     return {
         closes,
         armCalls,
-        notifications,
         alertCalls,
         deps: {
             clock: fakeClock(now),
             registry,
-            notifier,
             alerter,
             closeZone: overrides.closeFn ?? (async (zone) => { closes.push(zone); }),
             getZoneState: async (zone) => {

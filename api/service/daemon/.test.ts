@@ -18,7 +18,6 @@ import type { WeatherStateRepository } from '@/repositories/weather-state';
 import type { ZoneJoinedRow, ZonesRepository } from '@/repositories/zones';
 import { joinedRowToZone } from '@/repositories/zones';
 import { planZoneSchedule } from '@/schedules/dynamic';
-import type { NotificationContext, NotificationEvent, Notifier } from '@/notifications';
 import type { CategoryPushNotifier, NotificationCategory, PushMessageContent } from '@/service/push-tokens';
 import { bootSystemService } from '@/service/system';
 import { bootDaemonService, computeNextMorningAt, computeNextRePlanAt, start } from '.';
@@ -48,16 +47,6 @@ const mockFetch = mock(() => Promise.resolve({
     json: async () => emptyOpenMeteoResponse,
 } as Response));
 (global as unknown as { fetch: typeof mockFetch }).fetch = mockFetch;
-
-type RecordedNotification = { event: NotificationEvent; context: NotificationContext | undefined };
-
-function recordingNotifier(): { notifier: Notifier; calls: RecordedNotification[] } {
-    const calls: RecordedNotification[] = [];
-    const notifier: Notifier = async (event, context) => {
-        calls.push({ event, context });
-    };
-    return { notifier, calls };
-}
 
 type RecordedPush = { category: NotificationCategory; content: PushMessageContent };
 
@@ -1045,7 +1034,7 @@ describe('start', () => {
         // actuation-stale alert raised, pinned to the zone.
         const stale = alertCalls.filter(a => a.class === 'actuation-stale');
         expect(stale).toHaveLength(1);
-        expect(stale[0]).toMatchObject({ class: 'actuation-stale', tone: 'warn', zoneId: 'zone-001', zoneName: 'North' });
+        expect(stale[0]).toMatchObject({ class: 'actuation-stale', tone: 'warn', zoneId: 'zone-001' });
     });
 
     it('morning tick reconciles depletion even when irrigation is disabled, but skips planning (API-79)', async () => {

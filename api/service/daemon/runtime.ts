@@ -1,7 +1,6 @@
 import type { Alerter } from '@/alerts';
 import type { Zone } from '@/models';
 import type { PersistedCycle } from '@/models/cycle';
-import type { Notifier } from '@/notifications';
 import { noopCategoryPush, type CategoryPushNotifier } from '@/service/push-tokens';
 import { scheduleEndedMessage, scheduleStartedMessage } from '@/service/push-tokens/lifecycle-messages';
 import { getScheduleEntriesRepo, getZonesRepo } from './state';
@@ -117,7 +116,6 @@ export type ArmCycleInputs = {
     cycle: PersistedCycle;
     openZone: (zone: Zone) => Promise<void>;
     closeZone: (zone: Zone) => Promise<void>;
-    notifier: Notifier;
     /** Gated Expo push for lifecycle notifications. Defaults to a noop when unset. */
     pushNotify?: CategoryPushNotifier;
     alerter: Alerter;
@@ -140,7 +138,7 @@ export function armCycle(inputs: ArmCycleInputs): void {
 }
 
 async function runOpen(inputs: ArmCycleInputs): Promise<void> {
-    const { clock, registry, zone, cycle, openZone, closeZone, notifier, pushNotify, alerter, scheduleStart, scheduleEnd } = inputs;
+    const { clock, registry, zone, cycle, openZone, closeZone, pushNotify, alerter, scheduleStart, scheduleEnd } = inputs;
 
     try {
         await openZone(zone);
@@ -153,7 +151,6 @@ async function runOpen(inputs: ArmCycleInputs): Promise<void> {
             title: 'HA open failed',
             sub: `Last attempt failed: ${reason}.`,
             zoneId: zone.id,
-            zoneName: zone.name,
         });
         return;
     }
@@ -170,7 +167,7 @@ async function runOpen(inputs: ArmCycleInputs): Promise<void> {
     const closeDelay = cycle.durationMin * 60_000;
     const endTime = new Date(firedAt.getTime() + closeDelay);
     const closeHandle = clock.setTimeout(() => {
-        runClose({ clock, registry, zone, cycle, closeZone, notifier, pushNotify, alerter, scheduleEnd }).catch(err => {
+        runClose({ clock, registry, zone, cycle, closeZone, pushNotify, alerter, scheduleEnd }).catch(err => {
             console.error(`daemon: unhandled error in cycle close path for ${cycle.id}.`, err);
         });
     }, closeDelay);
@@ -188,7 +185,6 @@ export type ArmCloseOnlyInputs = {
     zone: Zone;
     cycle: PersistedCycle;
     closeZone: (zone: Zone) => Promise<void>;
-    notifier: Notifier;
     /** Gated Expo push for lifecycle notifications. Defaults to a noop when unset. */
     pushNotify?: CategoryPushNotifier;
     alerter: Alerter;
@@ -196,11 +192,11 @@ export type ArmCloseOnlyInputs = {
 };
 
 export function armCloseOnly(inputs: ArmCloseOnlyInputs): void {
-    const { clock, registry, zone, cycle, closeZone, notifier, pushNotify, alerter, plannedCloseAt } = inputs;
+    const { clock, registry, zone, cycle, closeZone, pushNotify, alerter, plannedCloseAt } = inputs;
     const closeDelay = Math.max(0, plannedCloseAt.getTime() - clock.now().getTime());
 
     const closeHandle = clock.setTimeout(() => {
-        runClose({ clock, registry, zone, cycle, closeZone, notifier, pushNotify, alerter }).catch(err => {
+        runClose({ clock, registry, zone, cycle, closeZone, pushNotify, alerter }).catch(err => {
             console.error(`daemon: unhandled error in close-only path for cycle ${cycle.id}.`, err);
         });
     }, closeDelay);
@@ -213,7 +209,6 @@ type RunCloseInputs = {
     zone: Zone;
     cycle: PersistedCycle;
     closeZone: (zone: Zone) => Promise<void>;
-    notifier: Notifier;
     /** Gated Expo push for lifecycle notifications. Defaults to a noop when unset. */
     pushNotify?: CategoryPushNotifier;
     alerter: Alerter;
@@ -221,7 +216,7 @@ type RunCloseInputs = {
 };
 
 async function runClose(inputs: RunCloseInputs): Promise<void> {
-    const { clock, registry, zone, cycle, closeZone, notifier, pushNotify, alerter, scheduleEnd } = inputs;
+    const { clock, registry, zone, cycle, closeZone, pushNotify, alerter, scheduleEnd } = inputs;
 
     try {
         await closeZone(zone);
@@ -235,7 +230,6 @@ async function runClose(inputs: RunCloseInputs): Promise<void> {
             title: 'HA close failed',
             sub: `Last attempt failed: ${reason}.`,
             zoneId: zone.id,
-            zoneName: zone.name,
         });
         return;
     }
@@ -287,7 +281,6 @@ export async function closeAllInFlight(inputs: {
                 title: 'HA close failed during shutdown',
                 sub: `Last attempt failed: ${reason}.`,
                 zoneId: zone.id,
-                zoneName: zone.name,
             });
         }
         registry.clearInFlight(cycleId);

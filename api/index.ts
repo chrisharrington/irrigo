@@ -66,7 +66,6 @@ import {
     type ManualController,
 } from '@/service/manual';
 import type { Zone } from '@/models';
-import { createNotifier } from '@/notifications';
 import Fastify, { type FastifyInstance, type FastifyReply } from 'fastify';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -853,7 +852,6 @@ if (import.meta.main) {
     }
     console.log('startup: database schema verified.');
 
-    const notifier = createNotifier();
     const dryRun = process.env.DRY_RUN === 'true';
     if (dryRun) {
         console.log(
@@ -902,9 +900,8 @@ if (import.meta.main) {
     bootTonightService({ db: typedDb });
     bootPushTokensService({ db: typedDb, expo });
     bootDaemonService({ db: typedDb });
-    const alerter = createAlerter(alertsDb, notifier, dispatchAlertPush);
+    const alerter = createAlerter(alertsDb, dispatchAlertPush);
     const daemon = await daemonStart({
-        notifier,
         pushNotify: sendCategoryPush,
         alerter,
         openZone: effectiveOpenZone,
@@ -915,7 +912,6 @@ if (import.meta.main) {
         clock: realClock,
         openZone: effectiveOpenZone,
         closeZone: effectiveCloseZone,
-        notifier,
         pushNotify: sendCategoryPush,
         isAnyScheduledInFlight: () => daemon.getStatus().activeZones.length > 0,
         isIrrigationEnabled: async () => (await getSystemState()).irrigationEnabled,

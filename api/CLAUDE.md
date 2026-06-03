@@ -45,6 +45,5 @@ Always invoke via `bun --cwd=./api run <script>`. Never the bare `bun --cwd=./ap
 | `next-runs` | Operator script — list the next scheduled cycle starts. |
 | `enable-schedule` / `disable-schedule` | Toggle a named schedule active/inactive. |
 | `toggle-zone` | Manually flip a zone's relay state via HA. |
-| `notify:test` | Send a test notification through the configured HA notify service. |
 
 If a common operation needs an entry, add a script to `api/package.json` rather than running it ad-hoc — the allow-list entry `Bash(bun --cwd=./api run *)` picks new scripts up automatically.

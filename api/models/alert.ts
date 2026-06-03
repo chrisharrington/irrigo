@@ -32,9 +32,9 @@ export type AlertEvent = {
 };
 
 /**
- * Writer function signature. The daemon threads one of these alongside the
- * existing notifier so failure paths fire alerts via dependency injection.
- * Resolves whether or not persistence succeeded — callers fire-and-forget.
+ * Writer function signature. The daemon threads one of these so failure paths
+ * fire alerts via dependency injection. Resolves whether or not persistence
+ * succeeded — callers fire-and-forget.
  */
 export type Alerter = (event: AlertEvent) => Promise<void>;
 
