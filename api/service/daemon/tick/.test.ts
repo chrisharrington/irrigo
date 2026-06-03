@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'bun:test';
-import dayjs from 'dayjs';
+import dayjs from '@/util/dayjs';
 import type { AlertEvent, Alerter, AlertsDb } from '@/alerts';
 import type { ZoneActuationInterval } from '@/data/home-assistant';
 import { createTestZone } from '@/mock/zone';

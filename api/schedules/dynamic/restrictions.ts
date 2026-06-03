@@ -1,7 +1,4 @@
-import dayjs from 'dayjs';
-import isoWeek from 'dayjs/plugin/isoWeek';
-
-dayjs.extend(isoWeek);
+import dayjs from '@/util/dayjs';
 
 /**
  * One allowed irrigation window within a day. `start` and `end` are

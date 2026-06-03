@@ -1,9 +1,4 @@
-import dayjs from 'dayjs';
-import utc from 'dayjs/plugin/utc';
-import timezone from 'dayjs/plugin/timezone';
-
-dayjs.extend(utc);
-dayjs.extend(timezone);
+import dayjs from '@/util/dayjs';
 
 /**
  * Distinguishes the daemon's two scheduled ticks. The morning tick

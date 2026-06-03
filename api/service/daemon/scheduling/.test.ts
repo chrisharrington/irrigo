@@ -1,11 +1,6 @@
 import { describe, expect, it } from 'bun:test';
-import dayjs from 'dayjs';
-import utc from 'dayjs/plugin/utc';
-import timezone from 'dayjs/plugin/timezone';
+import dayjs from '@/util/dayjs';
 import { computeNextMorningAt, computeNextRePlanAt, pickNextTick, pickUpcomingSunrise } from '.';
-
-dayjs.extend(utc);
-dayjs.extend(timezone);
 
 describe('computeNextRePlanAt', () => {
     it('UTC: returns todays hour when the current time is before that hour', () => {
