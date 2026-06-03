@@ -1,13 +1,10 @@
 import Config from '@/config';
 import {
-    DEFAULT_ACTIVITY_LIMIT,
     listActivity,
-    MAX_ACTIVITY_LIMIT,
     type ActivityDb,
     type ActivityListParams,
     type ActivityListResult,
 } from '@/activity';
-import { decodeCursor } from '@/util/cursor';
 import {
     acknowledgeAlert,
     createAlerter,
@@ -71,6 +68,11 @@ import { registerSystemRoutes, wrapSystemWithReplan, type SystemApi } from '@/ro
 import { registerNotificationSettingsRoutes, type NotificationSettingsApi } from '@/routes/notification-settings';
 import { registerReplanRoute } from '@/routes/replan';
 import { registerZonesSummaryRoute } from '@/routes/zones-summary';
+import { registerAlertRoutes } from '@/routes/alerts';
+import { registerActivityRoute } from '@/routes/activity';
+import { registerTonightRoute } from '@/routes/tonight';
+import { registerSchedulesListRoute } from '@/routes/schedules-list';
+import { registerPushRoutes } from '@/routes/push';
 
 // Transitional re-exports: `api/.test.ts` imports these from `@/index`. API-91
 // step 4 moves that suite next to its new subjects and drops these.
@@ -262,159 +264,6 @@ export function buildApp(opts: BuildAppOptions): FastifyInstance {
     }
 
     return app;
-}
-
-function registerPushRoutes(
-    app: FastifyInstance,
-    push: {
-        register: (input: PushRegistration) => Promise<void>;
-        unregister: (token: string) => Promise<void>;
-    },
-): void {
-    /**
-     * `POST /push/register` — registers (or refreshes) a device's Expo Push
-     * token. Idempotent: re-registering the same token refreshes the row's
-     * `platform`, `user_agent`, and `updated_at`. Returns 400 on missing /
-     * invalid body, 200 with `{ status: 'registered' }` on success.
-     */
-    app.post('/push/register', async (req, reply) => {
-        const body = req.body as Record<string, unknown> | undefined;
-        const tokenRaw = body?.['token'];
-        const platformRaw = body?.['platform'];
-        const userAgentRaw = body?.['userAgent'];
-
-        if (typeof tokenRaw !== 'string' || tokenRaw.length === 0) {
-            return reply.code(400).send({ error: 'bad-request', message: 'token must be a non-empty string.' });
-        }
-        if (platformRaw !== 'ios' && platformRaw !== 'android') {
-            return reply.code(400).send({ error: 'bad-request', message: `platform must be 'ios' or 'android'.` });
-        }
-        const userAgent =
-            typeof userAgentRaw === 'string' && userAgentRaw.length > 0 ? userAgentRaw : null;
-
-        await push.register({ token: tokenRaw, platform: platformRaw, userAgent });
-        return reply.code(200).send({ status: 'registered' });
-    });
-
-    /**
-     * `POST /push/unregister` — removes a device's Expo Push token. Idempotent:
-     * 200 even when the token was never registered.
-     */
-    app.post('/push/unregister', async (req, reply) => {
-        const body = req.body as Record<string, unknown> | undefined;
-        const tokenRaw = body?.['token'];
-        if (typeof tokenRaw !== 'string' || tokenRaw.length === 0) {
-            return reply.code(400).send({ error: 'bad-request', message: 'token must be a non-empty string.' });
-        }
-
-        await push.unregister(tokenRaw);
-        return reply.code(200).send({ status: 'unregistered' });
-    });
-}
-
-function registerTonightRoute(app: FastifyInstance, tonight: () => Promise<TonightDto>): void {
-    /**
-     * `GET /tonight` — next-run summary for the mobile Home hero card and
-     * CycleStrip. Re-evaluates on every request so a flip-to-disabled or a
-     * just-fired cycle shows up immediately.
-     */
-    app.get('/tonight', async (_req, reply) => {
-        const result = await tonight();
-        return reply.code(200).send(result);
-    });
-}
-
-function registerSchedulesListRoute(
-    app: FastifyInstance,
-    schedulesList: () => Promise<ScheduleListItem[]>,
-): void {
-    /**
-     * `GET /schedules` — list of every schedule (active + inactive) for the
-     * mobile app's Schedules screen, drawer footer, and Home active-schedule
-     * chip. The active row carries `nextRun` and `skippedTonight`; inactive
-     * rows omit both fields.
-     */
-    app.get('/schedules', async (_req, reply) => {
-        const result = await schedulesList();
-        return reply.code(200).send(result);
-    });
-}
-
-function registerActivityRoute(
-    app: FastifyInstance,
-    activity: (params: ActivityListParams) => Promise<ActivityListResult>,
-): void {
-    /**
-     * `GET /activity` — chronological schedule-entries feed. Drives the
-     * Activity screen (no filter) and Zone detail's "Recent runs" tab
-     * (?zoneId=…). Pagination is keyset: pass `?cursor=` from the previous
-     * response to fetch the next page.
-     */
-    app.get('/activity', async (req, reply) => {
-        const query = req.query as Record<string, unknown>;
-        const zoneIdRaw = query['zoneId'];
-        const zoneId = typeof zoneIdRaw === 'string' && zoneIdRaw.length > 0 ? zoneIdRaw : undefined;
-
-        const limitRaw = query['limit'];
-        let limit = DEFAULT_ACTIVITY_LIMIT;
-        if (limitRaw !== undefined) {
-            const parsed = typeof limitRaw === 'string' ? Number(limitRaw) : Number(limitRaw);
-            if (!Number.isInteger(parsed) || parsed <= 0 || parsed > MAX_ACTIVITY_LIMIT) {
-                return reply.code(400).send({
-                    error: 'bad-request',
-                    message: `limit must be an integer between 1 and ${MAX_ACTIVITY_LIMIT}.`,
-                });
-            }
-            limit = parsed;
-        }
-
-        const cursorRaw = query['cursor'];
-        let cursor: string | undefined;
-        if (cursorRaw !== undefined) {
-            if (typeof cursorRaw !== 'string' || cursorRaw.length === 0 || decodeCursor(cursorRaw) === null) {
-                return reply.code(400).send({ error: 'bad-request', message: 'cursor is malformed.' });
-            }
-            cursor = cursorRaw;
-        }
-
-        const result = await activity({
-            ...(zoneId !== undefined ? { zoneId } : {}),
-            limit,
-            ...(cursor !== undefined ? { cursor } : {}),
-        });
-        return reply.code(200).send(result);
-    });
-}
-
-function registerAlertRoutes(
-    app: FastifyInstance,
-    alerts: { list: () => Promise<AlertDto[]>; ack: (id: string) => Promise<AckResult> },
-): void {
-    /**
-     * `GET /alerts` — returns the unacked alert list driving the mobile app's
-     * persistent alert region. Empty array when no alerts are currently active
-     * — the UI region collapses to zero height. Order is newest-first.
-     */
-    app.get('/alerts', async (_req, reply) => {
-        const list = await alerts.list();
-        return reply.code(200).send({ alerts: list });
-    });
-
-    /**
-     * `POST /alerts/:id/ack` — dismisses an alert from the UI without
-     * resolving the underlying condition. Idempotent: re-acking an already-
-     * acked alert returns 200 (`already-acked`) rather than 409 so the mobile
-     * client can safely retry on flaky connectivity. Returns 404 only when no
-     * row matches the id at all.
-     */
-    app.post('/alerts/:id/ack', async (req, reply) => {
-        const { id } = req.params as { id: string };
-        const result = await alerts.ack(id);
-        if (result === 'not-found') {
-            return reply.code(404).send({ error: 'not-found', message: `Alert ${id} not found.` });
-        }
-        return reply.code(200).send({ status: result });
-    });
 }
 
 /**
