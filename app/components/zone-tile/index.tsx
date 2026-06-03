@@ -45,11 +45,7 @@ export function ZoneTile({ zone, onPress, now }: ZoneTileProps) {
     const lastRan = useMemo(() => formatLastRan(zone.lastFiredAt, referenceNow), [zone.lastFiredAt, referenceNow]);
 
     return (
-        <Pressable
-            onPress={handlePress}
-            accessibilityRole='button'
-            accessibilityLabel={`Open ${zone.name}`}
-        >
+        <Pressable onPress={handlePress} accessibilityRole='button' accessibilityLabel={`Open ${zone.name}`}>
             <TileGradient style={styles.card}>
                 <View style={styles.headerRow}>
                     <View style={styles.headerText}>
@@ -60,7 +56,7 @@ export function ZoneTile({ zone, onPress, now }: ZoneTileProps) {
                     <View style={styles.depletionBlock}>
                         <View style={styles.depletionWrap}>
                             <Text style={[styles.depletion, pastRaw ? { color: colors.danger } : null]}>
-                                {heldMm.toFixed(1)} mm
+                                {heldMm.toFixed(2)} mm
                             </Text>
                             <Text style={styles.rawLabel}> / {zone.rawMm} mm</Text>
                         </View>

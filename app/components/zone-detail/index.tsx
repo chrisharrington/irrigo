@@ -92,7 +92,7 @@ export function ZoneDetail({
             <View style={styles.heroCard}>
                 <Text style={styles.heroEyebrow}>Water available</Text>
                 <View style={styles.heroFigureRow}>
-                    <Text style={[styles.heroFigure, { color: toneColor }]}>{heldMm.toFixed(1)}</Text>
+                    <Text style={[styles.heroFigure, { color: toneColor }]}>{heldMm.toFixed(2)}</Text>
                     <Text style={styles.heroUnit}>mm</Text>
                 </View>
                 <View style={styles.heroBattery}>
