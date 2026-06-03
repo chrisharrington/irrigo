@@ -1,6 +1,4 @@
-import dayjs from 'dayjs';
-import utc from 'dayjs/plugin/utc';
-import timezone from 'dayjs/plugin/timezone';
+import dayjs from '@/util/dayjs';
 import type { Database } from '@/db';
 import type { TonightCycle, TonightDto, TonightState, TonightZone } from '@/models/tonight';
 import {
@@ -11,9 +9,6 @@ import {
 import { loadActiveSchedulesBySite } from '@/service/schedules';
 import { getSiteTimezone } from '@/service/sites';
 import { getSystemState } from '@/service/system';
-
-dayjs.extend(utc);
-dayjs.extend(timezone);
 
 /**
  * Input to `bootTonightService`. Production passes `{ db }`; tests pass

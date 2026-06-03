@@ -1,11 +1,6 @@
-import dayjs from 'dayjs';
-import utc from 'dayjs/plugin/utc';
-import timezone from 'dayjs/plugin/timezone';
+import dayjs from '@/util/dayjs';
 
 import type { PushMessageContent } from '.';
-
-dayjs.extend(utc);
-dayjs.extend(timezone);
 
 /**
  * Pure builders that turn a lifecycle event into the `title` / `body` / `data`

@@ -1,6 +1,4 @@
-import dayjs from 'dayjs';
-import utc from 'dayjs/plugin/utc';
-import timezone from 'dayjs/plugin/timezone';
+import dayjs from '@/util/dayjs';
 import type { Database } from '@/db';
 import type {
     ScheduleAllowedTimeWindow,
@@ -14,9 +12,6 @@ import {
 } from '@/repositories/schedule-entries';
 import { createSchedulesRepository, type Schedule, type SchedulesRepository } from '@/repositories/schedules';
 import { getSiteTimezone } from '@/service/sites';
-
-dayjs.extend(utc);
-dayjs.extend(timezone);
 
 export type { ScheduleAllowedTimeWindow, ScheduleListItem, ScheduleNextRun } from '@/models/schedules-list';
 

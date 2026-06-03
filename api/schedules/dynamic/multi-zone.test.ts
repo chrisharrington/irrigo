@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'bun:test';
-import dayjs, { type Dayjs } from 'dayjs';
+import dayjs, { type Dayjs } from '@/util/dayjs';
 
 import { createTestZone, GRASS_TYPES, SOIL_TYPES } from '@/mock/zone';
 import { createDryPeriod } from '@/mock/weather';

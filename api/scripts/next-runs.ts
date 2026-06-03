@@ -1,12 +1,7 @@
-import dayjs from 'dayjs';
-import utc from 'dayjs/plugin/utc';
-import timezone from 'dayjs/plugin/timezone';
+import dayjs from '@/util/dayjs';
 import { and, eq, gte, isNull } from 'drizzle-orm';
 import { irrigationCycles, scheduleEntries, sites, zones } from '@/db/schema';
 import type { db as DbType } from '@/db';
-
-dayjs.extend(utc);
-dayjs.extend(timezone);
 
 const ZONE_COL_WIDTH = 30;
 const TIME_COL_WIDTH = 26;

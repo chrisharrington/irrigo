@@ -1,7 +1,5 @@
 import { beforeEach, describe, expect, it } from 'bun:test';
-import dayjs from 'dayjs';
-import utc from 'dayjs/plugin/utc';
-import timezone from 'dayjs/plugin/timezone';
+import dayjs from '@/util/dayjs';
 import { irrigationCycles, scheduleEntries, zones } from '@/db/schema';
 import type { Schedule, SchedulesRepository } from '@/repositories/schedules';
 import type { TonightJoinedRow, TonightRepository } from '@/repositories/tonight';
@@ -9,9 +7,6 @@ import { bootSchedulesService } from '@/service/schedules';
 import { bootSitesService } from '@/service/sites';
 import { bootSystemService } from '@/service/system';
 import { bootTonightService, getTonightSummary } from '.';
-
-dayjs.extend(utc);
-dayjs.extend(timezone);
 
 type EntryRow = typeof scheduleEntries.$inferSelect;
 type CycleRow = typeof irrigationCycles.$inferSelect;

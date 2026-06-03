@@ -1,13 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, mock, spyOn } from 'bun:test';
 import type { AlertEvent, Alerter, AlertsDb } from '@/alerts';
-import dayjs from 'dayjs';
-import utc from 'dayjs/plugin/utc';
-import timezone from 'dayjs/plugin/timezone';
+import dayjs from '@/util/dayjs';
 import { grassTypes, irrigationCycles, scheduleEntries, schedules, sites, soilTypes, weatherState, zones } from '@/db/schema';
 import { __resetWeatherCacheForTests } from '@/data/weather';
-
-dayjs.extend(utc);
-dayjs.extend(timezone);
 import type { DailyWeather, IrrigationScheduleEntry, Zone } from '@/models';
 import type { FutureCyclePair, PersistedCycle } from '@/models/cycle';
 import type { ScheduleEntriesRepository } from '@/repositories/schedule-entries';

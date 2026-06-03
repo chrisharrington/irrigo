@@ -1,7 +1,5 @@
 import { beforeEach, describe, expect, it } from 'bun:test';
-import dayjs from 'dayjs';
-import utc from 'dayjs/plugin/utc';
-import timezone from 'dayjs/plugin/timezone';
+import dayjs from '@/util/dayjs';
 import { irrigationCycles, scheduleEntries } from '@/db/schema';
 import type { NextRunJoinedRow, ScheduleEntriesRepository } from '@/repositories/schedule-entries';
 import type { Schedule, SchedulesRepository } from '@/repositories/schedules';
@@ -12,9 +10,6 @@ import {
     formatWhenLabel,
     listSchedules,
 } from '.';
-
-dayjs.extend(utc);
-dayjs.extend(timezone);
 
 type EntryRow = typeof scheduleEntries.$inferSelect;
 type CycleRow = typeof irrigationCycles.$inferSelect;

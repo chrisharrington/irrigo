@@ -1,6 +1,4 @@
-import dayjs from 'dayjs';
-import utc from 'dayjs/plugin/utc';
-import timezone from 'dayjs/plugin/timezone';
+import dayjs from '@/util/dayjs';
 import { noopAlerter, type Alerter } from '@/alerts';
 import {
     closeZone as defaultCloseZone,
@@ -43,9 +41,6 @@ import {
     type DaemonServiceRepos,
     type SetDaemonReposInput,
 } from './state';
-
-dayjs.extend(utc);
-dayjs.extend(timezone);
 
 /**
  * Default hour-of-day (site-local) for the daily re-plan. 20:00 is chosen

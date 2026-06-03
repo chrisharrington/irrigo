@@ -1,11 +1,6 @@
 import type { DailyWeather, HourlyWeather, WeatherData } from "@/models";
-import dayjs from "dayjs";
-import utc from "dayjs/plugin/utc";
-import tzPlugin from "dayjs/plugin/timezone";
+import dayjs from '@/util/dayjs';
 import pRetry, { AbortError, type Options as PRetryOptions } from 'p-retry';
-
-dayjs.extend(utc);
-dayjs.extend(tzPlugin);
 
 type OpenMeteoResponse = {
     latitude: number;
