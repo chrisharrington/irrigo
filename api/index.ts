@@ -29,7 +29,6 @@ import {
     enableSchedule as defaultEnableSchedule,
     resumeActiveScheduleTonight as defaultResumeActiveScheduleTonight,
     skipActiveScheduleTonight as defaultSkipActiveScheduleTonight,
-    type Schedule,
 } from '@/service/schedules';
 import { bootSitesService } from '@/service/sites';
 import { bootZonesService, getZoneById, getZoneSummaries } from '@/service/zones';
@@ -40,8 +39,6 @@ import { bootSystemService, getSystemState, setIrrigationEnabled } from '@/servi
 import { bootNotificationSettingsService, getNotificationSettings, updateNotificationSettings } from '@/service/notification-settings';
 import type { Database } from '@/db';
 import type { PushRegistration } from '@/models/push-token';
-import type { SystemStateDto } from '@/models/system';
-import type { NotificationSettingsDto, NotificationSettingsPatch } from '@/models/notification-settings';
 import type { TonightDto } from '@/models/tonight';
 import {
     bootPushTokensService,
@@ -60,118 +57,27 @@ import {
 import { queryLatestMigrationViaDrizzle, readJournalFile, verifyMigrations } from '@/db/verify-migrations';
 import {
     bootManualService,
-    BusyError,
     createManualController,
-    SystemDisabledError,
     type ManualController,
 } from '@/service/manual';
 import type { Zone } from '@/models';
-import Fastify, { type FastifyInstance, type FastifyReply } from 'fastify';
+import Fastify, { type FastifyInstance } from 'fastify';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+import { registerManualRoutes } from '@/routes/manual';
+import { registerScheduleRoutes, wrapScheduleWithReplan, type ScheduleApi } from '@/routes/schedule';
+import { registerSystemRoutes, wrapSystemWithReplan, type SystemApi } from '@/routes/system';
+import { registerNotificationSettingsRoutes, type NotificationSettingsApi } from '@/routes/notification-settings';
+import { registerReplanRoute } from '@/routes/replan';
+import { registerZonesSummaryRoute } from '@/routes/zones-summary';
+
+// Transitional re-exports: `api/.test.ts` imports these from `@/index`. API-91
+// step 4 moves that suite next to its new subjects and drops these.
+export { wrapScheduleWithReplan, wrapSystemWithReplan };
+export type { ScheduleApi, SystemApi };
+
 const shutdownStarted = new WeakSet<FastifyInstance>();
-
-/**
- * Build-time options for the Fastify app. `manual` and `zoneById` are
- * optional so tests that only care about `/` and `/health` don't have to
- * stub the manual surface.
- */
-/**
- * Subset of the `ScheduleManager` API exposed to HTTP. Both methods return
- * the post-update `Schedule` row, or `null` if the slug is unknown so the
- * route handler can map that to a 404.
- */
-export type ScheduleApi = {
-    enable: (slug: string) => Promise<Schedule | null>;
-    disable: (slug: string) => Promise<Schedule | null>;
-    skipTonight: () => Promise<Schedule | null>;
-    resumeTonight: () => Promise<Schedule | null>;
-};
-
-/**
- * HTTP surface of the master kill switch. Production wires this against
- * `getSystemState` / `setIrrigationEnabled` from `@/service/system`, optionally
- * wrapped with `wrapSystemWithReplan` so the daemon re-plans on each flip.
- */
-export type SystemApi = {
-    get: () => Promise<SystemStateDto>;
-    enable: () => Promise<SystemStateDto>;
-    disable: () => Promise<SystemStateDto>;
-};
-
-/**
- * HTTP surface of the operator notification toggles. Production wires this
- * against `getNotificationSettings` / `updateNotificationSettings` from
- * `@/service/notification-settings`.
- */
-export type NotificationSettingsApi = {
-    get: () => Promise<NotificationSettingsDto>;
-    update: (patch: NotificationSettingsPatch) => Promise<NotificationSettingsDto>;
-};
-
-/**
- * Wraps a base `SystemApi` so each non-throwing `enable` / `disable` call
- * triggers `replan()` before resolving. Mirrors `wrapScheduleWithReplan`.
- * The `get` accessor is unwrapped — reads don't change planner state.
- *
- * @param base - The underlying handlers (DB-backed in production).
- * @param replan - The daemon's `rePlan` reference.
- */
-export function wrapSystemWithReplan(base: SystemApi, replan: () => Promise<void>): SystemApi {
-    return {
-        get: () => base.get(),
-        enable: async () => {
-            const result = await base.enable();
-            await replan();
-            return result;
-        },
-        disable: async () => {
-            const result = await base.disable();
-            await replan();
-            return result;
-        },
-    };
-}
-
-/**
- * Wraps a base `ScheduleApi` so that any non-null `enable` / `disable`
- * result triggers `replan` before resolving. The wrapper keeps the route
- * handler synchronous-looking: when the route awaits `schedule.enable`,
- * it implicitly awaits the re-plan too. When the base call returns null
- * (unknown slug), the re-plan is skipped — there's nothing to re-plan
- * against. Errors from `replan` propagate to the route, which maps them
- * to a 502 response.
- *
- * @param base - The underlying schedule manager (DB-backed in production).
- * @param replan - The daemon's `rePlan` reference.
- * @returns A new `ScheduleApi` that drives a re-plan after each successful
- *   activation change.
- */
-export function wrapScheduleWithReplan(base: ScheduleApi, replan: () => Promise<void>): ScheduleApi {
-    return {
-        enable: async slug => {
-            const result = await base.enable(slug);
-            if (result !== null) await replan();
-            return result;
-        },
-        disable: async slug => {
-            const result = await base.disable(slug);
-            if (result !== null) await replan();
-            return result;
-        },
-        skipTonight: async () => {
-            const result = await base.skipTonight();
-            if (result !== null) await replan();
-            return result;
-        },
-        resumeTonight: async () => {
-            const result = await base.resumeTonight();
-            if (result !== null) await replan();
-            return result;
-        },
-    };
-}
 
 /**
  * Reads `EXPO_ACCESS_TOKEN` from the given environment object. Returns the
@@ -480,87 +386,6 @@ function registerActivityRoute(
     });
 }
 
-function registerSystemRoutes(app: FastifyInstance, system: SystemApi): void {
-    /**
-     * `GET /system` — current state of the master irrigation kill switch.
-     * Backs the mobile Home screen's toggle and "off since …" label.
-     */
-    app.get('/system', async (_req, reply) => {
-        const state = await system.get();
-        return reply.code(200).send(state);
-    });
-
-    /**
-     * `POST /system/enable` — flip the kill switch on. Returns the post-flip
-     * DTO (`since` reflects the time of this flip). 502 when the wrapped
-     * re-plan rejects.
-     */
-    app.post('/system/enable', async (_req, reply) => {
-        try {
-            const state = await system.enable();
-            return reply.code(200).send(state);
-        } catch (err) {
-            const message = err instanceof Error ? err.message : String(err);
-            return reply.code(502).send({ error: 'replan-failed', message });
-        }
-    });
-
-    /**
-     * `POST /system/disable` — flip the kill switch off. Returns the post-flip
-     * DTO. 502 when the wrapped re-plan rejects.
-     */
-    app.post('/system/disable', async (_req, reply) => {
-        try {
-            const state = await system.disable();
-            return reply.code(200).send(state);
-        } catch (err) {
-            const message = err instanceof Error ? err.message : String(err);
-            return reply.code(502).send({ error: 'replan-failed', message });
-        }
-    });
-}
-
-const NOTIFICATION_SETTINGS_KEYS = ['scheduleStart', 'scheduleEnd', 'wateringStart', 'wateringEnd', 'error'] as const;
-
-function registerNotificationSettingsRoutes(app: FastifyInstance, settings: NotificationSettingsApi): void {
-    /**
-     * `GET /settings/notifications` — the operator's five per-event toggles,
-     * backing the mobile settings screen. Always 200 with the full DTO.
-     */
-    app.get('/settings/notifications', async (_req, reply) => {
-        const dto = await settings.get();
-        return reply.code(200).send(dto);
-    });
-
-    /**
-     * `PATCH /settings/notifications` — updates any subset of the five flags
-     * and echoes the full updated DTO. The body must be an object whose keys
-     * are all recognised flags and whose values are all booleans; any unknown
-     * key or non-boolean value is a 400. An empty body is a valid no-op that
-     * returns the current settings.
-     */
-    app.patch('/settings/notifications', async (req, reply) => {
-        const body = req.body;
-        if (typeof body !== 'object' || body === null || Array.isArray(body)) {
-            return reply.code(400).send({ error: 'bad-request', message: 'Body must be a JSON object.' });
-        }
-
-        const patch: NotificationSettingsPatch = {};
-        for (const [key, value] of Object.entries(body)) {
-            if (!(NOTIFICATION_SETTINGS_KEYS as readonly string[]).includes(key)) {
-                return reply.code(400).send({ error: 'bad-request', message: `Unknown field '${key}'.` });
-            }
-            if (typeof value !== 'boolean') {
-                return reply.code(400).send({ error: 'bad-request', message: `Field '${key}' must be a boolean.` });
-            }
-            patch[key as keyof NotificationSettingsPatch] = value;
-        }
-
-        const dto = await settings.update(patch);
-        return reply.code(200).send(dto);
-    });
-}
-
 function registerAlertRoutes(
     app: FastifyInstance,
     alerts: { list: () => Promise<AlertDto[]>; ack: (id: string) => Promise<AckResult> },
@@ -590,234 +415,6 @@ function registerAlertRoutes(
         }
         return reply.code(200).send({ status: result });
     });
-}
-
-function registerZonesSummaryRoute(
-    app: FastifyInstance,
-    zonesSummary: () => Promise<ZoneSummary[]>,
-): void {
-    /**
-     * `GET /zones` — returns the zone summary list driving the mobile app's
-     * Home zone-tile list and Zone detail header. Each entry includes grass
-     * and soil names, computed `rawMm`, the latest fire summary, and the
-     * `patch` variant. Errors propagate as Fastify's default 500 — there is
-     * no external dependency to wrap as a 502 here.
-     */
-    app.get('/zones', async (_req, reply) => {
-        const zones = await zonesSummary();
-        return reply.code(200).send({ zones });
-    });
-}
-
-function registerReplanRoute(app: FastifyInstance, replan: () => Promise<void>, getStatus: () => DaemonStatus): void {
-    /**
-     * `POST /replan` — forces the daemon to re-plan immediately. Used by the
-     * CLI scripts to make schedule changes take effect within seconds rather
-     * than at the next 04:00 site-local tick. Returns 200 with the post-
-     * re-plan `lastRePlanAt`; 502 if the re-plan itself rejects.
-     */
-    app.post('/replan', async (_req, reply) => {
-        try {
-            await replan();
-        } catch (err) {
-            const message = err instanceof Error ? err.message : String(err);
-            return reply.code(502).send({ error: 'replan-failed', message });
-        }
-        const status = getStatus();
-        return reply.code(200).send({ status: 'replanned', lastRePlanAt: status.lastRePlanAt });
-    });
-}
-
-function registerScheduleRoutes(app: FastifyInstance, schedule: ScheduleApi): void {
-    /**
-     * `POST /schedule/enable/:slug` — atomically activates the named schedule
-     * and deactivates any other schedule that's currently active on the same
-     * site. 200 with the schedule on success; 404 when the slug is unknown.
-     */
-    app.post('/schedule/enable/:slug', async (req, reply) => {
-        const { slug } = req.params as { slug: string };
-        let result;
-        try {
-            result = await schedule.enable(slug);
-        } catch (err) {
-            const message = err instanceof Error ? err.message : String(err);
-            return reply.code(502).send({ error: 'replan-failed', message });
-        }
-        if (result === null) {
-            return reply.code(404).send({ error: 'not-found', message: `Schedule '${slug}' not found.` });
-        }
-        return reply.code(200).send({
-            status: 'enabled',
-            schedule: { slug: result.slug, name: result.name, siteId: result.siteId },
-        });
-    });
-
-    /**
-     * `POST /schedule/disable/:slug` — deactivates the named schedule.
-     * Idempotent at the data layer (already-inactive returns success). 404
-     * when the slug is unknown.
-     */
-    app.post('/schedule/disable/:slug', async (req, reply) => {
-        const { slug } = req.params as { slug: string };
-        let result;
-        try {
-            result = await schedule.disable(slug);
-        } catch (err) {
-            const message = err instanceof Error ? err.message : String(err);
-            return reply.code(502).send({ error: 'replan-failed', message });
-        }
-        if (result === null) {
-            return reply.code(404).send({ error: 'not-found', message: `Schedule '${slug}' not found.` });
-        }
-        return reply.code(200).send({
-            status: 'disabled',
-            schedule: { slug: result.slug, name: result.name, siteId: result.siteId },
-        });
-    });
-
-    /**
-     * `POST /schedule/skip-tonight` — sets a one-night skip marker on the active
-     * schedule so the planner drops tonight's cycles. 404 if no schedule is
-     * currently active; 502 if the wrapped re-plan rejects.
-     */
-    app.post('/schedule/skip-tonight', async (_req, reply) => {
-        let result;
-        try {
-            result = await schedule.skipTonight();
-        } catch (err) {
-            const message = err instanceof Error ? err.message : String(err);
-            return reply.code(502).send({ error: 'replan-failed', message });
-        }
-        if (result === null) {
-            return reply.code(404).send({ error: 'not-found', message: 'No active schedule.' });
-        }
-        return reply.code(200).send({
-            status: 'skipped',
-            schedule: {
-                slug: result.slug,
-                name: result.name,
-                siteId: result.siteId,
-                skippedNightDate: result.skippedNightDate,
-            },
-        });
-    });
-
-    /**
-     * `POST /schedule/resume-tonight` — clears the skip marker on the active
-     * schedule. Idempotent (already-cleared returns success). 404 if no
-     * schedule is active; 502 if the wrapped re-plan rejects.
-     */
-    app.post('/schedule/resume-tonight', async (_req, reply) => {
-        let result;
-        try {
-            result = await schedule.resumeTonight();
-        } catch (err) {
-            const message = err instanceof Error ? err.message : String(err);
-            return reply.code(502).send({ error: 'replan-failed', message });
-        }
-        if (result === null) {
-            return reply.code(404).send({ error: 'not-found', message: 'No active schedule.' });
-        }
-        return reply.code(200).send({
-            status: 'resumed',
-            schedule: {
-                slug: result.slug,
-                name: result.name,
-                siteId: result.siteId,
-                skippedNightDate: result.skippedNightDate,
-            },
-        });
-    });
-}
-
-function registerManualRoutes(
-    app: FastifyInstance,
-    manual: ManualController,
-    zoneById: (zoneId: string) => Promise<Zone | null>,
-): void {
-    /**
-     * `POST /zones/:id/open` — opens the zone's relay via Home Assistant.
-     * Returns 200 with the open timestamp on success, 404 if the zone id is
-     * unknown, 409 if another fire (manual or scheduled) is already in
-     * flight, or 502 if HA itself rejected the call.
-     */
-    app.post('/zones/:id/open', async (req, reply) => {
-        const { id } = req.params as { id: string };
-        const zone = await zoneById(id);
-        if (!zone) return reply.code(404).send({ error: 'not-found', message: `Zone ${id} not found.` });
-
-        try {
-            const { since } = await manual.open(zone);
-            return reply.code(200).send({ status: 'open', since: since.toISOString() });
-        } catch (err) {
-            return sendControllerError(reply, err);
-        }
-    });
-
-    /**
-     * `POST /zones/:id/close` — closes the zone's relay. Idempotent: closing
-     * a relay that the controller doesn't track still issues HA's `turn_off`
-     * (itself idempotent) and returns 200. 404 only when the zone id is
-     * unknown; 502 when HA rejects.
-     */
-    app.post('/zones/:id/close', async (req, reply) => {
-        const { id } = req.params as { id: string };
-        const zone = await zoneById(id);
-        if (!zone) return reply.code(404).send({ error: 'not-found', message: `Zone ${id} not found.` });
-
-        try {
-            await manual.close(zone);
-            return reply.code(200).send({ status: 'closed' });
-        } catch (err) {
-            return sendControllerError(reply, err);
-        }
-    });
-
-    /**
-     * `POST /zones/:id/run` — opens the zone now and schedules an automatic
-     * close after `durationMin` minutes. Body must contain a positive finite
-     * `durationMin`; the controller additionally caps it at
-     * `MAX_RUN_DURATION_MIN`. Maps controller errors: `BusyError` → 409,
-     * duration out-of-range → 400, anything else (HA failure) → 502.
-     */
-    app.post('/zones/:id/run', async (req, reply) => {
-        const { id } = req.params as { id: string };
-        const body = req.body as Record<string, unknown> | undefined;
-        const durationMin = body?.['durationMin'];
-        if (typeof durationMin !== 'number' || !Number.isFinite(durationMin) || durationMin <= 0) {
-            return reply.code(400).send({ error: 'bad-request', message: 'durationMin must be a positive number.' });
-        }
-
-        const zone = await zoneById(id);
-        if (!zone) return reply.code(404).send({ error: 'not-found', message: `Zone ${id} not found.` });
-
-        try {
-            const { since, willCloseAt } = await manual.run(zone, durationMin);
-            return reply.code(200).send({
-                status: 'open',
-                since: since.toISOString(),
-                willCloseAt: willCloseAt.toISOString(),
-            });
-        } catch (err) {
-            // Map controller-side durationMin validation (e.g. "exceeds maximum") back to 400
-            // so the client sees the same status class as the route's own pre-check above.
-            if (err instanceof Error && /durationMin/.test(err.message)) {
-                return reply.code(400).send({ error: 'bad-request', message: err.message });
-            }
-            return sendControllerError(reply, err);
-        }
-    });
-}
-
-function sendControllerError(reply: FastifyReply, err: unknown): FastifyReply {
-    if (err instanceof SystemDisabledError) {
-        return reply.code(409).send({ error: 'system-disabled', message: err.message });
-    }
-    if (err instanceof BusyError) {
-        return reply.code(409).send({ error: 'busy', message: err.message });
-    }
-    const message = err instanceof Error ? err.message : String(err);
-    return reply.code(502).send({ error: 'home-assistant', message });
 }
 
 /**
