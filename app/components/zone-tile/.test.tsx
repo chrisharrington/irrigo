@@ -60,11 +60,20 @@ describe('ZoneTile', () => {
         expect(screen.getByText('Fescue')).toBeOnTheScreen();
     });
 
-    it('renders depletion / raw with one decimal on depletion and the mm suffix.', () => {
+    it('renders water held / capacity with one decimal on the held figure and the mm suffix.', () => {
+        // held = raw 32 − depletion 14.4 = 17.6 mm.
         render(<ZoneTile zone={HEALTHY_ZONE} onPress={() => {}} now={NOW} />);
 
-        expect(screen.getByText('14.4 mm')).toBeOnTheScreen();
+        expect(screen.getByText('17.6 mm')).toBeOnTheScreen();
         expect(screen.getByText('/ 32 mm')).toBeOnTheScreen();
+    });
+
+    it('clamps the held figure to 0.0 mm when the zone is past RAW.', () => {
+        // depletion 34.1 ≥ raw 30 → held = max(0, 30 − 34.1) = 0.
+        render(<ZoneTile zone={PAST_RAW_ZONE} onPress={() => {}} now={NOW} />);
+
+        expect(screen.getByText('0.0 mm')).toBeOnTheScreen();
+        expect(screen.getByText('/ 30 mm')).toBeOnTheScreen();
     });
 
     it('formats the Last ran footer using the relative-time helper.', () => {
