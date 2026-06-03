@@ -1,11 +1,19 @@
 import dayjs from 'dayjs';
 import type { Zone, DailyWeather, IrrigationScheduleEntry, IrrigationCycle } from '@/models';
-import type { SchedulingDecision, SchedulingDecisionReason, SchedulingOutcome } from '@/models/decision';
+import type { SchedulingDecision, SchedulingDecisionReason } from '@/models/decision';
 import {
     isDayAllowed,
     isNightSkipped,
     type ScheduleRestrictions,
 } from './restrictions';
+import { clampValue, roundTo1Decimal } from './util';
+import { estimateSoakMinutes } from './soak';
+import { effectiveRainfall, forecastEffectiveRainfall, DEFAULT_RAIN_SKIP_LOOKAHEAD_DAYS } from './rainfall';
+import { buildDecision } from './decision';
+
+// Re-exported so `@/schedules/dynamic`'s public surface is unchanged (consumed
+// by `@/schedules` + tests). The definition now lives in `./rainfall`.
+export { DEFAULT_RAIN_SKIP_LOOKAHEAD_DAYS };
 
 const NO_RESTRICTIONS: ScheduleRestrictions = { allowedDays: null, allowedTimeWindows: null };
 
@@ -21,53 +29,6 @@ export type ScheduleOverrides = {
 };
 
 const NO_OVERRIDES: ScheduleOverrides = {};
-
-/**
- * Default forecast horizon (in days, starting tomorrow) the planner looks
- * ahead for rain before committing a night's irrigation. When the effective
- * rainfall forecast over this window would by itself bring depletion back
- * below the trigger, the night is skipped and depletion carries forward — the
- * standard smart-controller "rain delay". Conservative by design: the daemon
- * re-plans every evening, so a skip is reconsidered the next day if the rain
- * fails to materialise.
- *
- * Overridable per planning run via `planZoneSchedule`'s `rainSkipLookaheadDays`
- * argument, which the daemon sources from the `RAIN_SKIP_LOOKAHEAD_DAYS`
- * environment variable. A value of 0 disables the rain-skip entirely. Pairs
- * with the precipitation-source accuracy work tracked separately. API-85.
- */
-export const DEFAULT_RAIN_SKIP_LOOKAHEAD_DAYS = 3;
-
-/**
- * Converts gross daily rainfall into the depth that actually counts against
- * soil depletion: rain under 2 mm is treated as zero (intercepted / evaporated
- * before it infiltrates), and the rest is discounted to 80% to approximate
- * runoff and canopy interception. Used both for the day-by-day soil balance
- * and the forward-looking rain-skip lookahead so the credit math is identical.
- */
-function effectiveRainfall(rainfallMm: number): number {
-    return rainfallMm < 2 ? 0 : 0.8 * rainfallMm;
-}
-
-/**
- * Sums the effective forecast rainfall over the `lookaheadDays` days that
- * follow `dayIndex` (the window starts at the *next* day — `dayIndex`'s own
- * rain is already folded into the running depletion before this is consulted).
- * The window is clamped to the end of `weatherHistory`, so a short forecast
- * tail simply contributes fewer days. Drives the planner's rain-skip decision.
- */
-function forecastEffectiveRainfall(
-    weatherHistory: DailyWeather[],
-    dayIndex: number,
-    lookaheadDays: number,
-): number {
-    let total = 0;
-    const lastIndex = Math.min(dayIndex + lookaheadDays, weatherHistory.length - 1);
-    for (let i = dayIndex + 1; i <= lastIndex; i++) {
-        total += effectiveRainfall(weatherHistory[i]!.rainfallMm ?? 0);
-    }
-    return total;
-}
 
 /**
  * A time interval the planner must avoid placing cycles inside. Used by the
@@ -298,29 +259,6 @@ export function planZoneSchedule(
     }
 
     return { entries: irrigationSchedule, projectedNextDepletionMm, decision: day0Decision };
-}
-
-/**
- * Builds a `SchedulingDecision`, rounding the depletion/threshold values to one
- * decimal for clean persisted output (matching the entry's `appliedDepthMm` /
- * `depletionBeforeMm` precision). API-88.
- */
-function buildDecision(
-    date: dayjs.Dayjs,
-    outcome: SchedulingOutcome,
-    reason: SchedulingDecisionReason,
-    depletionBeforeMm: number,
-    depletionAfterMm: number,
-    triggerThresholdMm: number,
-): SchedulingDecision {
-    return {
-        date,
-        outcome,
-        reason,
-        depletionBeforeMm: roundTo1Decimal(depletionBeforeMm),
-        depletionAfterMm: roundTo1Decimal(depletionAfterMm),
-        triggerThresholdMm: roundTo1Decimal(triggerThresholdMm),
-    };
 }
 
 type PlaceIrrigationInputs = {
@@ -638,39 +576,3 @@ function placeCyclesBackwardAvoidingBusy(
     return cyclesInReverse.reverse();
 }
 
-/**
- * Estimate soak time (minutes) based on infiltration rate.
- * Lower infiltration rates require longer soak times.
- *
- * @param infiltrationRateMmHr - Infiltration rate in mm/hr.
- * @returns Recommended soak time in minutes.
- */
-function estimateSoakMinutes(infiltrationRateMmHr: number): number {
-    if (infiltrationRateMmHr >= 20) return 15;
-    if (infiltrationRateMmHr >= 12) return 25;
-    if (infiltrationRateMmHr >= 8) return 35;
-    if (infiltrationRateMmHr >= 5) return 45;
-    return 60;
-}
-
-/**
- * Clamp a value between minimum and maximum bounds.
- *
- * @param value - The value to clamp.
- * @param min - Minimum allowed value.
- * @param max - Maximum allowed value.
- * @returns Clamped value.
- */
-function clampValue(value: number, min: number, max: number): number {
-    return Math.max(min, Math.min(max, value));
-}
-
-/**
- * Round a number to one decimal place.
- *
- * @param value - The number to round.
- * @returns Rounded value with one decimal place.
- */
-function roundTo1Decimal(value: number): number {
-    return Math.round(value * 10) / 10;
-}
