@@ -8,7 +8,7 @@
     "dev": "bun --watch index.ts",
     "test": "bun test",
     "type-check": "tsc --noEmit",
-    "seed": "bun scripts/seed.ts",
+    "seed": "bun scripts/seed/index.ts",
     "enable-schedule": "bun scripts/enable-schedule.ts",
     "disable-schedule": "bun scripts/disable-schedule.ts",
     "next-runs": "bun scripts/next-runs.ts",
