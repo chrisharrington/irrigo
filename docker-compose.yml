@@ -77,6 +77,13 @@ services:
         depends_on:
             db:
                 condition: service_healthy
+        environment:
+            # Forgejo personal access token, consumed by `tea login add` so the
+            # CLI can create PRs against the SSH `origin` remote (git.chris
+            # harrington.me). The login credential persists in the tea-config
+            # volume below, so this only needs to be present for the one-time
+            # `tea login add`.
+            FORGEJO_TOKEN: ${FORGEJO_TOKEN}
         volumes:
             # Whole repo bind-mounted so the editor sees api/, app/, shared/.
             - .:/app
@@ -122,9 +129,13 @@ services:
             # Claude Code. Per-stack volume — auto-namespaced by Compose so
             # each worktree gets its own isolated VS Code Server state.
             - vscode-server:/home/${DEV_USER}/.vscode-server
+            # Forgejo `tea` CLI credential (written by `tea login add`).
+            # Per-stack volume so the one-time login survives `compose up -d`
+            # recreation without re-entering the token each time.
+            - tea-config:/home/${DEV_USER}/.config/tea
         networks:
             # backend → reach the `db` container.
-            # frontend → outbound internet for bun install, gh, etc.
+            # frontend → outbound internet for bun install, gh, tea, etc.
             - backend
             - frontend
 
@@ -185,6 +196,8 @@ volumes:
     # Persists across container recreates so VS Code doesn't re-install
     # extensions every time the dev container is rebuilt.
     vscode-server:
+    # Per-stack: Forgejo `tea` CLI login credential (~/.config/tea).
+    tea-config:
     # Shared across all worktrees: Android toolchain cache + ADB pairing
     # state. Re-fetching the AGP/Kotlin/RN toolchain from Maven or re-pairing
     # the phone on every fresh stack is ~10 min of pain, so these volumes are

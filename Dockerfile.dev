@@ -34,6 +34,18 @@ RUN curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg \
     && apt-get install -y --no-install-recommends gh \
     && rm -rf /var/lib/apt/lists/*
 
+# tea — the Gitea/Forgejo CLI for the SSH `origin` remote (Forgejo at
+# git.chrisharrington.me). Used for `tea pr create` against the Forgejo origin
+# (the GitHub `gh` above stays for the legacy github remote). Distributed as a
+# single static binary (Forgejo's API is Gitea-compatible, so the Gitea build
+# works). Auth comes from `tea login add --token $FORGEJO_TOKEN`; the resulting
+# config in ~/.config/tea is persisted by a named-volume mount in compose.
+# dpkg's arch name (amd64/arm64) matches the binary's suffix directly.
+ARG TEA_VERSION=0.14.1
+RUN curl -fsSL "https://dl.gitea.com/tea/${TEA_VERSION}/tea-${TEA_VERSION}-linux-$(dpkg --print-architecture)" \
+        -o /usr/local/bin/tea \
+    && chmod +x /usr/local/bin/tea
+
 # uv / uvx — Astral's Python package + tool runner. Required by MCP servers
 # that ship as Python packages and are launched via `uvx <pkg>` (e.g. Plane).
 # Installed system-wide to /usr/local/bin so it's on PATH for every user.
@@ -98,10 +110,12 @@ RUN (getent group $DEV_GID > /dev/null 2>&1 || groupadd --gid $DEV_GID $DEV_USER
 # contents, which copies ownership too. Without this, volumes come up root-
 # owned. ~/.vscode-server is the VS Code server install; ~/.gradle is the
 # Gradle user home (build cache, wrapper, daemon state); ~/.android is the
-# ADB key + auth state.
+# ADB key + auth state; ~/.config/tea holds the Forgejo `tea login` credential
+# so it survives container recreation (mounted as a per-stack volume).
 RUN install -d -o $DEV_UID -g $DEV_GID /home/${DEV_USER}/.vscode-server \
     && install -d -o $DEV_UID -g $DEV_GID /home/${DEV_USER}/.gradle \
-    && install -d -o $DEV_UID -g $DEV_GID /home/${DEV_USER}/.android
+    && install -d -o $DEV_UID -g $DEV_GID /home/${DEV_USER}/.android \
+    && install -d -o $DEV_UID -g $DEV_GID /home/${DEV_USER}/.config/tea
 
 # Pre-create install targets with DEV_USER ownership so `bun install` (run as
 # DEV_USER below) can create node_modules in them. WORKDIR creates dirs as
